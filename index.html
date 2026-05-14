@@ -145,7 +145,6 @@
     <div class="modal" id="itemModal">
         <div class="modal-content">
             <div class="modal-close" onclick="closeModal()">×</div>
-            <div class="modal-image" id="modalImage"></div>
             <div class="modal-body">
                 <h2 class="modal-title" id="modalTitle"></h2>
                 <div class="modal-price" id="modalPrice"></div>
@@ -242,7 +241,6 @@
         }
 
         function generateMenuItem(item, category, categoryIndex, itemIndex) {
-            const hasImage = item && item.image;
             const hasOrigins = item.origins && item.origins.length > 0;
             const originsHTML = hasOrigins
                 ? item.origins.map(origin => `
@@ -254,9 +252,7 @@
 
             return `
                 <div class="menu-item" data-category="${categoryIndex}" data-item="${itemIndex}">
-                    <div class="item-image">
-                        ${hasImage ? `<img src="${item.image}" alt="${item.name}" onerror="this.style.display='none';this.parentElement.textContent='${category.icon}'">` : `${category.icon}`}
-                    </div>
+                    <div class="item-icon">${category.icon}</div>
                     <div class="item-info">
                         <div class="item-header">
                             <div class="item-name">${item.name} ${badgeHTML}</div>
@@ -1208,15 +1204,6 @@
             document.getElementById('modalTitle').textContent = itemData.name;
             document.getElementById('modalPrice').textContent = `${itemData.price} ج.م`;
             document.getElementById('modalDescription').textContent = itemData.description || '';
-
-            const imageContainer = document.getElementById('modalImage');
-            if (itemData.image) {
-                imageContainer.innerHTML = `<img src="${itemData.image}" alt="${itemData.name}">`;
-            } else {
-                const category = appMenuData.find(entry => entry.items.includes(itemData));
-                imageContainer.textContent = category ? category.icon : '☕';
-            }
-
             modal.classList.add('active');
         }
 
