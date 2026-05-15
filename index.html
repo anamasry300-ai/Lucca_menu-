@@ -43,18 +43,19 @@
         </div>
 
         <div class="order-panel">
-            <div class="order-top">
-                <div class="order-table">
-                    <label for="tableSelect">رقم الطاولة:</label>
-                    <select id="tableSelect">
-                        <option value="">اختر الطاولة</option>
-                    </select>
-                    <select id="paymentMethod">
-                        <option value="cash">كاش</option>
-                        <option value="visa">فيزا</option>
-                    </select>
-                    <button class="free-table-btn" id="freeTableBtn" title="تحرير الطاولة">تحرير طاولة</button>
-                </div>
+                <div class="order-top">
+                    <div class="order-table" style="flex-wrap:wrap;">
+                        <label for="tableSelect">طاولة:</label>
+                        <select id="tableSelect">
+                            <option value="">اختر</option>
+                        </select>
+                        <select id="paymentMethod">
+                            <option value="cash">كاش</option>
+                            <option value="visa">فيزا</option>
+                        </select>
+                        <button class="free-table-btn" id="freeTableBtn" title="تحرير الطاولة">تحرير</button>
+                        <button class="report-btn" id="dailyReportBtn" title="التقرير اليومي">📊 تقرير</button>
+                    </div>
                 <div class="order-count-badge" id="orderCountBadge">0 صنف</div>
                 <button class="clear-order-btn" id="clearOrderBtn">تفريغ</button>
             </div>
@@ -77,6 +78,10 @@
                     <label class="field-group">
                         <span>رقم الموبايل</span>
                         <input type="tel" id="customerPhoneInput" placeholder="01xxxxxxxxx">
+                    </label>
+                    <label class="field-group">
+                        <span>&nbsp;</span>
+                        <button type="button" id="saveCustomerBtn" style="padding:8px;border:1px solid var(--olive-light);border-radius:8px;background:var(--cream);cursor:pointer;font-family:'Tajawal',sans-serif;font-size:0.85rem;">💾 حفظ العميل</button>
                     </label>
                     <label class="field-group">
                         <span>🏷️ الخصم %</span>
@@ -195,6 +200,15 @@
             <div class="invoice-actions" style="display:flex;gap:10px;margin-top:20px;padding-top:15px;border-top:2px dashed #C85A3E;">
                 <button class="btn-print" style="flex:1;padding:12px;background:var(--terracotta);color:white;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">🧾 تأكيد وطباعة</button>
                 <button class="btn-close-invoice" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">إغلاق</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="invoice-modal" id="dailyReportModal">
+        <div class="invoice-content">
+            <div id="dailyReportContent"></div>
+            <div class="invoice-actions" style="display:flex;gap:10px;margin-top:20px;padding-top:15px;border-top:2px dashed #C85A3E;">
+                <button class="btn-close-invoice" onclick="document.getElementById('dailyReportModal').classList.remove('show')" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">إغلاق</button>
             </div>
         </div>
     </div>
@@ -322,15 +336,21 @@
             document.getElementById('exportPdfBtn').addEventListener('click', exportInvoiceAsPDF);
             document.getElementById('exportDataBtn').addEventListener('click', exportOrderData);
             document.getElementById('freeTableBtn').addEventListener('click', freeSelectedTable);
+            document.getElementById('dailyReportBtn').addEventListener('click', showDailyReport);
+            document.getElementById('saveCustomerBtn').addEventListener('click', saveCustomerManually);
+            document.getElementById('customerPhoneInput').addEventListener('blur', function() {
+                if (this.value.trim()) saveCustomerManually();
+            });
             document.getElementById('tableSelect').addEventListener('change', function() {
                 const title = document.querySelector('.order-summary h3');
                 title.textContent = this.value ? `طلب طاولة ${this.value}` : 'طلبك';
+                if (this.value) loadTableOrder(parseInt(this.value));
             });
         }
 
         async function loadTables() {
             const select = document.getElementById('tableSelect');
-            select.innerHTML = '<option value="">اختر الطاولة</option>';
+            select.innerHTML = '<option value="">اختر</option>';
 
             if (window.LuccaDB && window.LuccaDB.Tables) {
                 try {
@@ -338,11 +358,8 @@
                     tables.forEach(table => {
                         const option = document.createElement('option');
                         option.value = table.number;
-                        const statusIcon = table.status === 'occupied' ? '🔴 مشغول' : '🟢 متاح';
-                        option.textContent = `طاولة ${table.number} - ${statusIcon}`;
-                        if (table.status === 'occupied') {
-                            option.disabled = true;
-                        }
+                        const statusIcon = table.status === 'occupied' ? '🔴' : '🟢';
+                        option.textContent = `طاولة ${table.number} ${statusIcon}`;
                         select.appendChild(option);
                     });
                 } catch (e) {
@@ -374,6 +391,7 @@
                 try {
                     await window.LuccaDB.Tables.update(parseInt(tableNum), { status: 'available', currentOrder: null });
                     setOrderStatus(`طاولة ${tableNum} أصبحت متاحة ✓`, 'success');
+                    clearOrder();
                     await loadTables();
                 } catch (e) {
                     setOrderStatus('حدث خطأ أثناء تحرير الطاولة', 'error');
@@ -381,6 +399,105 @@
             } else {
                 setOrderStatus('قاعدة البيانات غير متصلة', 'error');
             }
+        }
+
+        async function loadTableOrder(tableNum) {
+            if (!window.LuccaDB) return;
+            try {
+                const orders = await LuccaDB.Orders.getAll();
+                const active = orders.find(o => o.tableId === tableNum && o.status === 'pending');
+                if (active) {
+                    currentOrderId = active.id;
+                    currentOrder.length = 0;
+                    active.items.forEach(item => {
+                        const entry = appMenuData.findIndex(cat => cat.title === item.category);
+                        if (entry >= 0) {
+                            const itemIdx = appMenuData[entry].items.findIndex(i => i.name === item.name.replace(/ - .*$/, ''));
+                            if (itemIdx >= 0) {
+                                currentOrder.push({
+                                    categoryIndex: entry,
+                                    itemIndex: itemIdx,
+                                    quantity: item.quantity,
+                                    selectedOrigin: item.selectedOrigin || ''
+                                });
+                            }
+                        }
+                    });
+                    renderOrderSummary();
+                    const hint = document.getElementById('orderSummary').querySelector('.order-hint');
+                    if (hint) hint.textContent = `🔄 طاولة ${tableNum} عليها طلب - أضف أصناف جديدة`;
+                    document.getElementById('requestCheckBtn').textContent = '➕ إضافة للطلب';
+                    document.getElementById('tableSelect').value = tableNum;
+                    document.querySelector('.order-summary h3').textContent = `طلب طاولة ${tableNum}`;
+                } else {
+                    currentOrderId = null;
+                    currentOrder.length = 0;
+                    renderOrderSummary();
+                    document.getElementById('requestCheckBtn').textContent = '📝 تسجيل الطلب';
+                }
+            } catch(e) { console.log('loadTableOrder:', e.message); }
+        }
+
+        async function saveCustomerManually() {
+            const phone = document.getElementById('customerPhoneInput').value.trim();
+            const name = document.getElementById('customerNameInput').value.trim();
+            if (!phone) { setOrderStatus('اكتب رقم الموبايل أولاً', 'error'); return; }
+            if (window.LuccaDB && window.LuccaDB.Customers) {
+                try {
+                    await LuccaDB.Customers.add(phone, name || 'عميل', { marketingOptIn: document.getElementById('offersOptIn').checked });
+                    setOrderStatus('✅ تم حفظ العميل', 'success');
+                    await loadCustomerSelect();
+                } catch(e) { setOrderStatus('فشل حفظ العميل', 'error'); }
+            }
+        }
+
+        async function showDailyReport() {
+            if (!window.LuccaDB) { setOrderStatus('قاعدة البيانات غير متصلة', 'error'); return; }
+            try {
+                const orders = await LuccaDB.Orders.getAll();
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                const todayOrders = orders.filter(o => {
+                    const d = new Date(o.date || o.createdAt);
+                    return d >= today;
+                });
+                let total = 0, itemsCount = 0;
+                todayOrders.forEach(o => {
+                    total += o.total || 0;
+                    (o.items || []).forEach(i => itemsCount += i.quantity || 0);
+                });
+                const reportHTML = `
+                    <div style="text-align:center;margin-bottom:16px;">
+                        <h3 style="color:var(--terracotta);font-family:'Playfair Display',serif;">📊 التقرير اليومي</h3>
+                        <p style="color:var(--olive);font-size:0.9rem;">${new Date().toLocaleDateString('ar-EG', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</p>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
+                        <div style="background:var(--cream);padding:14px;border-radius:10px;text-align:center;">
+                            <div style="font-size:1.6rem;font-weight:900;color:var(--terracotta);">${todayOrders.length}</div>
+                            <div style="font-size:0.8rem;color:var(--olive);">أوردرات</div>
+                        </div>
+                        <div style="background:var(--cream);padding:14px;border-radius:10px;text-align:center;">
+                            <div style="font-size:1.6rem;font-weight:900;color:var(--terracotta);">${itemsCount}</div>
+                            <div style="font-size:0.8rem;color:var(--olive);">أصناف</div>
+                        </div>
+                        <div style="background:var(--cream);padding:14px;border-radius:10px;text-align:center;">
+                            <div style="font-size:1.6rem;font-weight:900;color:var(--terracotta);">${total.toFixed(0)}</div>
+                            <div style="font-size:0.8rem;color:var(--olive);">ج.م</div>
+                        </div>
+                    </div>
+                    <div style="max-height:250px;overflow-y:auto;">
+                        ${todayOrders.map(o => `
+                            <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--cream);font-size:0.85rem;">
+                                <span>طاولة ${o.tableId || '-'} ${o.customerName ? '- ' + o.customerName : ''} <span style="color:${o.status === 'completed' ? 'var(--terracotta)' : '#e67e22'};font-size:0.75rem;">${o.status === 'completed' ? '✓' : '⏳'}</span></span>
+                                <span style="font-weight:700;color:var(--terracotta);">${(o.total || 0).toFixed(0)} ج.م</span>
+                            </div>
+                        `).join('') || '<div style="text-align:center;color:var(--olive);padding:20px;">لا توجد أوردرات اليوم</div>'}
+                    </div>
+                `;
+                const modal = document.getElementById('dailyReportModal');
+                document.getElementById('dailyReportContent').innerHTML = reportHTML;
+                modal.classList.add('show');
+            } catch(e) { setOrderStatus('فشل تحميل التقرير', 'error'); console.log(e); }
         }
 
         function getSelectedOrigin(categoryIndex, itemIndex) {
@@ -432,6 +549,10 @@
 
         function clearOrder() {
             currentOrder.length = 0;
+            currentOrderId = null;
+            document.getElementById('requestCheckBtn').textContent = '📝 تسجيل الطلب';
+            const hint = document.getElementById('orderSummary').querySelector('.order-hint');
+            if (hint) hint.textContent = 'اختر الطاولة وأضف الأصناف من المنيو ثم سجل الطلب';
             renderOrderSummary();
         }
 
@@ -729,8 +850,8 @@
             `;
         }
 
-        async function exportInvoiceAsImage() {
-            const items = buildOrderPayload();
+        async function exportInvoiceAsImage(autoDownload) {
+            const items = autoDownload ? (window._lastSubmittedItems || buildOrderPayload()) : buildOrderPayload();
             if (items.length === 0) {
                 setOrderStatus('أضف أصنافاً أولاً.', 'error');
                 return;
@@ -1037,6 +1158,9 @@
                 setIntegrationBadge('متصل✓', true);
                 setOrderStatus(`✅ تم تسجيل الطلب - الطاولة ${tableNum}`, 'success');
                 
+                // Save items for auto-download
+                window._lastSubmittedItems = items;
+                
                 // Don't clear - let captain keep adding
                 // But clear the item selection
                 currentOrder.length = 0;
@@ -1047,7 +1171,11 @@
                     `🔄 طلب موجود (فاتورة #${currentOrderId}) - أضف أصناف جديدة`;
                 
                 await loadTables();
+                document.getElementById('tableSelect').value = tableNum;
                 await loadCustomerSelect();
+
+                // Auto-download invoice image
+                setTimeout(() => exportInvoiceAsImage(true), 500);
 
                 // Send WhatsApp if requested
                 if (formData.invoiceDelivery === 'whatsapp' && formData.customerPhone) {
@@ -1064,7 +1192,6 @@
         function requestBill() {
             const tableNum = document.getElementById('tableSelect').value;
             if (!tableNum) { setOrderStatus('اختر الطاولة أولاً', 'error'); return; }
-            if (currentOrder.length === 0) { setOrderStatus('لا يوجد أصناف في الطلب', 'error'); return; }
             if (!currentOrderId) {
                 setOrderStatus('سجل الطلب أولاً ثم اطلب الحساب', 'error');
                 return;
