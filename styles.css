@@ -245,6 +245,86 @@ body {
     font-size: 0.85rem;
 }
 
+/* ===== Tables Grid ===== */
+.tables-grid {
+    margin: 12px 0;
+}
+
+.grid-title {
+    font-size: 0.85rem;
+    color: var(--olive);
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.grid-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+    gap: 8px;
+}
+
+.table-card {
+    border-radius: 10px;
+    padding: 10px 6px;
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    font-family: 'Tajawal', sans-serif;
+    user-select: none;
+    border: 2px solid transparent;
+}
+
+.table-card:active {
+    transform: scale(0.95);
+}
+
+.table-card.available {
+    background: #e8f5e9;
+    border-color: #a5d6a7;
+    color: #2e7d32;
+}
+
+.table-card.occupied {
+    background: #ffebee;
+    border-color: #ef9a9a;
+    color: #c62828;
+}
+
+.table-card.open-bill {
+    background: #fff3e0;
+    border-color: #ffcc80;
+    color: #e65100;
+}
+
+.table-card.selected {
+    border-color: var(--terracotta);
+    box-shadow: 0 0 0 2px var(--terracotta);
+    transform: translateY(-2px);
+}
+
+.table-card .card-num {
+    font-size: 1.1rem;
+    font-weight: 900;
+}
+
+.table-card .card-status {
+    font-size: 0.6rem;
+    margin-top: 2px;
+    opacity: 0.8;
+}
+
+.delete-btn {
+    background: #e74c3c !important;
+    color: white !important;
+    font-size: 0.7rem !important;
+    width: 22px !important;
+    height: 22px !important;
+    line-height: 22px !important;
+    border-radius: 50% !important;
+    padding: 0 !important;
+    margin-right: 4px;
+}
+
 .order-count-badge {
     background: var(--olive);
     color: white;

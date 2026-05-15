@@ -45,10 +45,6 @@
         <div class="order-panel">
                 <div class="order-top">
                     <div class="order-table" style="flex-wrap:wrap;">
-                        <label for="tableSelect">طاولة:</label>
-                        <select id="tableSelect">
-                            <option value="">اختر</option>
-                        </select>
                         <select id="paymentMethod">
                             <option value="cash">كاش</option>
                             <option value="visa">فيزا</option>
@@ -58,6 +54,13 @@
                     </div>
                 <div class="order-count-badge" id="orderCountBadge">0 صنف</div>
                 <button class="clear-order-btn" id="clearOrderBtn">تفريغ</button>
+            </div>
+
+            <select id="tableSelect" style="display:none;"><option value="">اختر</option></select>
+
+            <div class="tables-grid" id="tablesGrid">
+                <div class="grid-title">الطاولات</div>
+                <div class="grid-cards" id="gridCards"></div>
             </div>
 
             <div class="customer-panel">
@@ -368,6 +371,8 @@
         async function loadTables() {
             const select = document.getElementById('tableSelect');
             select.innerHTML = '<option value="">اختر</option>';
+            const grid = document.getElementById('gridCards');
+            grid.innerHTML = '';
 
             if (window.LuccaDB && window.LuccaDB.Tables) {
                 try {
@@ -378,6 +383,17 @@
                         const statusIcon = table.status === 'occupied' ? '🔴' : '🟢';
                         option.textContent = `طاولة ${table.number} ${statusIcon}`;
                         select.appendChild(option);
+
+                        const card = document.createElement('div');
+                        card.className = `table-card ${table.status}`;
+                        card.dataset.table = table.number;
+                        if (parseInt(select.value) === table.number) card.classList.add('selected');
+                        card.innerHTML = `
+                            <div class="card-num">${table.number}</div>
+                            <div class="card-status">${table.status === 'available' ? 'فارغة' : table.status === 'occupied' ? 'مشغولة' : 'مفتوحة'}</div>
+                        `;
+                        card.addEventListener('click', () => selectTable(table.number));
+                        grid.appendChild(card);
                     });
                 } catch (e) {
                     fallbackTables(select);
@@ -388,12 +404,29 @@
             loadCustomerSelect();
         }
 
+        function selectTable(tableNum) {
+            document.querySelectorAll('.table-card').forEach(c => c.classList.remove('selected'));
+            const card = document.querySelector(`.table-card[data-table="${tableNum}"]`);
+            if (card) card.classList.add('selected');
+            const select = document.getElementById('tableSelect');
+            select.value = tableNum;
+            const event = new Event('change');
+            select.dispatchEvent(event);
+        }
+
         function fallbackTables(select) {
             for (let i = 1; i <= 14; i++) {
                 const option = document.createElement('option');
                 option.value = i;
                 option.textContent = `طاولة ${i}`;
                 select.appendChild(option);
+
+                const card = document.createElement('div');
+                card.className = 'table-card available';
+                card.dataset.table = i;
+                card.innerHTML = `<div class="card-num">${i}</div><div class="card-status">فارغة</div>`;
+                card.addEventListener('click', () => selectTable(i));
+                document.getElementById('gridCards').appendChild(card);
             }
         }
 
@@ -647,6 +680,7 @@
                                     <button type="button" class="qty-btn" data-action="decrease" data-category="${entry.categoryIndex}" data-item="${entry.itemIndex}" data-origin="${entry.selectedOrigin || ''}">−</button>
                                     <span>${entry.quantity}</span>
                                     <button type="button" class="qty-btn" data-action="increase" data-category="${entry.categoryIndex}" data-item="${entry.itemIndex}" data-origin="${entry.selectedOrigin || ''}">+</button>
+                                    <button type="button" class="qty-btn delete-btn" data-action="delete" data-category="${entry.categoryIndex}" data-item="${entry.itemIndex}" data-origin="${entry.selectedOrigin || ''}">✕</button>
                                 </div>
                             </div>
                             <div class="order-item-price">${itemTotal} ج.م</div>
@@ -668,10 +702,27 @@
                     const categoryIndex = parseInt(this.dataset.category, 10);
                     const itemIndex = parseInt(this.dataset.item, 10);
                     const selectedOrigin = this.dataset.origin || '';
-                    const delta = this.dataset.action === 'increase' ? 1 : -1;
-                    changeOrderQuantity(categoryIndex, itemIndex, selectedOrigin, delta);
+                    const action = this.dataset.action;
+                    if (action === 'delete') {
+                        removeOrderItem(categoryIndex, itemIndex, selectedOrigin);
+                    } else {
+                        const delta = action === 'increase' ? 1 : -1;
+                        changeOrderQuantity(categoryIndex, itemIndex, selectedOrigin, delta);
+                    }
                 });
             });
+        }
+
+        function removeOrderItem(categoryIndex, itemIndex, selectedOrigin) {
+            const idx = currentOrder.findIndex(e =>
+                e.categoryIndex === categoryIndex &&
+                e.itemIndex === itemIndex &&
+                e.selectedOrigin === (selectedOrigin || '')
+            );
+            if (idx >= 0) {
+                currentOrder.splice(idx, 1);
+                renderOrderSummary();
+            }
         }
 
         function setIntegrationBadge(message, connected) {
