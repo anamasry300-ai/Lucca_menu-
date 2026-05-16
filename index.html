@@ -361,18 +361,22 @@
             document.getElementById('customerPhoneInput').addEventListener('blur', function() {
                 if (this.value.trim()) saveCustomerManually();
             });
-            document.getElementById('tableSelect').addEventListener('change', function() {
-                const title = document.querySelector('.order-summary h3');
-                title.textContent = this.value ? `طلب طاولة ${this.value}` : 'طلبك';
-                if (this.value) loadTableOrder(parseInt(this.value));
-            });
         }
 
         async function loadTables() {
             const select = document.getElementById('tableSelect');
-            select.innerHTML = '<option value="">اختر</option>';
+            select.innerHTML = '<option value="">اختر</option><option value="takeaway">🛵 تيك أواي</option>';
             const grid = document.getElementById('gridCards');
             grid.innerHTML = '';
+
+            // Takeaway card
+            const takCard = document.createElement('div');
+            takCard.className = 'table-card takeaway';
+            takCard.dataset.table = 'takeaway';
+            if (select.value === 'takeaway') takCard.classList.add('selected');
+            takCard.innerHTML = `<div class="card-num" style="font-size:1.4rem;">🛵</div><div class="card-status">تيك أواي</div>`;
+            takCard.addEventListener('click', () => selectTable('takeaway'));
+            grid.appendChild(takCard);
 
             if (window.LuccaDB && window.LuccaDB.Tables) {
                 try {
@@ -387,10 +391,10 @@
                         const card = document.createElement('div');
                         card.className = `table-card ${table.status}`;
                         card.dataset.table = table.number;
-                        if (parseInt(select.value) === table.number) card.classList.add('selected');
+                        if (select.value == table.number) card.classList.add('selected');
                         card.innerHTML = `
                             <div class="card-num">${table.number}</div>
-                            <div class="card-status">${table.status === 'available' ? 'فارغة' : table.status === 'occupied' ? 'مشغولة' : 'مفتوحة'}</div>
+                            <div class="card-status">${table.status === 'available' ? 'فارغة' : 'مشغولة'}</div>
                         `;
                         card.addEventListener('click', () => selectTable(table.number));
                         grid.appendChild(card);
@@ -434,6 +438,10 @@
             const tableNum = document.getElementById('tableSelect').value;
             if (!tableNum) {
                 setOrderStatus('اختر طاولة أولاً لتحريرها', 'error');
+                return;
+            }
+            if (tableNum === 'takeaway') {
+                setOrderStatus('التيك أواي مش محتاج تحرير', 'neutral');
                 return;
             }
 
@@ -1125,8 +1133,10 @@
 
         async function onTableChange() {
             const tableNum = document.getElementById('tableSelect').value;
+            const title = document.querySelector('.order-summary h3');
+            if (!tableNum) { title.textContent = 'طلبك'; currentOrderId = null; currentOrder.length = 0; renderOrderSummary(); return; }
+            title.textContent = tableNum === 'takeaway' ? '🛵 تيك أواي' : `طاولة ${tableNum}`;
             currentOrderId = null;
-            if (!tableNum || !window.LuccaDB) return;
             
             try {
                 const orders = await LuccaDB.Orders.getAll();
@@ -1270,7 +1280,7 @@
                 } catch(e) { console.log('Server push:', e.message); }
 
                 setIntegrationBadge('متصل✓', true);
-                setOrderStatus(`✅ تم تسجيل الطلب - الطاولة ${tableNum}`, 'success');
+                setOrderStatus(tableNum === 'takeaway' ? '✅ تم تسجيل طلب التيك أواي' : `✅ تم تسجيل الطلب - الطاولة ${tableNum}`, 'success');
                 
                 // Save items for auto-download
                 window._lastSubmittedItems = items;
@@ -1293,7 +1303,8 @@
 
                 // Send WhatsApp if requested
                 if (formData.invoiceDelivery === 'whatsapp' && formData.customerPhone) {
-                    const msg = `☕ *Lucca Caffè*\n━━━━━━━━━━━━\n🪑 الطاولة: ${tableNum}\n📅 ${new Date().toLocaleDateString('ar-EG')}\n━━━━━━━━━━━━\n*الطلب:*\n${items.map(i => `• ${i.name} x${i.quantity} = ${i.price * i.quantity} ج.م`).join('\n')}\n━━━━━━━━━━━━\n💵 *الإجمالي: ${afterDiscount.toFixed(2)} ج.م*\n━━━━━━━━━━━━\nجارٍ تجهيز الطلب... 🙏`;
+                    const tableLabel = tableNum === 'takeaway' ? '🛵 تيك أواي' : `🪑 طاولة ${tableNum}`;
+                    const msg = `☕ *Lucca Caffè*\n━━━━━━━━━━━━\n${tableLabel}\n📅 ${new Date().toLocaleDateString('ar-EG')}\n━━━━━━━━━━━━\n*الطلب:*\n${items.map(i => `• ${i.name} x${i.quantity} = ${i.price * i.quantity} ج.م`).join('\n')}\n━━━━━━━━━━━━\n💵 *الإجمالي: ${afterDiscount.toFixed(2)} ج.م*\n━━━━━━━━━━━━\nجارٍ تجهيز الطلب... 🙏`;
                     const phone = normalizePhoneNumber(formData.customerPhone);
                     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
                 }
