@@ -296,6 +296,12 @@ body {
     color: #e65100;
 }
 
+.table-card.takeaway {
+    background: #e3f2fd;
+    border-color: #90caf9;
+    color: #1565c0;
+}
+
 .table-card.selected {
     border-color: var(--terracotta);
     box-shadow: 0 0 0 2px var(--terracotta);
