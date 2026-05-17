@@ -512,8 +512,13 @@
         async function showDailyReport() {
             if (!window.LuccaDB) { setOrderStatus('قاعدة البيانات غير متصلة', 'error'); return; }
             try {
-                const orders = await LuccaDB.Orders.getAll();
-                if (!orders || orders.length === 0) {
+                // Try server first with timeout, fallback to local
+                const orders = await Promise.race([
+                    LuccaDB.Orders.getAll(),
+                    new Promise(r => setTimeout(() => r(null), 3000))
+                ]);
+                const localOrders = orders || await LuccaDB.db.getAll('orders');
+                if (!localOrders || localOrders.length === 0) {
                     showReportModal([]);
                     return;
                 }
@@ -540,6 +545,12 @@
                 <div style="text-align:center;margin-bottom:16px;">
                     <h3 style="color:var(--terracotta);font-family:'Playfair Display',serif;">📊 التقرير اليومي</h3>
                     <p style="color:var(--olive);font-size:0.9rem;">${new Date().toLocaleDateString('ar-EG', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</p>
+                    <div style="display:flex;gap:8px;margin-top:8px;">
+                        <input type="date" id="reportDateFrom" style="flex:1;padding:6px;border:1px solid var(--olive-light);border-radius:6px;font-size:0.8rem;">
+                        <input type="date" id="reportDateTo" style="flex:1;padding:6px;border:1px solid var(--olive-light);border-radius:6px;font-size:0.8rem;">
+                        <button onclick="filterReportByDate()" style="padding:6px 10px;background:var(--olive);color:white;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem;">عرض</button>
+                        <button onclick="exportReportCSV()" style="padding:6px 10px;background:#27ae60;color:white;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem;">📥 Excel</button>
+                    </div>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
                     <div style="background:var(--cream);padding:14px;border-radius:10px;text-align:center;">
@@ -558,7 +569,7 @@
                 <div style="max-height:250px;overflow-y:auto;">
                     ${todayOrders.map(o => `
                         <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--cream);font-size:0.85rem;">
-                            <span>طاولة ${o.tableId || '-'} ${o.customerName ? '- ' + o.customerName : ''} <span style="color:${o.status === 'completed' ? 'var(--terracotta)' : '#e67e22'};font-size:0.75rem;">${o.status === 'completed' ? '✓' : '⏳'}</span></span>
+                            <span>${o.tableId === 'takeaway' || o.tableId == 0 ? '🛵 تيك أواي' : 'طاولة ' + (o.tableId || '-')} ${o.customerName ? '- ' + o.customerName : ''} <span style="color:${o.status === 'completed' ? 'var(--terracotta)' : '#e67e22'};font-size:0.75rem;">${o.status === 'completed' ? '✓' : '⏳'}</span></span>
                             <span style="font-weight:700;color:var(--terracotta);">${(o.total || 0).toFixed(0)} ج.م</span>
                         </div>
                     `).join('') || '<div style="text-align:center;color:var(--olive);padding:20px;">لا توجد أوردرات اليوم</div>'}
@@ -566,7 +577,55 @@
             `;
             const modal = document.getElementById('dailyReportModal');
             document.getElementById('dailyReportContent').innerHTML = reportHTML;
+            document.getElementById('reportDateFrom').valueAsDate = new Date();
+            document.getElementById('reportDateTo').valueAsDate = new Date();
+            window._reportOrders = todayOrders;
             modal.classList.add('show');
+        }
+
+        async function filterReportByDate() {
+            const from = document.getElementById('reportDateFrom').value;
+            const to = document.getElementById('reportDateTo').value;
+            if (!from || !to || !window.LuccaDB) return;
+            try {
+                const all = await Promise.race([
+                    LuccaDB.Orders.getAll(),
+                    new Promise(r => setTimeout(() => r(null), 3000))
+                ]);
+                const localAll = all || await LuccaDB.db.getAll('orders');
+                const filtered = (localAll || []).filter(o => {
+                    const d = (o.date || '').split('T')[0];
+                    return d >= from && d <= to;
+                });
+                showReportModal(filtered);
+            } catch(e) { setOrderStatus('فشل التصفية', 'error'); }
+        }
+
+        function exportReportCSV() {
+            const orders = window._reportOrders || [];
+            if (!orders.length) { setOrderStatus('لا توجد بيانات للتصدير', 'error'); return; }
+            const rows = [['فاتورة', 'طاولة', 'عميل', 'تليفون', 'الأصناف', 'الإجمالي', 'الحالة', 'التاريخ']];
+            orders.forEach(o => {
+                const items = (o.items || []).map(i => `${i.name} x${i.quantity}`).join(' | ');
+                const table = o.tableId === 'takeaway' || o.tableId == 0 ? 'تيك أواي' : o.tableId || '-';
+                rows.push([
+                    o.id || '',
+                    table,
+                    o.customerName || '',
+                    o.customerPhone || '',
+                    items,
+                    (o.total || 0).toFixed(2),
+                    o.status === 'completed' ? 'مكتمل' : 'قيد التجهيز',
+                    (o.date || '').split('T')[0]
+                ]);
+            });
+            const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+            const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `Lucca_Report_${new Date().toISOString().slice(0,10)}.csv`;
+            link.click();
+            setOrderStatus('✅ تم تحميل التقرير', 'success');
         }
 
         function showServerSettings() {
@@ -1306,7 +1365,12 @@
                     const tableLabel = tableNum === 'takeaway' ? '🛵 تيك أواي' : `🪑 طاولة ${tableNum}`;
                     const msg = `☕ *Lucca Caffè*\n━━━━━━━━━━━━\n${tableLabel}\n📅 ${new Date().toLocaleDateString('ar-EG')}\n━━━━━━━━━━━━\n*الطلب:*\n${items.map(i => `• ${i.name} x${i.quantity} = ${i.price * i.quantity} ج.م`).join('\n')}\n━━━━━━━━━━━━\n💵 *الإجمالي: ${afterDiscount.toFixed(2)} ج.م*\n━━━━━━━━━━━━\nجارٍ تجهيز الطلب... 🙏`;
                     const phone = normalizePhoneNumber(formData.customerPhone);
-                    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+                    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+                    const a = document.createElement('a');
+                    a.href = waUrl;
+                    a.target = '_blank';
+                    a.rel = 'noopener';
+                    a.click();
                 }
             } catch (e) {
                 setOrderStatus('❌ فشل حفظ الطلب: ' + e.message, 'error');
