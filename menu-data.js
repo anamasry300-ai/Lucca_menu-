@@ -153,7 +153,8 @@ const menuData = [
             { name: 'سان سيباستيان', price: 70, description: 'تشيز كيك فطري', badge: 'new' },
             { name: 'مولتن', price: 80, description: 'كيك الشوكولاتة الذائبة', badge: 'popular' },
             { name: 'براونيز', price: 80, description: 'براونيز شوكولاتة',  },
-            { name: 'كوكيز', price: 40, description: 'كوكيز طازج',  }
+            { name: 'كوكيز', price: 40, description: 'كوكيز طازج',  },
+            { name: 'أم علي', price: 90, description: 'أم علي تقليدية', badge: 'new' }
         ]
     },
     {

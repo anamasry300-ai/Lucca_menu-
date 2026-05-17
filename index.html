@@ -8,231 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=Tajawal:wght@300;400;500;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="admin/database.js"></script>
     <script src="menu-data.js"></script>
-    <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="logo">
-                <h1>LUCCA</h1>
-                <div class="subtitle">Caffe Italiano</div>
-                <div class="location">شارع محمد علي - بجوار كلية التربية - بورسعيد</div>
-            </div>
-        </div>
-
-        <div class="specialty-intro">
-            <h2>ما هي القهوة المختصه؟</h2>
-            <p>
-                في Lucca نهتم بأن تكون تجربة القهوة والطلبات كلها واضحة وسريعة. امسح الكود، اختر طلبك،
-                سجّل رقم الموبايل، وعند طلب الشيك يتم حفظ الطلب داخل النظام المحاسبي مع تجهيز الفاتورة
-                وإرسالها عبر واتساب عند اختيار ذلك.
-            </p>
-        </div>
-
-        <div class="quick-nav">
-            <div class="quick-nav-links" id="quickNavLinks"></div>
-            <div class="search-container">
-                <div class="search-box">
-                    <input type="text" id="searchInput" placeholder="ابحث في القائمة...">
-                </div>
-            </div>
-        </div>
-
-        <div class="order-panel">
-                <div class="order-top">
-                    <div class="order-table" style="flex-wrap:wrap;">
-                        <select id="paymentMethod">
-                            <option value="cash">كاش</option>
-                            <option value="visa">فيزا</option>
-                        </select>
-                        <button class="free-table-btn" id="freeTableBtn" title="تحرير الطاولة">تحرير</button>
-                        <button class="report-btn" id="dailyReportBtn" title="التقرير اليومي">📊 تقرير</button>
-                    </div>
-                <div class="order-count-badge" id="orderCountBadge">0 صنف</div>
-                <button class="clear-order-btn" id="clearOrderBtn">تفريغ</button>
-            </div>
-
-            <select id="tableSelect" style="display:none;"><option value="">اختر</option></select>
-
-            <div class="tables-grid" id="tablesGrid">
-                <div class="grid-title">الطاولات</div>
-                <div class="grid-cards" id="gridCards"></div>
-            </div>
-
-            <div class="customer-panel">
-                <div class="customer-grid">
-                    <label class="field-group field-group-wide">
-                        <span>👤 اختر العميل</span>
-                        <div style="display:flex;gap:8px;">
-                            <select id="customerSelect" onchange="onCustomerSelect()" style="flex:1;">
-                                <option value="">➕ عميل جديد</option>
-                            </select>
-                            <button type="button" onclick="loadCustomerSelect()" title="تحديث قائمة العملاء" style="padding:8px 12px;border:2px solid var(--olive-light);border-radius:8px;background:var(--warm-white);cursor:pointer;">🔄</button>
-                        </div>
-                    </label>
-                    <label class="field-group">
-                        <span>اسم العميل</span>
-                        <input type="text" id="customerNameInput" placeholder="اختياري">
-                    </label>
-                    <label class="field-group">
-                        <span>رقم الموبايل</span>
-                        <input type="tel" id="customerPhoneInput" placeholder="01xxxxxxxxx">
-                    </label>
-                    <label class="field-group">
-                        <span>&nbsp;</span>
-                        <button type="button" id="saveCustomerBtn" style="padding:8px;border:1px solid var(--olive-light);border-radius:8px;background:var(--cream);cursor:pointer;font-family:'Tajawal',sans-serif;font-size:0.85rem;">💾 حفظ العميل</button>
-                    </label>
-                    <label class="field-group">
-                        <span>🏷️ الخصم %</span>
-                        <input type="number" id="discountInput" placeholder="0" min="0" max="100" value="0">
-                    </label>
-                    <label class="field-group">
-                        <span>استلام الفاتورة</span>
-                        <select id="invoiceDeliverySelect">
-                            <option value="whatsapp">واتساب</option>
-                            <option value="cashier">من الكاشير</option>
-                        </select>
-                    </label>
-                    <label class="field-group field-group-wide">
-                        <span>ملاحظات الطلب</span>
-                        <input type="text" id="customerNotesInput" placeholder="بدون سكر - حساب منفصل - طلب الشيك">
-                    </label>
-                </div>
-
-                <div class="customer-options">
-                    <label class="check-option">
-                        <input type="checkbox" id="offersOptIn" checked>
-                        <span>أوافق على استقبال العروض عبر واتساب</span>
-                    </label>
-                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                        <div class="integration-badge" id="integrationBadge">جاري تجهيز الربط مع النظام المحاسبي...</div>
-                        <button onclick="showServerSettings()" style="background:none;border:1px solid var(--olive-light);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.8rem;">⚙️</button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="order-summary" id="orderSummary">
-                <h3>طلبك</h3>
-                <p class="order-hint">اختر الطاولة وأضف الأصناف من المنيو ثم سجل الطلب</p>
-                <div id="orderItems" class="order-items"></div>
-                <div class="order-total">الإجمالي: <span id="orderTotal">0</span> ج.م</div>
-                <div class="order-actions">
-                    <button type="button" class="submit-order-btn" id="requestCheckBtn">📝 تسجيل الطلب</button>
-                    <button type="button" class="secondary-order-btn" id="requestBillBtn" style="background:var(--terracotta);color:white;" onclick="requestBill()">🧾 طلب الحساب</button>
-                    <button type="button" class="secondary-order-btn" id="copyInvoiceBtn">نسخ الملخص</button>
-                    <button type="button" class="secondary-order-btn" id="exportImageBtn">تصدير صورة</button>
-                    <button type="button" class="secondary-order-btn" id="exportPdfBtn">تصدير PDF</button>
-                    <button type="button" class="secondary-order-btn" id="exportDataBtn">تصدير JSON</button>
-                </div>
-                <div class="order-status" id="orderStatus">سيتم حفظ الطلب على النظام المحاسبي عند تسجيله.</div>
-            </div>
-        </div>
-
-        <div class="menu-content" id="menuContent"></div>
-
-        <div class="qr-section">
-            <h3>امسح QR للوصول للمنيو</h3>
-            <div class="qr-code-container">
-                <div id="qrcode"></div>
-            </div>
-        </div>
-
-        <div class="footer">
-            <p>Lucca Caffe Italiano</p>
-            <p>شارع محمد علي - بجوار كلية التربية - بورسعيد</p>
-            <p class="contact">للحجز والاستفسار: 01551007413</p>
-            <p style="margin-top: 15px; font-size: 0.9rem;">Buon Appetito!</p>
-        </div>
-    </div>
-
-    <div class="scroll-top" onclick="scrollToTop()">↑</div>
-
-    <div id="toast" class="toast"></div>
-
-    <div class="modal" id="itemModal">
-        <div class="modal-content">
-            <div class="modal-close" onclick="closeModal()">×</div>
-            <div class="modal-body">
-                <h2 class="modal-title" id="modalTitle"></h2>
-                <div class="modal-price" id="modalPrice"></div>
-                <div class="modal-description" id="modalDescription"></div>
-            </div>
-        </div>
-    </div>
-
-    <div id="invoiceExportContainer" style="display:none; position:fixed; left:-9999px; top:0; width:400px; padding:30px; background:white; font-family:'Tajawal',Arial,sans-serif; direction:rtl;">
-        <div style="text-align:center; border-bottom:2px dashed #C85A3E; padding-bottom:20px; margin-bottom:20px;">
-            <h1 style="color:#C85A3E; font-size:2rem; margin:0;">LUCCA</h1>
-            <p style="color:#697259; margin:5px 0;">Caffe Italiano</p>
-            <p style="color:#666; font-size:0.9rem; margin:5px 0;">شارع محمد علي - بجوار كلية التربية - بورسعيد</p>
-        </div>
-        <div id="invoiceExportContent"></div>
-        <div style="text-align:center; margin-top:20px; padding-top:15px; border-top:2px dashed #C85A3E;">
-            <p style="color:#C85A3E; font-weight:bold; margin:0;">Buon Appetito!</p>
-            <p style="color:#999; font-size:0.8rem; margin:5px 0;">للحجز والاستفسار: 01551007413</p>
-        </div>
-    </div>
-
-    <style>
-        .invoice-modal {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.8);
-            z-index: 2000;
-            align-items: center;
-            justify-content: center;
-        }
-        .invoice-modal.show { display: flex; }
-        .invoice-content {
-            background: white;
-            width: 90%;
-            max-width: 400px;
-            max-height: 90vh;
-            overflow-y: auto;
-            border-radius: 15px;
-            padding: 25px;
-            direction: rtl;
-        }
-    </style>
-
-    <div class="invoice-modal" id="invoiceModal">
-        <div class="invoice-content">
-            <div id="invoiceContent"></div>
-            <div class="invoice-actions" style="display:flex;gap:10px;margin-top:20px;padding-top:15px;border-top:2px dashed #C85A3E;">
-                <button class="btn-print" style="flex:1;padding:12px;background:var(--terracotta);color:white;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">🧾 تأكيد وطباعة</button>
-                <button class="btn-close-invoice" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">إغلاق</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="invoice-modal" id="dailyReportModal">
-        <div class="invoice-content">
-            <div id="dailyReportContent"></div>
-            <div class="invoice-actions" style="display:flex;gap:10px;margin-top:20px;padding-top:15px;border-top:2px dashed #C85A3E;">
-                <button class="btn-close-invoice" onclick="document.getElementById('dailyReportModal').classList.remove('show')" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">إغلاق</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="invoice-modal" id="serverSettingsModal">
-        <div class="invoice-content" style="max-width:350px;">
-            <h3 style="color:var(--terracotta);font-family:'Playfair Display',serif;margin-bottom:16px;">⚙️ إعدادات السيرفر</h3>
-            <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--olive);">رابط السيرفر:</label>
-            <input type="text" id="serverUrlInput" style="width:100%;padding:10px;border:2px solid var(--olive-light);border-radius:8px;font-size:0.9rem;margin-bottom:12px;" placeholder="http://192.168.1.100:3000">
-            <div style="display:flex;gap:10px;">
-                <button onclick="saveServerUrl()" style="flex:1;padding:12px;background:var(--terracotta);color:white;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">💾 حفظ</button>
-                <button onclick="testServerConnection()" style="flex:1;padding:12px;background:var(--olive);color:white;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">🔌 اختبار</button>
-            </div>
-            <div id="serverStatusMsg" style="margin-top:10px;font-size:0.85rem;text-align:center;"></div>
-            <button onclick="document.getElementById('serverSettingsModal').classList.remove('show')" style="width:100%;padding:10px;margin-top:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;">إغلاق</button>
-        </div>
-    </div>
-
     <script>
         let dbReady = false;
         const currentOrder = [];
@@ -1031,15 +807,24 @@
             `;
         }
 
+        async function ensureLib(name, url) {
+            if (typeof window[name] !== 'undefined') return;
+            return new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = url;
+                s.onload = resolve;
+                s.onerror = () => reject(new Error(`فشل تحميل ${name}`));
+                document.head.appendChild(s);
+            });
+        }
+
         async function exportInvoiceAsImage(autoDownload) {
+            try { await ensureLib('html2canvas', 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'); }
+            catch(e) { setOrderStatus('فشل تحميل مكتبة التصدير - تأكد من الإنترنت', 'error'); return; }
+
             const items = autoDownload ? (window._lastSubmittedItems || buildOrderPayload()) : buildOrderPayload();
             if (items.length === 0) {
                 setOrderStatus('أضف أصنافاً أولاً.', 'error');
-                return;
-            }
-
-            if (typeof html2canvas === 'undefined') {
-                setOrderStatus('مكتبة التصدير لم يتم تحميلها - تأكد من الاتصال بالإنترنت', 'error');
                 return;
             }
 
@@ -1063,7 +848,7 @@
 
             try {
                 const canvas = await html2canvas(exportContainer, {
-                    scale: 2,
+                    scale: 1.5,
                     backgroundColor: '#ffffff',
                     useCORS: true,
                     logging: false,
@@ -1090,6 +875,9 @@
         }
 
         async function exportInvoiceAsPDF() {
+            try { await ensureLib('jspdf', 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'); }
+            catch(e) { setOrderStatus('فشل تحميل مكتبة PDF', 'error'); return; }
+
             const items = buildOrderPayload();
             if (items.length === 0) {
                 setOrderStatus('أضف أصنافاً أولاً.', 'error');
@@ -1357,21 +1145,23 @@
                 document.getElementById('tableSelect').value = tableNum;
                 await loadCustomerSelect();
 
-                // Auto-download invoice image
-                setTimeout(() => exportInvoiceAsImage(true), 500);
-
-                // Send WhatsApp if requested
-                if (formData.invoiceDelivery === 'whatsapp' && formData.customerPhone) {
+                // Send WhatsApp if requested (faster - no library needed)
+                if ((formData.invoiceDelivery === 'whatsapp' || formData.invoiceDelivery === 'business') && formData.customerPhone) {
                     const tableLabel = tableNum === 'takeaway' ? '🛵 تيك أواي' : `🪑 طاولة ${tableNum}`;
                     const msg = `☕ *Lucca Caffè*\n━━━━━━━━━━━━\n${tableLabel}\n📅 ${new Date().toLocaleDateString('ar-EG')}\n━━━━━━━━━━━━\n*الطلب:*\n${items.map(i => `• ${i.name} x${i.quantity} = ${i.price * i.quantity} ج.م`).join('\n')}\n━━━━━━━━━━━━\n💵 *الإجمالي: ${afterDiscount.toFixed(2)} ج.م*\n━━━━━━━━━━━━\nجارٍ تجهيز الطلب... 🙏`;
                     const phone = normalizePhoneNumber(formData.customerPhone);
-                    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+                    const waUrl = formData.invoiceDelivery === 'business'
+                        ? `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`
+                        : `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
                     const a = document.createElement('a');
                     a.href = waUrl;
                     a.target = '_blank';
                     a.rel = 'noopener';
                     a.click();
                 }
+
+                // Auto-download invoice image (after WhatsApp, async)
+                setTimeout(() => exportInvoiceAsImage(true), 100);
             } catch (e) {
                 setOrderStatus('❌ فشل حفظ الطلب: ' + e.message, 'error');
                 console.error('Order error:', e);
