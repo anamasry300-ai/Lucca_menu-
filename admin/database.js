@@ -424,8 +424,10 @@ const Orders = {
         } else {
             id = await db.add('orders', order);
         }
-        
-        await Tables.update(tableId, { status: 'occupied', currentOrder: id });
+
+        if (tableId && !isNaN(tableId)) {
+            await Tables.update(parseInt(tableId), { status: 'occupied', currentOrder: id });
+        }
 
         if (customerPhone) {
             await Customers.add(customerPhone, customerName, {
