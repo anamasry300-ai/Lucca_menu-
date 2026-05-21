@@ -417,19 +417,15 @@
         }
 
         function fallbackTables(select) {
+            select.innerHTML = '<option value="">اختر</option><option value="takeaway">🛵 تيك أواي</option>';
             for (let i = 1; i <= 14; i++) {
                 const option = document.createElement('option');
                 option.value = i;
                 option.textContent = `طاولة ${i}`;
                 select.appendChild(option);
-
-                const card = document.createElement('div');
-                card.className = 'table-card available';
-                card.dataset.table = i;
-                card.innerHTML = `<div class="card-num">${i}</div><div class="card-status">فارغة</div>`;
-                card.addEventListener('click', () => selectTable(i));
-                document.getElementById('gridCards').appendChild(card);
             }
+            const grid = document.getElementById('gridCards');
+            if (grid) grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--olive);padding:12px;font-size:0.85rem;">جاري تحميل الطاولات...</div>';
         }
 
         async function freeSelectedTable() {
