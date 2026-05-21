@@ -1565,44 +1565,22 @@
             generateQuickNav();
             generateMenu();
 
-            if (window.LuccaDB && window.LuccaDB.initSystem) {
-                try {
-                    await window.LuccaDB.initSystem();
-                    setIntegrationBadge('متصل✓', true);
-                    dbReady = true;
-                    await loadTables();
-                    await loadCustomerSelect();
+            // Show tables immediately (fallback), then upgrade when DB is ready
+            fallbackTables(document.getElementById('tableSelect'));
+            await loadCustomerSelect();
 
-                    // Sync customers from server
-                    try {
-                        const serverUrl = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
-                        const apiKey = localStorage.getItem('luccaApiKey') || 'lucca-secret-key';
-                        const res = await fetch(`${serverUrl}/api/customers`, {
-                            headers: { 'x-api-key': apiKey }
-                        });
-                        if (res.ok) {
-                            const serverCustomers = await res.json();
-                            const localCustomers = await LuccaDB.Customers.getAll();
-                            for (const sc of serverCustomers) {
-                                if (!localCustomers.find(lc => lc.phone === sc.phone)) {
-                                    await LuccaDB.Customers.add(sc.phone, sc.name || '', {
-                                        marketingOptIn: sc.marketingOptIn,
-                                        preferredChannel: sc.preferredChannel || 'cashier',
-                                        lastOrderTotal: sc.totalSpent || 0
-                                    });
-                                }
-                            }
-                            await loadCustomerSelect();
-                        }
-                    } catch(e) { console.log('Server sync:', e.message); }
-                } catch (e) {
-                    setIntegrationBadge('غير متصل', false);
-                    fallbackTables(document.getElementById('tableSelect'));
-                    await loadCustomerSelect();
-                }
-            } else {
-                fallbackTables(document.getElementById('tableSelect'));
-                await loadCustomerSelect();
+            if (window.LuccaDB && window.LuccaDB.initSystem) {
+                // Initialize DB + server sync in background — لا يوقف الصفحة
+                window.LuccaDB.initSystem()
+                    .then(() => {
+                        dbReady = true;
+                        setIntegrationBadge('متصل✓', true);
+                        loadTables();
+                        loadCustomerSelect();
+                    })
+                    .catch(() => {
+                        setIntegrationBadge('غير متصل', false);
+                    });
             }
 
             const firstCategory = document.querySelector('.category');
