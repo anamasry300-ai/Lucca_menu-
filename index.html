@@ -251,10 +251,9 @@
 
         function generateMenu() {
             const container = document.getElementById('menuContent');
-            container.innerHTML = '';
-
+            let html = '';
             appMenuData.forEach((category, categoryIndex) => {
-                const categoryHTML = `
+                html += `
                     <div class="category" id="${category.id}">
                         <div class="category-header" onclick="toggleCategory(this)">
                             <h2><span class="category-icon">${category.icon}</span> ${category.title}</h2>
@@ -265,9 +264,8 @@
                         </div>
                     </div>
                 `;
-                container.insertAdjacentHTML('beforeend', categoryHTML);
             });
-
+            container.innerHTML = html;
             attachMenuEvents();
             renderOrderSummary();
         }
@@ -309,42 +307,26 @@
         }
 
         function attachMenuEvents() {
-            document.querySelectorAll('.view-details-btn').forEach(button => {
-                button.addEventListener('click', function(event) {
-                    event.stopPropagation();
-                    const categoryIndex = parseInt(this.dataset.category, 10);
-                    const itemIndex = parseInt(this.dataset.item, 10);
-                    const itemData = appMenuData[categoryIndex].items[itemIndex];
-                    openModal(itemData);
-                });
-            });
+            const menu = document.getElementById('menuContent');
+            menu.addEventListener('click', function(e) {
+                const target = e.target.closest('button, .origin-tag');
+                if (!target) return;
+                const item = target.closest('.menu-item');
+                if (!item) return;
+                const ci = parseInt(item.dataset.category);
+                const ii = parseInt(item.dataset.item);
 
-            document.querySelectorAll('.origin-tag').forEach(tag => {
-                tag.addEventListener('click', function(event) {
-                    event.stopPropagation();
-                    const categoryIndex = parseInt(this.dataset.category, 10);
-                    const itemIndex = parseInt(this.dataset.item, 10);
-                    const itemCard = document.querySelector(`.menu-item[data-category="${categoryIndex}"][data-item="${itemIndex}"]`);
-                    const originValue = this.dataset.origin;
-
-                    itemCard.querySelectorAll('.origin-tag').forEach(originTag => originTag.classList.remove('selected'));
-                    this.classList.add('selected');
-
-                    const descriptionEl = itemCard.querySelector('.item-description');
-                    const baseDescription = appMenuData[categoryIndex].items[itemIndex].description || '';
-                    if (descriptionEl) {
-                        descriptionEl.textContent = `المحصول: ${originValue}${baseDescription ? ` - ${baseDescription}` : ''}`;
-                    }
-                });
-            });
-
-            document.querySelectorAll('.add-order-btn').forEach(button => {
-                button.addEventListener('click', function(event) {
-                    event.stopPropagation();
-                    const categoryIndex = parseInt(this.dataset.category, 10);
-                    const itemIndex = parseInt(this.dataset.item, 10);
-                    addToOrder(categoryIndex, itemIndex, this);
-                });
+                if (target.classList.contains('view-details-btn')) {
+                    openModal(appMenuData[ci].items[ii]);
+                } else if (target.classList.contains('add-order-btn')) {
+                    addToOrder(ci, ii, target);
+                } else if (target.classList.contains('origin-tag')) {
+                    item.querySelectorAll('.origin-tag').forEach(t => t.classList.remove('selected'));
+                    target.classList.add('selected');
+                    const desc = item.querySelector('.item-description');
+                    const base = appMenuData[ci].items[ii].description || '';
+                    if (desc) desc.textContent = `المحصول: ${target.dataset.origin}${base ? ' - ' + base : ''}`;
+                }
             });
 
             document.getElementById('clearOrderBtn').addEventListener('click', clearOrder);
