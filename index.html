@@ -1338,7 +1338,6 @@
                 window._lastSubmittedItems = items;
                 
                 // Don't clear - let captain keep adding
-                // But clear the item selection
                 currentOrder.length = 0;
                 document.getElementById('orderItems').innerHTML = '';
                 document.getElementById('orderTotal').textContent = '0';
@@ -1350,7 +1349,7 @@
                 document.getElementById('tableSelect').value = tableNum;
                 await loadCustomerSelect();
 
-                // Send WhatsApp if requested (before auto-download - faster)
+                // Send WhatsApp if requested (before server push — أسرع)
                 if ((formData.invoiceDelivery === 'whatsapp' || formData.invoiceDelivery === 'business') && formData.customerPhone) {
                     const tableLabel = tableNum === 'takeaway' ? '🛵 تيك أواي' : `🪑 طاولة ${tableNum}`;
                     const msg = `☕ *Lucca Caffè*\n━━━━━━━━━━━━\n${tableLabel}\n📅 ${new Date().toLocaleDateString('ar-EG')}\n━━━━━━━━━━━━\n*الطلب:*\n${items.map(i => `• ${i.name} x${i.quantity} = ${i.price * i.quantity} ج.م`).join('\n')}\n━━━━━━━━━━━━\n💵 *الإجمالي: ${afterDiscount.toFixed(2)} ج.م*\n━━━━━━━━━━━━\nجارٍ تجهيز الطلب... 🙏`;
@@ -1365,8 +1364,31 @@
                     a.click();
                 }
 
-                // Auto-download invoice image (after WhatsApp)
-                setTimeout(() => exportInvoiceAsImage(true), 100);
+                // Push to server in background (مش بيوقف حاجة)
+                setTimeout(async () => {
+                    try {
+                        const serverUrl = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+                        const apiKey = localStorage.getItem('luccaApiKey') || 'lucca-secret-key';
+                        const controller = new AbortController();
+                        const timer = setTimeout(() => controller.abort(), 3000);
+                        await fetch(`${serverUrl}/api/sync`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                            body: JSON.stringify({
+                                orders: await LuccaDB.Orders.getAll(),
+                                customers: await LuccaDB.Customers.getAll(),
+                                tables: await LuccaDB.Tables.getAll(),
+                                settings: await LuccaDB.Settings.getAll(),
+                                inventory: [], purchases: [], employees: [], attendance: [], users: []
+                            }),
+                            signal: controller.signal
+                        });
+                        clearTimeout(timer);
+                    } catch(e) { console.log('Server push:', e.message); }
+                }, 50);
+
+                // Auto-download invoice image
+                setTimeout(() => exportInvoiceAsImage(true), 200);
             } catch (e) {
                 setOrderStatus('❌ فشل حفظ الطلب: ' + e.message, 'error');
                 console.error('Order error:', e);
