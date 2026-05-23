@@ -487,28 +487,34 @@
 
         async function showDailyReport() {
             if (!window.LuccaDB) { setOrderStatus('قاعدة البيانات غير متصلة', 'error'); return; }
+            setOrderStatus('جاري تحميل التقرير...', 'neutral');
             try {
-                // Try server first with timeout, fallback to local
-                const orders = await Promise.race([
-                    LuccaDB.Orders.getAll(),
-                    new Promise(r => setTimeout(() => r(null), 3000))
-                ]);
-                const localOrders = orders || await LuccaDB.db.getAll('orders');
-                if (!localOrders || localOrders.length === 0) {
-                    showReportModal([]);
-                    return;
-                }
-                const today = new Date();
-                today.setHours(0,0,0,0);
-                const todayOrders = orders.filter(o => {
-                    const d = new Date(o.date || o.createdAt);
-                    return d >= today;
-                });
-                showReportModal(todayOrders);
+                // Load من IndexedDB فورًا (أسرع)
+                const localOrders = await LuccaDB.db.getAll('orders');
+                showReportModal(filterTodayOrders(localOrders || []));
+                // ورا الكواليس: حاول تجيب من السيرفر وحدث لو فيه حاجة أحدث
+                setTimeout(async () => {
+                    try {
+                        const serverOrders = await LuccaDB.Orders.getAll();
+                        if (serverOrders && serverOrders.length) {
+                            const filtered = filterTodayOrders(serverOrders);
+                            if (JSON.stringify(filtered) !== JSON.stringify(window._reportOrders)) {
+                                showReportModal(filtered);
+                            }
+                        }
+                    } catch(e) { /* server مش موجود — عادي */ }
+                }, 100);
             } catch(e) { 
                 setOrderStatus('فشل تحميل التقرير', 'error'); 
                 console.error('Report error:', e); 
             }
+        }
+        function filterTodayOrders(orders) {
+            const today = new Date(); today.setHours(0,0,0,0);
+            return (orders || []).filter(o => {
+                const d = new Date(o.date || o.createdAt);
+                return d >= today;
+            });
         }
 
         function showReportModal(todayOrders) {
@@ -564,16 +570,28 @@
             const to = document.getElementById('reportDateTo').value;
             if (!from || !to || !window.LuccaDB) return;
             try {
-                const all = await Promise.race([
-                    LuccaDB.Orders.getAll(),
-                    new Promise(r => setTimeout(() => r(null), 3000))
-                ]);
-                const localAll = all || await LuccaDB.db.getAll('orders');
+                // Load local فورًا
+                const localAll = await LuccaDB.db.getAll('orders');
                 const filtered = (localAll || []).filter(o => {
                     const d = (o.date || '').split('T')[0];
                     return d >= from && d <= to;
                 });
                 showReportModal(filtered);
+                // ورا الكواليس: سيرفر
+                setTimeout(async () => {
+                    try {
+                        const all = await LuccaDB.Orders.getAll();
+                        if (all && all.length) {
+                            const serverFiltered = all.filter(o => {
+                                const d = (o.date || '').split('T')[0];
+                                return d >= from && d <= to;
+                            });
+                            if (JSON.stringify(serverFiltered) !== JSON.stringify(window._reportOrders)) {
+                                showReportModal(serverFiltered);
+                            }
+                        }
+                    } catch(e) { /* */ }
+                }, 100);
             } catch(e) { setOrderStatus('فشل التصفية', 'error'); }
         }
 
@@ -1337,19 +1355,7 @@
                 // Save items for auto-download
                 window._lastSubmittedItems = items;
                 
-                // Don't clear - let captain keep adding
-                currentOrder.length = 0;
-                document.getElementById('orderItems').innerHTML = '';
-                document.getElementById('orderTotal').textContent = '0';
-                document.getElementById('requestCheckBtn').textContent = '➕ إضافة للطلب';
-                document.getElementById('orderSummary').querySelector('.order-hint').textContent = 
-                    `🔄 طلب موجود (فاتورة #${currentOrderId}) - أضف أصناف جديدة`;
-                
-                await loadTables();
-                document.getElementById('tableSelect').value = tableNum;
-                await loadCustomerSelect();
-
-                // Send WhatsApp if requested (before server push — أسرع)
+                // Send WhatsApp فورًا (أسرع — مش مستني loadTables)
                 if ((formData.invoiceDelivery === 'whatsapp' || formData.invoiceDelivery === 'business') && formData.customerPhone) {
                     const tableLabel = tableNum === 'takeaway' ? '🛵 تيك أواي' : `🪑 طاولة ${tableNum}`;
                     const msg = `☕ *Lucca Caffè*\n━━━━━━━━━━━━\n${tableLabel}\n📅 ${new Date().toLocaleDateString('ar-EG')}\n━━━━━━━━━━━━\n*الطلب:*\n${items.map(i => `• ${i.name} x${i.quantity} = ${i.price * i.quantity} ج.م`).join('\n')}\n━━━━━━━━━━━━\n💵 *الإجمالي: ${afterDiscount.toFixed(2)} ج.م*\n━━━━━━━━━━━━\nجارٍ تجهيز الطلب... 🙏`;
@@ -1363,6 +1369,18 @@
                     a.rel = 'noopener';
                     a.click();
                 }
+
+                // Don't clear - let captain keep adding
+                currentOrder.length = 0;
+                document.getElementById('orderItems').innerHTML = '';
+                document.getElementById('orderTotal').textContent = '0';
+                document.getElementById('requestCheckBtn').textContent = '➕ إضافة للطلب';
+                document.getElementById('orderSummary').querySelector('.order-hint').textContent = 
+                    `🔄 طلب موجود (فاتورة #${currentOrderId}) - أضف أصناف جديدة`;
+                
+                await loadTables();
+                document.getElementById('tableSelect').value = tableNum;
+                await loadCustomerSelect();
 
                 // Push to server in background (مش بيوقف حاجة)
                 setTimeout(async () => {
