@@ -7,10 +7,6 @@ const menuData = [
         items: [
             { name: 'توست ميكس جبن (نصف)', price: 30, description: 'توست محمص بميكس الجبنة',  },
             { name: 'توست ميكس جبن (كامل)', price: 60, description: 'توست محمص بميكس الجبنة', badge: 'popular' },
-            { name: 'توست روزبيف (نصف)', price: 35, description: 'توست محمص بالروزبيف',  },
-            { name: 'توست روزبيف (كامل)', price: 70, description: 'توست محمص بالروزبيف', badge: 'popular' },
-            { name: 'توست تركي مدخن (نصف)', price: 35, description: 'توست محمص بالتركي المدخن',  },
-            { name: 'توست تركي مدخن (كامل)', price: 70, description: 'توست محمص بالتركي المدخن', badge: 'popular' },
             { name: 'توست بسطرمة (نصف)', price: 35, description: 'توست محمص بالبسطرمة',  },
             { name: 'توست بسطرمة (كامل)', price: 70, description: 'توست محمص بالبسطرمة', badge: 'popular' }
         ]
@@ -25,8 +21,9 @@ const menuData = [
             { name: 'بيتزا رانش', price: 200, description: 'بيتزا بصوص الرانش',  },
             { name: 'بيتزا دجاج', price: 200, description: 'بيتزا بقطع الدجاج', badge: 'popular' },
             { name: 'بيتزا مارجريتا', price: 150, description: 'بيتزا كلاسيك بجبن الموزاريلا',  },
-            { name: 'بيتزا روزبيف', price: 170, description: 'بيتزا بالروزبيف',  },
-            { name: 'بيتزا رومي مدخن', price: 170, description: 'بيتزا بالرومي المدخن',  }
+            { name: 'بيتزا تشيكن باربكيو', price: 180, description: 'بيتزا بقطع الدجاج وصوص الباربكيو',  },
+            { name: 'بيتزا اسبايسي رانش', price: 190, description: 'بيتزا حارة بصوص الرانش الشهي',  },
+            { name: 'بيتزا سوبر سوبريم', price: 220, description: 'بيتزا الخلطة الفاخرة بمختلف الإضافات', badge: 'popular' }
         ]
     },
     {
