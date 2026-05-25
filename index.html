@@ -49,6 +49,7 @@
                         </select>
                         <button class="free-table-btn" id="freeTableBtn" title="تحرير الطاولة">تحرير</button>
                         <button class="report-btn" id="dailyReportBtn" title="التقرير اليومي">📊 تقرير</button>
+                        <button class="kitchen-btn" id="kitchenViewBtn" title="عرض طلبات المطبخ">🍳 المطبخ</button>
                     </div>
                 <div class="order-count-badge" id="orderCountBadge">0 صنف</div>
                 <button class="clear-order-btn" id="clearOrderBtn">تفريغ</button>
@@ -196,6 +197,12 @@
             padding: 25px;
             direction: rtl;
         }
+        .kitchen-ticket { background:#fff; border:2px solid var(--cream); border-radius:12px; padding:14px; margin-bottom:12px; }
+        .kitchen-ticket-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--cream); }
+        .kitchen-done-btn { width:100%; padding:10px; background:var(--olive); color:#fff; border:none; border-radius:8px; cursor:pointer; font-size:0.95rem; font-weight:700; transition:background 0.2s; }
+        .kitchen-done-btn:hover { background:var(--terracotta); }
+        .kitchen-btn { padding:8px 12px; background:#e67e22; color:white; border:none; border-radius:8px; cursor:pointer; font-size:0.85rem; font-weight:600; white-space:nowrap; }
+        .kitchen-btn:hover { opacity:0.9; }
     </style>
 
     <div class="invoice-modal" id="invoiceModal">
@@ -213,6 +220,21 @@
             <div id="dailyReportContent"></div>
             <div class="invoice-actions" style="display:flex;gap:10px;margin-top:20px;padding-top:15px;border-top:2px dashed #C85A3E;">
                 <button class="btn-close-invoice" onclick="document.getElementById('dailyReportModal').classList.remove('show')" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">إغلاق</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="invoice-modal" id="kitchenModal">
+        <div class="invoice-content" style="max-width:600px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 style="color:var(--terracotta);font-family:'Playfair Display',serif;margin:0;">🍳 المطبخ</h3>
+                <span id="kitchenRefreshInfo" style="font-size:0.8rem;color:var(--olive);">يتحدث تلقائيًا</span>
+            </div>
+            <div id="kitchenOrdersList" style="max-height:60vh;overflow-y:auto;">
+                <div style="text-align:center;color:var(--olive);padding:20px;">جاري تحميل الطلبات...</div>
+            </div>
+            <div class="invoice-actions" style="display:flex;gap:10px;margin-top:20px;padding-top:15px;border-top:2px dashed #C85A3E;">
+                <button onclick="document.getElementById('kitchenModal').classList.remove('show')" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">إغلاق</button>
             </div>
         </div>
     </div>
@@ -337,6 +359,7 @@
             document.getElementById('exportDataBtn').addEventListener('click', exportOrderData);
             document.getElementById('freeTableBtn').addEventListener('click', freeSelectedTable);
             document.getElementById('dailyReportBtn').addEventListener('click', showDailyReport);
+            document.getElementById('kitchenViewBtn').addEventListener('click', showKitchenView);
             document.getElementById('saveCustomerBtn').addEventListener('click', saveCustomerManually);
             document.getElementById('customerPhoneInput').addEventListener('blur', function() {
                 if (this.value.trim()) saveCustomerManually();
@@ -620,6 +643,73 @@
             link.download = `Lucca_Report_${new Date().toISOString().slice(0,10)}.csv`;
             link.click();
             setOrderStatus('✅ تم تحميل التقرير', 'success');
+        }
+
+        let kitchenTimer = null;
+
+        function showKitchenView() {
+            const modal = document.getElementById('kitchenModal');
+            modal.classList.add('show');
+            renderKitchenOrders();
+            if (kitchenTimer) clearInterval(kitchenTimer);
+            kitchenTimer = setInterval(renderKitchenOrders, 10000);
+            // Stop when modal closes
+            const observer = new MutationObserver(() => {
+                if (!modal.classList.contains('show')) {
+                    clearInterval(kitchenTimer);
+                    kitchenTimer = null;
+                    observer.disconnect();
+                }
+            });
+            observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+        }
+
+        async function renderKitchenOrders() {
+            const container = document.getElementById('kitchenOrdersList');
+            if (!container) return;
+            try {
+                const all = await (window.LuccaDB ? LuccaDB.Orders.getAll() : Promise.resolve([]));
+                const pending = (all || []).filter(o => o.status === 'pending');
+                if (pending.length === 0) {
+                    container.innerHTML = '<div style="text-align:center;color:var(--olive);padding:40px 20px;"><div style="font-size:3rem;margin-bottom:10px;">✅</div><div style="font-size:1.1rem;">لا توجد طلبات قيد التجهيز</div></div>';
+                    return;
+                }
+                container.innerHTML = pending.map(o => {
+                    const itemsList = (o.items || []).map(i => `
+                        <div style="display:flex;justify-content:space-between;padding:2px 0;font-size:0.9rem;">
+                            <span>${i.icon || '•'} ${i.name}${i.selectedOrigin ? ' (' + i.selectedOrigin + ')' : ''}</span>
+                            <span style="font-weight:700;color:var(--terracotta);">x${i.quantity}</span>
+                        </div>
+                    `).join('');
+                    const tableLabel = o.tableId === 'takeaway' || o.tableId == 0 ? '🛵 تيك أواي' : `🪑 طاولة ${o.tableId}`;
+                    const time = o.date ? new Date(o.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '';
+                    return `
+                        <div class="kitchen-ticket">
+                            <div class="kitchen-ticket-header">
+                                <span style="font-weight:700;font-size:1.1rem;">${tableLabel}</span>
+                                <span style="font-size:0.8rem;color:var(--olive);">${time}</span>
+                            </div>
+                            ${o.customerName ? `<div style="font-size:0.85rem;color:var(--olive);margin-bottom:6px;">👤 ${o.customerName}</div>` : ''}
+                            ${o.customerNotes ? `<div style="font-size:0.85rem;color:#e67e22;margin-bottom:6px;">📝 ${o.customerNotes}</div>` : ''}
+                            <div>${itemsList}</div>
+                            <div style="margin-top:8px;">
+                                <button onclick="completeKitchenOrder(${o.id})" class="kitchen-done-btn">✅ تم التجهيز</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch(e) {
+                container.innerHTML = '<div style="text-align:center;color:#e74c3c;padding:20px;">❌ فشل تحميل الطلبات</div>';
+            }
+        }
+
+        async function completeKitchenOrder(orderId) {
+            if (!window.LuccaDB) return;
+            try {
+                await LuccaDB.Orders.updateStatus(orderId, 'completed');
+                renderKitchenOrders();
+                loadTables();
+            } catch(e) { console.log('Kitchen complete error:', e); }
         }
 
         function showServerSettings() {
