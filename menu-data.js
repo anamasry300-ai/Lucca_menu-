@@ -101,7 +101,8 @@ const menuData = [
             { name: 'شاي كرك', price: 50, description: 'شاي هندي محمص', badge: 'specialty' },
             { name: 'شاي أخضر', price: 35, description: 'شاي أخضر طازج',  },
             { name: 'ميكس أعشاب', price: 50, description: 'خلطة أعشاب متنوعة',  },
-            { name: 'شاي بالبن', price: 50, description: 'شاي مع لبن',  }
+            { name: 'شاي بالبن', price: 50, description: 'شاي مع لبن',  },
+            { name: 'أعشاب', price: 35, description: 'مشروب أعشاب دافئ',  }
         ]
     },
     {
