@@ -77,6 +77,8 @@ const menuData = [
             { name: 'إسبريسو', price: 45, description: 'جرعة إسبريسو مركزة بنكهة شوكولاتة وكراميل.', badge: 'popular' },
             { name: 'إسبريسو دبل', price: 70, description: 'جرعة مزدوجة من الإسبريسو الغني والمكثف.',  },
             { name: 'قهوة تركي', price: 35, description: 'قهوة تركية تقليدية مع رغوة خفيفة ونكهة قوية.',  },
+            { name: 'قهوة فرنساوي', price: 65, description: 'قهوة فرنسي برس بطيئة التحضير غنية بالنكهة.',  },
+            { name: 'قهوة بندق', price: 70, description: 'قهوة بنكهة البندق المحمص.', badge: 'popular' },
             { name: 'ميكاتو', price: 50, description: 'قطرة حليب على جرعة إسبريسو.',  },
             { name: 'ميكاتو دبل', price: 80, description: 'إسبريسو دبل مع لمسة حليب خفيفة.',  },
             { name: 'موكا', price: 75, description: 'إسبريسو مع شوكولاتة داكنة وحليب ساخن.',  },
