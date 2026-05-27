@@ -13,6 +13,8 @@ const menuData = [
             { name: 'توست روزبيف (كامل)', price: 70, description: 'توست محمص بالروزبيف', badge: 'popular' },
             { name: 'توست رومي مدخن (نصف)', price: 35, description: 'توست محمص بالرومي المدخن',  },
             { name: 'توست رومي مدخن (كامل)', price: 70, description: 'توست محمص بالرومي المدخن', badge: 'popular' },
+            { name: 'توست كفيار (نصف)', price: 50, description: 'توست محمص بالكفيار', badge: 'specialty' },
+            { name: 'توست كفيار (كامل)', price: 100, description: 'توست محمص بالكفيار', badge: 'specialty' },
             { name: 'ساندويتش ميكس جبن', price: 25, description: 'ساندويتش بميكس الجبنة',  },
             { name: 'ساندويتش بسطرمة', price: 30, description: 'ساندويتش بالبسطرمة',  }
         ]
