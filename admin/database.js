@@ -7,7 +7,7 @@
 
 // ==================== قاعدة البيانات المحلية ====================
 const DB_NAME = 'lucca_caffe_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 class LuccaDatabase {
     constructor() {
@@ -78,6 +78,20 @@ class LuccaDatabase {
                     const attStore = db.createObjectStore('attendance', { keyPath: 'id', autoIncrement: true });
                     attStore.createIndex('employeeId', 'employeeId', { unique: false });
                     attStore.createIndex('date', 'date', { unique: false });
+                }
+
+                // جدول المصروفات (الإيجار, الفواتير, الخ)
+                if (!db.objectStoreNames.contains('expenses')) {
+                    const expStore = db.createObjectStore('expenses', { keyPath: 'id', autoIncrement: true });
+                    expStore.createIndex('date', 'date', { unique: false });
+                    expStore.createIndex('category', 'category', { unique: false });
+                }
+
+                // جدول الشيفتات
+                if (!db.objectStoreNames.contains('shifts')) {
+                    const shiftStore = db.createObjectStore('shifts', { keyPath: 'id', autoIncrement: true });
+                    shiftStore.createIndex('date', 'date', { unique: false });
+                    shiftStore.createIndex('employeeId', 'employeeId', { unique: false });
                 }
             };
         });
@@ -800,6 +814,135 @@ const Attendance = {
     }
 };
 
+// ==================== إدارة المصروفات ====================
+const Expenses = {
+    async getAll() {
+        const serverData = await ServerAPI.getAll('expenses');
+        if (Array.isArray(serverData)) {
+            try { await db.clear('expenses'); for (const item of serverData) await db.add('expenses', item); } catch(e) {}
+            return serverData;
+        }
+        return db.getAll('expenses');
+    },
+
+    async add(expense) {
+        expense.date = expense.date || new Date().toISOString();
+        expense.createdAt = new Date().toISOString();
+        const serverResult = await ServerAPI.add('expenses', expense);
+        if (serverResult && serverResult.id) {
+            await db.put('expenses', { ...expense, id: serverResult.id });
+            return serverResult.id;
+        }
+        return db.add('expenses', expense);
+    },
+
+    async update(id, data) {
+        const item = await db.get('expenses', id);
+        if (item) {
+            Object.assign(item, data);
+            await db.put('expenses', item);
+            ServerAPI.put('expenses', id, item).catch(() => {});
+        }
+        return item;
+    },
+
+    async delete(id) {
+        await db.delete('expenses', id);
+        ServerAPI.remove('expenses', id).catch(() => {});
+    },
+
+    async getByDateRange(startDate, endDate) {
+        const all = await this.getAll();
+        return all.filter(e => {
+            const d = (e.date || '').split('T')[0];
+            return d >= startDate && d <= endDate;
+        });
+    },
+
+    async getTotalByDateRange(startDate, endDate) {
+        const items = await this.getByDateRange(startDate, endDate);
+        return items.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+    },
+
+    async getByCategory(category) {
+        const all = await this.getAll();
+        return all.filter(e => e.category === category);
+    }
+};
+
+// ==================== إدارة الشيفتات ====================
+const Shifts = {
+    async getAll() {
+        const serverData = await ServerAPI.getAll('shifts');
+        if (Array.isArray(serverData)) {
+            try { await db.clear('shifts'); for (const item of serverData) await db.add('shifts', item); } catch(e) {}
+            return serverData;
+        }
+        return db.getAll('shifts');
+    },
+
+    async start(employeeId, notes = '') {
+        const today = new Date().toISOString().split('T')[0];
+        const existing = await this.getByEmployeeAndDate(employeeId, today);
+        if (existing) throw new Error('تم تسجيل شيفت للموظف اليوم');
+        const shift = {
+            employeeId,
+            date: today,
+            startTime: new Date().toISOString(),
+            endTime: null,
+            notes,
+            status: 'active'
+        };
+        const serverResult = await ServerAPI.add('shifts', shift);
+        if (serverResult && serverResult.id) {
+            await db.put('shifts', { ...shift, id: serverResult.id });
+            return serverResult.id;
+        }
+        return db.add('shifts', shift);
+    },
+
+    async end(employeeId) {
+        const today = new Date().toISOString().split('T')[0];
+        const existing = await this.getByEmployeeAndDate(employeeId, today);
+        if (!existing) throw new Error('لا يوجد شيفت نشط للموظف اليوم');
+        if (existing.endTime) throw new Error('تم إنهاء الشيفت مسبقاً');
+        existing.endTime = new Date().toISOString();
+        existing.status = 'completed';
+        const start = new Date(existing.startTime);
+        const end = new Date(existing.endTime);
+        existing.hoursWorked = Math.round((end - start) / 3600000 * 10) / 10;
+        await db.put('shifts', existing);
+        ServerAPI.put('shifts', existing.id, existing).catch(() => {});
+        return existing;
+    },
+
+    async getByEmployeeAndDate(employeeId, date) {
+        const all = await this.getAll();
+        return all.find(s => s.employeeId === employeeId && s.date === date) || null;
+    },
+
+    async getActive() {
+        const all = await this.getAll();
+        return all.filter(s => s.status === 'active');
+    },
+
+    async getByDateRange(startDate, endDate) {
+        const all = await this.getAll();
+        return all.filter(s => s.date >= startDate && s.date <= endDate);
+    },
+
+    async getToday() {
+        const all = await this.getAll();
+        const today = new Date().toISOString().split('T')[0];
+        return all.filter(s => s.date === today);
+    },
+
+    async getByEmployee(employeeId) {
+        const all = await this.getAll();
+        return all.filter(s => s.employeeId === employeeId);
+    }
+};
+
 const MenuSync = {
     settingsKey: 'sharedMenuCatalog',
 
@@ -854,6 +997,8 @@ const DataSync = {
             purchases: await db.getAll('purchases'),
             employees: await db.getAll('employees'),
             attendance: await db.getAll('attendance'),
+            expenses: await db.getAll('expenses'),
+            shifts: await db.getAll('shifts'),
             exportDate: new Date().toISOString()
         };
         return JSON.stringify(data, null, 2);
@@ -861,7 +1006,7 @@ const DataSync = {
 
     async importAll(jsonString) {
         const data = JSON.parse(jsonString);
-        const stores = ['users', 'tables', 'customers', 'orders', 'inventory', 'purchases', 'employees', 'attendance'];
+        const stores = ['users', 'tables', 'customers', 'orders', 'inventory', 'purchases', 'employees', 'attendance', 'expenses', 'shifts'];
         for (const store of stores) {
             if (data[store]) {
                 await db.clear(store);
@@ -910,7 +1055,9 @@ const ServerSync = {
                 inventory: await db.getAll('inventory'),
                 purchases: await db.getAll('purchases'),
                 employees: await db.getAll('employees'),
-                attendance: await db.getAll('attendance')
+                attendance: await db.getAll('attendance'),
+                expenses: await db.getAll('expenses'),
+                shifts: await db.getAll('shifts')
             };
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), 3000);
@@ -932,7 +1079,7 @@ const ServerSync = {
         const url = this.getServerUrl();
         const apiKey = localStorage.getItem('luccaApiKey') || 'lucca-secret-key';
         try {
-            const collections = ['users', 'tables', 'orders', 'customers', 'settings', 'inventory', 'purchases', 'employees', 'attendance'];
+            const collections = ['users', 'tables', 'orders', 'customers', 'settings', 'inventory', 'purchases', 'employees', 'attendance', 'expenses', 'shifts'];
             for (const col of collections) {
                 const controller = new AbortController();
                 const timer = setTimeout(() => controller.abort(), 3000);
@@ -998,4 +1145,4 @@ async function initSystem() {
 }
 
 // تصدير للاستخدام
-window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, MenuSync, DataSync, ServerSync, initSystem };
+window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, initSystem };

@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lucca Caffè - لوحة التحكم</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script src="database.js"></script>
+    <style>
+        :root {
+            --terracotta: #C85A3E;
+            --terracotta-dark: #A74632;
+            --olive: #697259;
+            --olive-light: #8B9178;
+            --cream: #F5F1E8;
+            --warm-white: #FFFCF5;
+            --dark-brown: #3E2723;
+            --gold: #D4AF37;
+            --green: #27ae60;
+            --red: #e74c3c;
+            --blue: #2980b9;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: 'Tajawal', sans-serif;
+            background: linear-gradient(135deg, var(--cream) 0%, var(--warm-white) 100%);
+            color: var(--dark-brown);
+            min-height: 100vh;
+            direction: rtl;
+        }
+        .login-screen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            background: linear-gradient(135deg, var(--terracotta) 0%, var(--terracotta-dark) 100%);
+        }
+        .login-box {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            width: 100%;
+            max-width: 380px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        .login-box h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: 2.5rem;
+            color: var(--terracotta);
+            margin-bottom: 4px;
+        }
+        .login-box .sub { color: var(--olive); font-size:0.9rem; margin-bottom:24px; }
+        .login-box input {
+            width:100%; padding:12px 14px; margin-bottom:12px;
+            border:2px solid var(--cream); border-radius:10px;
+            font-size:1rem; font-family:'Tajawal',sans-serif;
+            transition:border-color 0.2s;
+        }
+        .login-box input:focus { outline:none; border-color:var(--terracotta); }
+        .login-box button {
+            width:100%; padding:12px;
+            background:var(--terracotta); color:white;
+            border:none; border-radius:10px;
+            font-size:1.1rem; font-weight:700; cursor:pointer;
+            font-family:'Tajawal',sans-serif;
+            transition:background 0.2s;
+        }
+        .login-box button:hover { background:var(--terracotta-dark); }
+        .login-error { color:var(--red); font-size:0.85rem; margin-top:8px; }
+        .app { display:none; }
+        .app.header {
+            background: var(--dark-brown);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top:0;
+            z-index:100;
+        }
+        .app-header {
+            background: var(--dark-brown);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top:0;
+            z-index:100;
+            flex-wrap:wrap;
+            gap:8px;
+        }
+        .app-header .brand {
+            font-family: 'Playfair Display', serif;
+            color: var(--warm-white);
+            font-size: 1.3rem;
+            font-weight: 700;
+        }
+        .app-header .brand span { color:var(--gold); }
+        .app-header .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .app-header .user-info span {
+            color: var(--cream);
+            font-size: 0.9rem;
+        }
+        .app-header .user-info button {
+            background: var(--terracotta);
+            color: white;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: 'Tajawal', sans-serif;
+            font-weight: 600;
+        }
+        .nav-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            background: var(--warm-white);
+            padding: 8px 12px;
+            border-bottom: 2px solid var(--cream);
+            position: sticky;
+            top: 56px;
+            z-index: 99;
+            overflow-x: auto;
+        }
+        .nav-tab {
+            padding: 8px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--olive);
+            background: transparent;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+            white-space: nowrap;
+            font-family: 'Tajawal', sans-serif;
+        }
+        .nav-tab:hover { background: var(--cream); }
+        .nav-tab.active {
+            background: var(--terracotta);
+            color: white;
+            border-color: var(--terracotta);
+        }
+        .tab-content { display:none; padding: 20px; max-width: 1200px; margin:0 auto; }
+        .tab-content.active { display:block; }
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .kpi-card {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border: 1px solid var(--cream);
+        }
+        .kpi-card .num {
+            font-size: 1.8rem;
+            font-weight: 900;
+            color: var(--terracotta);
+        }
+        .kpi-card .label {
+            font-size: 0.82rem;
+            color: var(--olive);
+            margin-top: 4px;
+        }
+        .kpi-card.green .num { color: var(--green); }
+        .kpi-card.red .num { color: var(--red); }
+        .kpi-card.blue .num { color: var(--blue); }
+        .section-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.4rem;
+            color: var(--dark-brown);
+            margin-bottom: 16px;
+            border-bottom: 2px solid var(--cream);
+            padding-bottom: 8px;
+        }
+        .form-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+            align-items: end;
+        }
+        .form-row label {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            font-size: 0.82rem;
+            color: var(--olive);
+            font-weight: 600;
+            flex:1;
+            min-width:120px;
+        }
+        .form-row label input, .form-row label select, .form-row label textarea {
+            padding: 8px 10px;
+            border: 1px solid var(--olive-light);
+            border-radius: 8px;
+            font-size: 0.88rem;
+            font-family: 'Tajawal', sans-serif;
+            background: white;
+        }
+        .form-row label textarea { resize:vertical; min-height:60px; }
+        .btn {
+            padding: 8px 18px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.88rem;
+            font-weight: 600;
+            font-family: 'Tajawal', sans-serif;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .btn:hover { transform: translateY(-1px); }
+        .btn-primary { background: var(--terracotta); color: white; }
+        .btn-primary:hover { background: var(--terracotta-dark); }
+        .btn-secondary { background: var(--olive); color: white; }
+        .btn-secondary:hover { background: var(--olive-light); }
+        .btn-green { background: var(--green); color: white; }
+        .btn-red { background: var(--red); color: white; }
+        .btn-blue { background: var(--blue); color: white; }
+        .btn-sm { padding: 5px 12px; font-size: 0.8rem; }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .data-table th {
+            background: var(--cream);
+            padding: 10px 12px;
+            text-align: right;
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--dark-brown);
+            border-bottom: 2px solid var(--terracotta);
+        }
+        .data-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--cream);
+            font-size: 0.85rem;
+        }
+        .data-table tr:hover td { background: #faf8f5; }
+        .status-badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .status-active { background: #e8f5e9; color: #2e7d32; }
+        .status-inactive { background: #ffebee; color: #c62828; }
+        .status-completed { background: #e3f2fd; color: #1565c0; }
+        .status-pending { background: #fff3e0; color: #e65100; }
+        .msg {
+            padding: 10px 14px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            font-size: 0.88rem;
+        }
+        .msg-success { background: #e8f5e9; color: #2e7d32; border:1px solid #a5d6a7; }
+        .msg-error { background: #ffebee; color: #c62828; border:1px solid #ef9a9a; }
+        .msg-info { background: #e3f2fd; color: #1565c0; border:1px solid #90caf9; }
+        .inline-flex { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+        .mt-12 { margin-top:12px; }
+        .mb-12 { margin-bottom:12px; }
+        .empty-state {
+            text-align:center;
+            padding: 40px 20px;
+            color: var(--olive);
+        }
+        @media (max-width:640px) {
+            .app-header { padding:10px 12px; }
+            .nav-tabs { padding:6px 8px; }
+            .nav-tab { font-size:0.78rem; padding:6px 10px; }
+            .tab-content { padding:12px; }
+            .form-row { flex-direction:column; }
+            .form-row label { min-width:100%; }
+            .data-table { font-size:0.78rem; }
+            .data-table th, .data-table td { padding:6px 8px; }
+            .kpi-grid { grid-template-columns:repeat(2,1fr); }
+            .kpi-card .num { font-size:1.3rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-screen" id="loginScreen">
+        <div class="login-box">
+            <h1>LUCCA</h1>
+            <div class="sub">Caffe Italiano - لوحة التحكم</div>
+            <input type="text" id="loginUser" placeholder="اسم المستخدم" autocomplete="username">
+            <input type="password" id="loginPass" placeholder="كلمة المرور" autocomplete="current-password">
+            <button onclick="doLogin()">دخول</button>
+            <div class="login-error" id="loginError"></div>
+        </div>
+    </div>
+
+    <div class="app" id="app">
+        <div class="app-header">
+            <div class="brand">LUCCA <span>•</span> لوحة التحكم</div>
+            <div class="user-info">
+                <span id="userDisplay"></span>
+                <button onclick="doLogout()">تسجيل الخروج</button>
+            </div>
+        </div>
+
+        <div class="nav-tabs" id="navTabs">
+            <div class="nav-tab active" data-tab="dashboard">📊 الرئيسية</div>
+            <div class="nav-tab" data-tab="employees">👥 الموظفين</div>
+            <div class="nav-tab" data-tab="attendance">⏰ الحضور</div>
+            <div class="nav-tab" data-tab="shifts">🔄 الشيفتات</div>
+            <div class="nav-tab" data-tab="inventory">📦 المخزون</div>
+            <div class="nav-tab" data-tab="purchases">🛒 المشتريات</div>
+            <div class="nav-tab" data-tab="expenses">💰 المصروفات</div>
+            <div class="nav-tab" data-tab="backup">💾 النسخ الاحتياطي</div>
+            <div class="nav-tab" data-tab="server">🔌 السيرفر</div>
+        </div>
+
+        <div class="tab-content active" id="tabDashboard">
+            <h2 class="section-title">📊 نظرة عامة</h2>
+            <div class="kpi-grid" id="kpiGrid">
+                <div class="kpi-card"><div class="num" id="kpiOrders">0</div><div class="label">أوردرات اليوم</div></div>
+                <div class="kpi-card"><div class="num" id="kpiRevenue">0</div><div class="label">المبيعات (ج.م)</div></div>
+                <div class="kpi-card green"><div class="num" id="kpiProfit">0</div><div class="label">صافي الربح (ج.م)</div></div>
+                <div class="kpi-card red"><div class="num" id="kpiExpenses">0</div><div class="label">المصروفات (ج.م)</div></div>
+                <div class="kpi-card blue"><div class="num" id="kpiEmployees">0</div><div class="label">الموظفين</div></div>
+                <div class="kpi-card blue"><div class="num" id="kpiTables">0/14</div><div class="label">طاولات مشغولة</div></div>
+            </div>
+            <div class="form-row">
+                <label>من تاريخ <input type="date" id="dashboardDateFrom"></label>
+                <label>إلى تاريخ <input type="date" id="dashboardDateTo"></label>
+                <button class="btn btn-primary" onclick="refreshDashboard()">تحديث</button>
+            </div>
+            <div id="dashboardOrdersList"></div>
+        </div>
+
+        <div class="tab-content" id="tabEmployees">
+            <h2 class="section-title">👥 إدارة الموظفين</h2>
+            <div id="empMsg"></div>
+            <div class="form-row">
+                <label>الاسم <input type="text" id="empName" placeholder="اسم الموظف"></label>
+                <label>رقم الموبايل <input type="text" id="empPhone" placeholder="01xxxxxxxxx"></label>
+                <label>الوظيفة <input type="text" id="empRole" placeholder="كاشير/شيف/...."></label>
+                <label>الراتب <input type="number" id="empSalary" placeholder="0"></label>
+                <label>&nbsp;<button class="btn btn-primary" onclick="addEmployee()">➕ إضافة</button></label>
+            </div>
+            <table class="data-table" id="empTable">
+                <thead><tr><th>#</th><th>الاسم</th><th>الموبايل</th><th>الوظيفة</th><th>الراتب</th><th>الحالة</th><th>تحكم</th></tr></thead>
+                <tbody id="empBody"></tbody>
+            </table>
+        </div>
+
+        <div class="tab-content" id="tabAttendance">
+            <h2 class="section-title">⏰ الحضور والانصراف</h2>
+            <div id="attMsg"></div>
+            <div class="form-row">
+                <label>الموظف <select id="attEmployee"></select></label>
+                <label>&nbsp;<button class="btn btn-green" onclick="checkIn()">🔵 تسجيل حضور</button></label>
+                <label>&nbsp;<button class="btn btn-red" onclick="checkOut()">🔴 تسجيل انصراف</button></label>
+            </div>
+            <div class="form-row">
+                <label>من تاريخ <input type="date" id="attDateFrom"></label>
+                <label>إلى تاريخ <input type="date" id="attDateTo"></label>
+                <button class="btn btn-primary btn-sm" onclick="loadAttendance()">عرض</button>
+            </div>
+            <table class="data-table">
+                <thead><tr><th>الموظف</th><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>ساعات</th><th>ملاحظات</th></tr></thead>
+                <tbody id="attBody"></tbody>
+            </table>
+        </div>
+
+        <div class="tab-content" id="tabShifts">
+            <h2 class="section-title">🔄 إدارة الشيفتات</h2>
+            <div id="shiftMsg"></div>
+            <div class="form-row">
+                <label>الموظف <select id="shiftEmployee"></select></label>
+                <label>ملاحظات <input type="text" id="shiftNotes" placeholder="اختياري"></label>
+                <label>&nbsp;<button class="btn btn-green" onclick="startShift()">▶️ بدء شيفت</button></label>
+                <label>&nbsp;<button class="btn btn-red" onclick="endShift()">⏹ إنهاء شيفت</button></label>
+            </div>
+            <div class="form-row">
+                <label>من تاريخ <input type="date" id="shiftDateFrom"></label>
+                <label>إلى تاريخ <input type="date" id="shiftDateTo"></label>
+                <button class="btn btn-primary btn-sm" onclick="loadShifts()">عرض</button>
+                <button class="btn btn-secondary btn-sm" onclick="loadShiftsToday()">اليوم</button>
+            </div>
+            <table class="data-table">
+                <thead><tr><th>الموظف</th><th>التاريخ</th><th>البداية</th><th>النهاية</th><th>ساعات</th><th>الحالة</th><th>ملاحظات</th></tr></thead>
+                <tbody id="shiftBody"></tbody>
+            </table>
+        </div>
+
+        <div class="tab-content" id="tabInventory">
+            <h2 class="section-title">📦 المخزون</h2>
+            <div id="invMsg"></div>
+            <div class="form-row">
+                <label>اسم الصنف <input type="text" id="invName" placeholder="اسم الصنف"></label>
+                <label>الكمية <input type="number" id="invQty" placeholder="0"></label>
+                <label>الوحدة <input type="text" id="invUnit" placeholder="كجم/لتر/قطعة"></label>
+                <label>سعر الشراء <input type="number" id="invCost" placeholder="0"></label>
+                <label>&nbsp;<button class="btn btn-primary" onclick="addInventory()">➕ إضافة</button></label>
+            </div>
+            <table class="data-table">
+                <thead><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>سعر الشراء</th><th>آخر تحديث</th><th>تحكم</th></tr></thead>
+                <tbody id="invBody"></tbody>
+            </table>
+        </div>
+
+        <div class="tab-content" id="tabPurchases">
+            <h2 class="section-title">🛒 المشتريات</h2>
+            <div id="purMsg"></div>
+            <div class="form-row">
+                <label>الصنف <input type="text" id="purItem" placeholder="اسم الصنف"></label>
+                <label>الكمية <input type="number" id="purQty" placeholder="0"></label>
+                <label>سعر الشراء <input type="number" id="purCost" placeholder="0"></label>
+                <label>المورد <input type="text" id="purSupplier" placeholder="اختياري"></label>
+                <label>ملاحظات <input type="text" id="purNotes" placeholder="اختياري"></label>
+                <label>&nbsp;<button class="btn btn-primary" onclick="addPurchase()">➕ إضافة</button></label>
+            </div>
+            <table class="data-table">
+                <thead><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th>المورد</th><th>التاريخ</th><th>تحكم</th></tr></thead>
+                <tbody id="purBody"></tbody>
+            </table>
+        </div>
+
+        <div class="tab-content" id="tabExpenses">
+            <h2 class="section-title">💰 المصروفات</h2>
+            <div id="expMsg"></div>
+            <div class="form-row">
+                <label>البيان <input type="text" id="expDesc" placeholder="مثلاً: إيجار/كهرباء/...."></label>
+                <label>المبلغ <input type="number" id="expAmount" placeholder="0"></label>
+                <label>التصنيف <select id="expCategory">
+                    <option value="إيجار">إيجار</option>
+                    <option value="فواتير">فواتير</option>
+                    <option value="رواتب">رواتب</option>
+                    <option value="صيانة">صيانة</option>
+                    <option value="مواد خام">مواد خام</option>
+                    <option value="تسويق">تسويق</option>
+                    <option value="أخرى">أخرى</option>
+                </select></label>
+                <label>ملاحظات <input type="text" id="expNotes" placeholder="اختياري"></label>
+                <label>&nbsp;<button class="btn btn-primary" onclick="addExpense()">➕ إضافة</button></label>
+            </div>
+            <div class="form-row">
+                <label>من تاريخ <input type="date" id="expDateFrom"></label>
+                <label>إلى تاريخ <input type="date" id="expDateTo"></label>
+                <button class="btn btn-primary btn-sm" onclick="loadExpenses()">عرض</button>
+                <button class="btn btn-secondary btn-sm" onclick="loadExpensesToday()">اليوم</button>
+            </div>
+            <div id="expTotal" style="font-size:1.2rem;font-weight:700;color:var(--terracotta);margin-bottom:12px;"></div>
+            <table class="data-table">
+                <thead><tr><th>#</th><th>البيان</th><th>التصنيف</th><th>المبلغ</th><th>التاريخ</th><th>ملاحظات</th><th>تحكم</th></tr></thead>
+                <tbody id="expBody"></tbody>
+            </table>
+        </div>
+
+        <div class="tab-content" id="tabBackup">
+            <h2 class="section-title">💾 النسخ الاحتياطي</h2>
+            <div class="form-row">
+                <button class="btn btn-primary" onclick="exportBackup()">📤 تصدير نسخة احتياطية</button>
+                <button class="btn btn-green" onclick="importBackup()">📥 استيراد نسخة احتياطية</button>
+                <button class="btn btn-secondary" onclick="downloadBackup()">⬇️ تحميل ملف</button>
+            </div>
+            <div id="backupMsg"></div>
+            <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="handleImport(event)">
+            <div class="form-row mt-12">
+                <label>حجم البيانات المحلية: <span id="backupSize" style="font-weight:700;"></span></label>
+            </div>
+        </div>
+
+        <div class="tab-content" id="tabServer">
+            <h2 class="section-title">🔌 إعدادات السيرفر</h2>
+            <div id="srvMsg"></div>
+            <div class="form-row">
+                <label>رابط السيرفر <input type="text" id="srvUrl" placeholder="http://192.168.1.100:3000"></label>
+                <label>&nbsp;<button class="btn btn-primary" onclick="saveServer()">💾 حفظ</button></label>
+                <label>&nbsp;<button class="btn btn-secondary" onclick="testServer()">🔌 اختبار الاتصال</button></label>
+            </div>
+            <div class="form-row">
+                <button class="btn btn-green" onclick="syncPush()">⬆️ رفع البيانات للسيرفر</button>
+                <button class="btn btn-blue" onclick="syncPull()">⬇️ تحميل البيانات من السيرفر</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let dbReady = false;
+
+        async function init() {
+            await window.LuccaDB.initSystem();
+            dbReady = true;
+        }
+
+        async function doLogin() {
+            const username = document.getElementById('loginUser').value.trim();
+            const password = document.getElementById('loginPass').value;
+            const errEl = document.getElementById('loginError');
+            errEl.textContent = '';
+            if (!username || !password) { errEl.textContent = 'ادخل اسم المستخدم وكلمة المرور'; return; }
+            try {
+                if (!dbReady) await init();
+                const user = await window.LuccaDB.Users.login(username, password);
+                currentUser = user;
+                document.getElementById('loginScreen').style.display = 'none';
+                document.getElementById('app').style.display = 'block';
+                document.getElementById('userDisplay').textContent = `👤 ${user.name || user.username} (${user.role || 'cashier'})`;
+                loadAll();
+                initTabs();
+            } catch(e) {
+                errEl.textContent = e.message || 'خطأ في تسجيل الدخول';
+            }
+        }
+
+        function doLogout() {
+            window.LuccaDB.Users.logout();
+            currentUser = null;
+            document.getElementById('loginScreen').style.display = 'flex';
+            document.getElementById('app').style.display = 'none';
+        }
+
+        function initTabs() {
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    document.getElementById('tab' + tab.dataset.tab.charAt(0).toUpperCase() + tab.dataset.tab.slice(1)).classList.add('active');
+                });
+            });
+        }
+
+        function msg(el, text, type = 'success') {
+            document.getElementById(el).innerHTML = `<div class="msg msg-${type}">${text}</div>`;
+            setTimeout(() => document.getElementById(el).innerHTML = '', 3000);
+        }
+
+        function formatMoney(n) { return parseFloat(n || 0).toFixed(0); }
+        function formatDate(d) { return d ? new Date(d).toLocaleDateString('ar-EG') : '-'; }
+        function formatTime(d) { return d ? new Date(d).toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' }) : '-'; }
+        function todayStr() { return new Date().toISOString().split('T')[0]; }
+
+        function loadAll() {
+            refreshDashboard();
+            loadEmployees();
+            loadAttendance();
+            loadShifts();
+            loadInventory();
+            loadPurchases();
+            loadExpenses();
+            loadServerSettings();
+            loadBackupInfo();
+        }
+
+        // ==================== Dashboard ====================
+        async function refreshDashboard() {
+            try {
+                const from = document.getElementById('dashboardDateFrom').value || todayStr();
+                const to = document.getElementById('dashboardDateTo').value || todayStr();
+                if (!document.getElementById('dashboardDateFrom').value) document.getElementById('dashboardDateFrom').value = todayStr();
+                if (!document.getElementById('dashboardDateTo').value) document.getElementById('dashboardDateTo').value = todayStr();
+
+                const allOrders = await window.LuccaDB.Orders.getAll();
+                const orders = allOrders.filter(o => {
+                    const d = (o.date || '').split('T')[0];
+                    return d >= from && d <= to;
+                });
+                const completed = orders.filter(o => o.status === 'completed');
+                const revenue = completed.reduce((s, o) => s + (o.total || 0), 0);
+                const expenses = await window.LuccaDB.Expenses.getTotalByDateRange(from, to);
+                const purchases = await window.LuccaDB.Purchases.getAll();
+                const purCost = purchases.filter(p => {
+                    const d = (p.date || '').split('T')[0];
+                    return d >= from && d <= to;
+                }).reduce((s, p) => s + ((p.costPrice || 0) * (p.quantity || 1)), 0);
+                const profit = revenue - expenses - purCost;
+                const employees = await window.LuccaDB.Employees.getAll();
+                const tables = await window.LuccaDB.Tables.getAll();
+                const occupied = tables.filter(t => t.status === 'occupied').length;
+
+                document.getElementById('kpiOrders').textContent = orders.length;
+                document.getElementById('kpiRevenue').textContent = formatMoney(revenue);
+                document.getElementById('kpiProfit').textContent = formatMoney(profit);
+                document.getElementById('kpiExpenses').textContent = formatMoney(expenses);
+                document.getElementById('kpiEmployees').textContent = employees.length;
+                document.getElementById('kpiTables').textContent = occupied + '/14';
+
+                // Show recent orders
+                const listEl = document.getElementById('dashboardOrdersList');
+                if (orders.length === 0) {
+                    listEl.innerHTML = '<div class="empty-state">لا توجد أوردرات في هذه الفترة</div>';
+                } else {
+                    listEl.innerHTML = `
+                        <h3 style="font-size:1rem;color:var(--olive);margin-bottom:8px;">آخر الأوردرات (${orders.length})</h3>
+                        <table class="data-table">
+                            <thead><tr><th>#</th><th>طاولة</th><th>العميل</th><th>الإجمالي</th><th>طريقة الدفع</th><th>الحالة</th><th>التاريخ</th></tr></thead>
+                            <tbody>${orders.slice(-20).reverse().map(o => `
+                                <tr>
+                                    <td>${o.id || '-'}</td>
+                                    <td>${o.tableId === 'takeaway' || o.tableId == 0 ? '🛵 تيك أواي' : 'طاولة ' + (o.tableId || '-')}</td>
+                                    <td>${o.customerName || '-'}</td>
+                                    <td style="font-weight:700;color:var(--terracotta);">${formatMoney(o.total)} ج.م</td>
+                                    <td>${o.paymentMethod === 'visa' ? '💳 فيزا' : '💰 كاش'}</td>
+                                    <td><span class="status-badge ${o.status === 'completed' ? 'status-completed' : 'status-pending'}">${o.status === 'completed' ? 'مكتمل' : 'قيد التجهيز'}</span></td>
+                                    <td>${formatDate(o.date)} ${formatTime(o.date)}</td>
+                                </tr>
+                            `).join('')}</tbody>
+                        </table>
+                    `;
+                }
+            } catch(e) { console.log('Dashboard error:', e); }
+        }
+
+        // ==================== Employees ====================
+        async function loadEmployees() {
+            try {
+                const emps = await window.LuccaDB.Employees.getAll();
+                document.getElementById('empBody').innerHTML = emps.map(e => `
+                    <tr>
+                        <td>${e.id}</td>
+                        <td>${e.name || '-'}</td>
+                        <td>${e.phone || '-'}</td>
+                        <td>${e.role || '-'}</td>
+                        <td>${e.salary ? e.salary + ' ج.م' : '-'}</td>
+                        <td><span class="status-badge ${e.active !== false ? 'status-active' : 'status-inactive'}">${e.active !== false ? 'نشط' : 'غير نشط'}</span></td>
+                        <td class="inline-flex">
+                            <button class="btn btn-sm btn-red" onclick="deleteEmployee(${e.id})">حذف</button>
+                            <button class="btn btn-sm ${e.active !== false ? 'btn-secondary' : 'btn-green'}" onclick="toggleEmployee(${e.id})">${e.active !== false ? 'تعطيل' : 'تفعيل'}</button>
+                        </td>
+                    </tr>
+                `).join('') || '<tr><td colspan="7" class="empty-state">لا يوجد موظفون</td></tr>';
+                // Populate select
+                populateEmployeeSelect('attEmployee');
+                populateEmployeeSelect('shiftEmployee');
+            } catch(e) { console.log(e); }
+        }
+
+        async function addEmployee() {
+            const name = document.getElementById('empName').value.trim();
+            if (!name) { msg('empMsg', 'ادخل اسم الموظف', 'error'); return; }
+            await window.LuccaDB.Employees.add({
+                name,
+                phone: document.getElementById('empPhone').value.trim(),
+                role: document.getElementById('empRole').value.trim(),
+                salary: parseFloat(document.getElementById('empSalary').value) || 0
+            });
+            msg('empMsg', '✅ تم إضافة الموظف');
+            document.getElementById('empName').value = '';
+            document.getElementById('empPhone').value = '';
+            document.getElementById('empRole').value = '';
+            document.getElementById('empSalary').value = '';
+            loadEmployees();
+            refreshDashboard();
+        }
+
+        async function deleteEmployee(id) {
+            if (!confirm('حذف الموظف؟')) return;
+            await window.LuccaDB.Employees.delete(id);
+            loadEmployees();
+        }
+
+        async function toggleEmployee(id) {
+            const emps = await window.LuccaDB.Employees.getAll();
+            const emp = emps.find(e => e.id === id);
+            if (emp) {
+                await window.LuccaDB.Employees.update(id, { active: emp.active === false });
+                loadEmployees();
+            }
+        }
+
+        function populateEmployeeSelect(elId) {
+            const sel = document.getElementById(elId);
+            if (!sel) return;
+            const val = sel.value;
+            sel.innerHTML = '<option value="">اختر موظف</option>';
+            if (!window.LuccaDB) return;
+            window.LuccaDB.Employees.getAll().then(emps => {
+                emps.filter(e => e.active !== false).forEach(e => {
+                    const opt = document.createElement('option');
+                    opt.value = e.id;
+                    opt.textContent = e.name || `موظف #${e.id}`;
+                    sel.appendChild(opt);
+                });
+                if (val) sel.value = val;
+            });
+        }
+
+        // ==================== Attendance ====================
+        async function loadAttendance() {
+            try {
+                const from = document.getElementById('attDateFrom').value || todayStr();
+                const to = document.getElementById('attDateTo').value || todayStr();
+                if (!document.getElementById('attDateFrom').value) document.getElementById('attDateFrom').value = todayStr();
+                if (!document.getElementById('attDateTo').value) document.getElementById('attDateTo').value = todayStr();
+                const all = await window.LuccaDB.Attendance.getByDateRange(from, to);
+                const emps = await window.LuccaDB.Employees.getAll();
+                document.getElementById('attBody').innerHTML = all.map(a => {
+                    const emp = emps.find(e => e.id === a.employeeId);
+                    return `<tr>
+                        <td>${emp ? emp.name : '#' + a.employeeId}</td>
+                        <td>${formatDate(a.date)}</td>
+                        <td>${formatTime(a.checkIn)}</td>
+                        <td>${formatTime(a.checkOut)}</td>
+                        <td>${a.hoursWorked ? a.hoursWorked + ' س' : '-'}</td>
+                        <td>${a.notes || '-'}</td>
+                    </tr>`;
+                }).join('') || '<tr><td colspan="6" class="empty-state">لا توجد سجلات حضور</td></tr>';
+            } catch(e) { console.log(e); }
+        }
+
+        async function checkIn() {
+            const empId = parseInt(document.getElementById('attEmployee').value);
+            if (!empId) { msg('attMsg', 'اختر الموظف', 'error'); return; }
+            try {
+                await window.LuccaDB.Attendance.checkIn(empId);
+                msg('attMsg', '✅ تم تسجيل الحضور');
+                loadAttendance();
+            } catch(e) { msg('attMsg', e.message || 'خطأ', 'error'); }
+        }
+
+        async function checkOut() {
+            const empId = parseInt(document.getElementById('attEmployee').value);
+            if (!empId) { msg('attMsg', 'اختر الموظف', 'error'); return; }
+            try {
+                await window.LuccaDB.Attendance.checkOut(empId);
+                msg('attMsg', '✅ تم تسجيل الانصراف');
+                loadAttendance();
+            } catch(e) { msg('attMsg', e.message || 'خطأ', 'error'); }
+        }
+
+        // ==================== Shifts ====================
+        async function loadShifts() {
+            try {
+                const from = document.getElementById('shiftDateFrom').value || todayStr();
+                const to = document.getElementById('shiftDateTo').value || todayStr();
+                const all = await window.LuccaDB.Shifts.getByDateRange(from, to);
+                const emps = await window.LuccaDB.Employees.getAll();
+                document.getElementById('shiftBody').innerHTML = all.map(s => {
+                    const emp = emps.find(e => e.id === s.employeeId);
+                    return `<tr>
+                        <td>${emp ? emp.name : '#' + s.employeeId}</td>
+                        <td>${formatDate(s.date)}</td>
+                        <td>${formatTime(s.startTime)}</td>
+                        <td>${formatTime(s.endTime)}</td>
+                        <td>${s.hoursWorked ? s.hoursWorked + ' س' : '-'}</td>
+                        <td><span class="status-badge ${s.status === 'active' ? 'status-pending' : 'status-completed'}">${s.status === 'active' ? 'نشط' : 'منتهي'}</span></td>
+                        <td>${s.notes || '-'}</td>
+                    </tr>`;
+                }).join('') || '<tr><td colspan="7" class="empty-state">لا توجد شيفتات</td></tr>';
+            } catch(e) { console.log(e); }
+        }
+
+        function loadShiftsToday() {
+            document.getElementById('shiftDateFrom').value = todayStr();
+            document.getElementById('shiftDateTo').value = todayStr();
+            loadShifts();
+        }
+
+        async function startShift() {
+            const empId = parseInt(document.getElementById('shiftEmployee').value);
+            if (!empId) { msg('shiftMsg', 'اختر الموظف', 'error'); return; }
+            try {
+                await window.LuccaDB.Shifts.start(empId, document.getElementById('shiftNotes').value.trim());
+                msg('shiftMsg', '✅ تم بدء الشيفت');
+                document.getElementById('shiftNotes').value = '';
+                loadShifts();
+            } catch(e) { msg('shiftMsg', e.message || 'خطأ', 'error'); }
+        }
+
+        async function endShift() {
+            const empId = parseInt(document.getElementById('shiftEmployee').value);
+            if (!empId) { msg('shiftMsg', 'اختر الموظف', 'error'); return; }
+            try {
+                await window.LuccaDB.Shifts.end(empId);
+                msg('shiftMsg', '✅ تم إنهاء الشيفت');
+                loadShifts();
+            } catch(e) { msg('shiftMsg', e.message || 'خطأ', 'error'); }
+        }
+
+        // ==================== Inventory ====================
+        async function loadInventory() {
+            try {
+                const items = await window.LuccaDB.Inventory.getAll();
+                document.getElementById('invBody').innerHTML = items.map(i => `
+                    <tr>
+                        <td>${i.id}</td>
+                        <td>${i.name || '-'}</td>
+                        <td style="font-weight:700;">${i.quantity || 0}</td>
+                        <td>${i.unit || '-'}</td>
+                        <td>${i.costPrice ? i.costPrice + ' ج.م' : '-'}</td>
+                        <td>${formatDate(i.lastUpdated || i.createdAt)}</td>
+                        <td class="inline-flex">
+                            <input type="number" id="adjQty_${i.id}" placeholder="تعديل" style="width:70px;padding:4px 6px;border:1px solid var(--olive-light);border-radius:6px;font-size:0.8rem;">
+                            <button class="btn btn-sm btn-green" onclick="adjustStock(${i.id})">تعديل</button>
+                            <button class="btn btn-sm btn-red" onclick="deleteInventory(${i.id})">حذف</button>
+                        </td>
+                    </tr>
+                `).join('') || '<tr><td colspan="7" class="empty-state">لا توجد أصناف في المخزون</td></tr>';
+            } catch(e) { console.log(e); }
+        }
+
+        async function addInventory() {
+            const name = document.getElementById('invName').value.trim();
+            if (!name) { msg('invMsg', 'ادخل اسم الصنف', 'error'); return; }
+            await window.LuccaDB.Inventory.add({
+                name,
+                quantity: parseFloat(document.getElementById('invQty').value) || 0,
+                unit: document.getElementById('invUnit').value.trim(),
+                costPrice: parseFloat(document.getElementById('invCost').value) || 0
+            });
+            msg('invMsg', '✅ تم إضافة الصنف');
+            document.getElementById('invName').value = '';
+            document.getElementById('invQty').value = '';
+            document.getElementById('invUnit').value = '';
+            document.getElementById('invCost').value = '';
+            loadInventory();
+        }
+
+        async function adjustStock(id) {
+            const qty = parseFloat(document.getElementById('adjQty_' + id).value);
+            if (isNaN(qty)) { msg('invMsg', 'ادخل الكمية المطلوبة (+ زيادة / - نقص)', 'error'); return; }
+            await window.LuccaDB.Inventory.adjustStock(id, qty);
+            msg('invMsg', '✅ تم تعديل المخزون');
+            document.getElementById('adjQty_' + id).value = '';
+            loadInventory();
+        }
+
+        async function deleteInventory(id) {
+            if (!confirm('حذف الصنف؟')) return;
+            await window.LuccaDB.Inventory.delete(id);
+            loadInventory();
+        }
+
+        // ==================== Purchases ====================
+        async function loadPurchases() {
+            try {
+                const items = await window.LuccaDB.Purchases.getAll();
+                items.sort((a,b) => new Date(b.date||0) - new Date(a.date||0));
+                document.getElementById('purBody').innerHTML = items.map(p => `
+                    <tr>
+                        <td>${p.id}</td>
+                        <td>${p.name || p.item || '-'}</td>
+                        <td>${p.quantity || 0}</td>
+                        <td>${p.costPrice ? p.costPrice + ' ج.م' : '-'}</td>
+                        <td style="font-weight:700;color:var(--terracotta);">${((p.costPrice||0) * (p.quantity||1)) + ' ج.م'}</td>
+                        <td>${p.supplier || '-'}</td>
+                        <td>${formatDate(p.date)}</td>
+                        <td><button class="btn btn-sm btn-red" onclick="deletePurchase(${p.id})">حذف</button></td>
+                    </tr>
+                `).join('') || '<tr><td colspan="8" class="empty-state">لا توجد مشتريات</td></tr>';
+            } catch(e) { console.log(e); }
+        }
+
+        async function addPurchase() {
+            const item = document.getElementById('purItem').value.trim();
+            if (!item) { msg('purMsg', 'ادخل اسم الصنف', 'error'); return; }
+            await window.LuccaDB.Purchases.add({
+                item,
+                name: item,
+                quantity: parseFloat(document.getElementById('purQty').value) || 1,
+                costPrice: parseFloat(document.getElementById('purCost').value) || 0,
+                supplier: document.getElementById('purSupplier').value.trim(),
+                notes: document.getElementById('purNotes').value.trim()
+            });
+            msg('purMsg', '✅ تم إضافة المشتريات');
+            document.getElementById('purItem').value = '';
+            document.getElementById('purQty').value = '';
+            document.getElementById('purCost').value = '';
+            document.getElementById('purSupplier').value = '';
+            document.getElementById('purNotes').value = '';
+            loadPurchases();
+            refreshDashboard();
+        }
+
+        async function deletePurchase(id) {
+            if (!confirm('حذف المشتريات؟')) return;
+            await window.LuccaDB.Purchases.delete(id);
+            loadPurchases();
+            refreshDashboard();
+        }
+
+        // ==================== Expenses ====================
+        async function loadExpenses() {
+            try {
+                const from = document.getElementById('expDateFrom').value || todayStr();
+                const to = document.getElementById('expDateTo').value || todayStr();
+                if (!document.getElementById('expDateFrom').value) document.getElementById('expDateFrom').value = todayStr();
+                if (!document.getElementById('expDateTo').value) document.getElementById('expDateTo').value = todayStr();
+                const items = await window.LuccaDB.Expenses.getByDateRange(from, to);
+                const total = items.reduce((s, e) => s + parseFloat(e.amount || 0), 0);
+                document.getElementById('expTotal').textContent = `إجمالي المصروفات: ${formatMoney(total)} ج.م`;
+                document.getElementById('expBody').innerHTML = items.map(e => `
+                    <tr>
+                        <td>${e.id}</td>
+                        <td>${e.description || '-'}</td>
+                        <td><span class="status-badge" style="background:var(--cream);color:var(--dark-brown);">${e.category || 'أخرى'}</span></td>
+                        <td style="font-weight:700;color:var(--red);">${formatMoney(e.amount)} ج.م</td>
+                        <td>${formatDate(e.date)}</td>
+                        <td>${e.notes || '-'}</td>
+                        <td><button class="btn btn-sm btn-red" onclick="deleteExpense(${e.id})">حذف</button></td>
+                    </tr>
+                `).join('') || '<tr><td colspan="7" class="empty-state">لا توجد مصروفات في هذه الفترة</td></tr>';
+            } catch(e) { console.log(e); }
+        }
+
+        function loadExpensesToday() {
+            document.getElementById('expDateFrom').value = todayStr();
+            document.getElementById('expDateTo').value = todayStr();
+            loadExpenses();
+        }
+
+        async function addExpense() {
+            const desc = document.getElementById('expDesc').value.trim();
+            if (!desc) { msg('expMsg', 'ادخل بيان المصروف', 'error'); return; }
+            const amount = parseFloat(document.getElementById('expAmount').value);
+            if (!amount || amount <= 0) { msg('expMsg', 'ادخل المبلغ', 'error'); return; }
+            await window.LuccaDB.Expenses.add({
+                description: desc,
+                amount,
+                category: document.getElementById('expCategory').value,
+                notes: document.getElementById('expNotes').value.trim()
+            });
+            msg('expMsg', '✅ تم إضافة المصروف');
+            document.getElementById('expDesc').value = '';
+            document.getElementById('expAmount').value = '';
+            document.getElementById('expCategory').value = 'أخرى';
+            document.getElementById('expNotes').value = '';
+            loadExpenses();
+            refreshDashboard();
+        }
+
+        async function deleteExpense(id) {
+            if (!confirm('حذف المصروف؟')) return;
+            await window.LuccaDB.Expenses.delete(id);
+            loadExpenses();
+            refreshDashboard();
+        }
+
+        // ==================== Backup ====================
+        async function loadBackupInfo() {
+            try {
+                const data = await window.LuccaDB.DataSync.exportAll();
+                const size = new Blob([data]).size;
+                document.getElementById('backupSize').textContent = (size / 1024).toFixed(1) + ' كيلوبايت';
+            } catch(e) {}
+        }
+
+        async function exportBackup() {
+            try {
+                const json = await window.LuccaDB.DataSync.exportAll();
+                const blob = new Blob([json], { type: 'application/json' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `lucca-backup-${todayStr()}.json`;
+                a.click();
+                msg('backupMsg', '✅ تم تصدير النسخة الاحتياطية');
+            } catch(e) { msg('backupMsg', 'فشل التصدير', 'error'); }
+        }
+
+        function downloadBackup() {
+            exportBackup();
+        }
+
+        function importBackup() {
+            document.getElementById('importFileInput').click();
+        }
+
+        async function handleImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            try {
+                const text = await file.text();
+                await window.LuccaDB.DataSync.importAll(text);
+                msg('backupMsg', '✅ تم استيراد البيانات بنجاح');
+                loadAll();
+            } catch(e) {
+                msg('backupMsg', 'فشل الاستيراد: ' + e.message, 'error');
+            }
+            event.target.value = '';
+        }
+
+        // ==================== Server ====================
+        function loadServerSettings() {
+            document.getElementById('srvUrl').value = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+        }
+
+        function saveServer() {
+            const url = document.getElementById('srvUrl').value.trim();
+            if (!url) { msg('srvMsg', 'ادخل رابط السيرفر', 'error'); return; }
+            localStorage.setItem('luccaServerUrl', url);
+            if (window.LuccaDB.ServerSync) window.LuccaDB.ServerSync.setServerUrl(url);
+            msg('srvMsg', '✅ تم حفظ الرابط');
+        }
+
+        async function testServer() {
+            const url = document.getElementById('srvUrl').value.trim();
+            if (!url) { msg('srvMsg', 'ادخل الرابط أولاً', 'error'); return; }
+            msg('srvMsg', '⏳ جاري الاختبار...', 'info');
+            try {
+                const res = await fetch(url + '/api/public-key');
+                if (res.ok) {
+                    const data = await res.json();
+                    msg('srvMsg', '✅ السيرفر متصل - المفتاح: ' + (data.apiKey || 'OK'));
+                } else {
+                    msg('srvMsg', '❌ السيرفر لا يستجيب', 'error');
+                }
+            } catch(e) {
+                msg('srvMsg', '❌ فشل الاتصال: ' + e.message, 'error');
+            }
+        }
+
+        async function syncPush() {
+            msg('srvMsg', '⏳ جاري رفع البيانات...', 'info');
+            const result = await window.LuccaDB.ServerSync.pushAll();
+            msg('srvMsg', result.success ? '✅ ' + result.message : '❌ ' + result.message, result.success ? 'success' : 'error');
+        }
+
+        async function syncPull() {
+            msg('srvMsg', '⏳ جاري تحميل البيانات...', 'info');
+            const result = await window.LuccaDB.ServerSync.pullAll();
+            if (result.success) {
+                msg('srvMsg', '✅ ' + result.message, 'success');
+                loadAll();
+            } else {
+                msg('srvMsg', '❌ ' + result.message, 'error');
+            }
+        }
+
+        // Boot
+        document.addEventListener('DOMContentLoaded', async () => {
+            await init();
+            // Try auto-login if user saved in localStorage
+            const savedUser = window.LuccaDB.Users.getCurrentUser();
+            if (savedUser) {
+                try {
+                    const users = await window.LuccaDB.Users.getAll();
+                    const match = users.find(u => u.id === savedUser.id || u.username === savedUser.username);
+                    if (match) {
+                        currentUser = match;
+                        document.getElementById('loginScreen').style.display = 'none';
+                        document.getElementById('app').style.display = 'block';
+                        document.getElementById('userDisplay').textContent = `👤 ${match.name || match.username}`;
+                        loadAll();
+                        initTabs();
+                        return;
+                    }
+                } catch(e) {}
+            }
+        });
+    </script>
+</body>
+</html>
