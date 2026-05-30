@@ -133,14 +133,14 @@ const menuData = [
         icon: '🥤',
         id: 'milkshake',
         items: [
-            { name: 'شوكولاتة', price: 90, description: 'ميلك شيك شوكولاتة', badge: 'popular' },
-            { name: 'فانيليا', price: 90, description: 'ميلك شيك فانيليا',  },
-            { name: 'فراولة', price: 90, description: 'ميلك شيك فراولة', badge: 'popular' },
-            { name: 'مانجو', price: 90, description: 'ميلك شيك مانجو',  },
-            { name: 'نوتيلا', price: 100, description: 'ميلك شيك نوتيلا', badge: 'specialty' },
-            { name: 'أوريو', price: 110, description: 'ميلك شيك أوريو', badge: 'new' },
-            { name: 'كراميل', price: 90, description: 'ميلك شيك كراميل',  },
-            { name: 'ميكس شوكليت', price: 120, description: 'ميلك شيك شوكليت ميكس', badge: 'specialty' }
+            { name: 'ميلك شيك شوكولاتة', price: 90, description: 'ميلك شيك شوكولاتة', badge: 'popular' },
+            { name: 'ميلك شيك فانيليا', price: 90, description: 'ميلك شيك فانيليا',  },
+            { name: 'ميلك شيك فراولة', price: 90, description: 'ميلك شيك فراولة', badge: 'popular' },
+            { name: 'ميلك شيك مانجو', price: 90, description: 'ميلك شيك مانجو',  },
+            { name: 'ميلك شيك نوتيلا', price: 100, description: 'ميلك شيك نوتيلا', badge: 'specialty' },
+            { name: 'ميلك شيك أوريو', price: 110, description: 'ميلك شيك أوريو', badge: 'new' },
+            { name: 'ميلك شيك كراميل', price: 90, description: 'ميلك شيك كراميل',  },
+            { name: 'ميلك شيك ميكس شوكليت', price: 120, description: 'ميلك شيك شوكليت ميكس', badge: 'specialty' }
         ]
     },
     {
@@ -181,7 +181,11 @@ const menuData = [
         icon: '🥭',
         id: 'smoothie',
         items: [
-            { name: 'من اختيارك', price: 75, description: 'سموزي طازج من اختيارك', badge: 'popular' }
+            { name: 'سموزي مانجو', price: 75, description: 'سموزي مانجو طازج', badge: 'popular' },
+            { name: 'سموزي فراولة', price: 75, description: 'سموزي فراولة طازج',  },
+            { name: 'سموزي كوكتيل', price: 75, description: 'سموزي كوكتيل فواكه', badge: 'popular' },
+            { name: 'سموزي كيوي', price: 85, description: 'سموزي كيوي طازج',  },
+            { name: 'سموزي موز', price: 75, description: 'سموزي موز طازج',  }
         ]
     },
     {
