@@ -330,6 +330,7 @@
             <div class="nav-tab" data-tab="expenses">💰 المصروفات</div>
             <div class="nav-tab" data-tab="backup">💾 النسخ الاحتياطي</div>
             <div class="nav-tab" data-tab="server">🔌 السيرفر</div>
+            <div class="nav-tab" data-tab="printer">🖨️ الطابعة</div>
         </div>
 
         <div class="tab-content active" id="tabDashboard">
@@ -495,6 +496,40 @@
             <div class="form-row">
                 <button class="btn btn-green" onclick="syncPush()">⬆️ رفع البيانات للسيرفر</button>
                 <button class="btn btn-blue" onclick="syncPull()">⬇️ تحميل البيانات من السيرفر</button>
+            </div>
+        </div>
+
+        <div class="tab-content" id="tabPrinter">
+            <h2 class="section-title">🖨️ إعدادات الطابعة الحرارية</h2>
+            <div id="printerMsg"></div>
+            <div class="form-row">
+                <label>حجم الورق
+                    <select id="paperSize">
+                        <option value="80">80 مم (قياسي)</option>
+                        <option value="58">58 مم (صغير)</option>
+                    </select>
+                </label>
+                <label>&nbsp;<button class="btn btn-primary" onclick="savePrinterSettings()">💾 حفظ</button></label>
+            </div>
+            <div class="form-row">
+                <label>عدد النسخ <input type="number" id="printCopies" value="1" min="1" max="5" style="width:80px;"></label>
+            </div>
+            <div class="form-row" style="flex-direction:column;align-items:flex-start;gap:8px;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <span id="printerStatus" style="padding:8px 16px;border-radius:6px;background:#eee;font-weight:700;">❌ غير متصلة</span>
+                    <button class="btn btn-green" onclick="connectAdminPrinter()" id="adminPrinterBtn">🔌 توصيل</button>
+                </div>
+                <button class="btn btn-secondary" onclick="testAdminPrinter()" id="adminTestPrintBtn">🧪 طباعة اختبارية</button>
+            </div>
+            <div class="form-row" style="margin-top:16px;">
+                <h3 style="margin:0 0 8px 0;">💡 تعليمات</h3>
+                <ul style="font-size:13px;line-height:1.8;padding-right:20px;">
+                    <li>تأكد أن الطابعة موصلة بالكهرباء وUSB بالكمبيوتر</li>
+                    <li>استخدم متصفح <strong>Chrome أو Edge</strong> (يدعمان WebUSB)</li>
+                    <li>اضغط "توصيل" واختر طابعتك من القائمة</li>
+                    <li>بعد الاتصال، الطباعة تكون مباشرة بدون مربع حوار</li>
+                    <li>إذا لم تعمل WebUSB، استخدم زر "طباعة حرارية" في صفحة البيع</li>
+                </ul>
             </div>
         </div>
     </div>
@@ -1042,9 +1077,184 @@
             }
         }
 
+        // ==================== إدارة الطابعة الحرارية (Admin) ====================
+        const AdminPrinter = {
+            device: null,
+            connected: false,
+
+            async init() {
+                if (!navigator.usb) {
+                    document.getElementById('printerStatus').textContent = '⚠️ متصفحك لا يدعم WebUSB';
+                    document.getElementById('adminPrinterBtn').disabled = true;
+                    return;
+                }
+                // Load saved settings
+                const paperSize = localStorage.getItem('luccaPaperSize') || '80';
+                const printCopies = localStorage.getItem('luccaPrintCopies') || '1';
+                document.getElementById('paperSize').value = paperSize;
+                document.getElementById('printCopies').value = printCopies;
+
+                // Auto-reconnect
+                const saved = localStorage.getItem('luccaPrinterInfo');
+                if (saved) {
+                    try {
+                        const info = JSON.parse(saved);
+                        const devices = await navigator.usb.getDevices();
+                        const match = devices.find(d => d.serialNumber === info.serial && d.vendorId === info.vendorId);
+                        if (match) {
+                            await this.connect(match);
+                        }
+                    } catch(e) {}
+                }
+                this.updateUI();
+            },
+
+            updateUI() {
+                const status = document.getElementById('printerStatus');
+                const btn = document.getElementById('adminPrinterBtn');
+                if (this.connected) {
+                    status.textContent = '✅ الطابعة متصلة';
+                    status.style.background = '#d4edda';
+                    status.style.color = '#155724';
+                    btn.textContent = '🔌 فصل';
+                    btn.className = 'btn btn-danger';
+                    document.getElementById('adminTestPrintBtn').style.display = 'inline-block';
+                } else {
+                    status.textContent = '❌ غير متصلة';
+                    status.style.background = '#f8d7da';
+                    status.style.color = '#721c24';
+                    btn.textContent = '🔌 توصيل';
+                    btn.className = 'btn btn-green';
+                    document.getElementById('adminTestPrintBtn').style.display = 'none';
+                }
+            },
+
+            async connect(device) {
+                try {
+                    await device.open();
+                    let iface = null;
+                    for (const config of device.configurations || []) {
+                        for (const ifc of config.interfaces || []) {
+                            if (ifc.alternate?.classCode === 3 || ifc.alternate?.classCode === 1) continue;
+                            if (ifc.alternate && ifc.endpoints && ifc.endpoints.length) {
+                                iface = ifc; break;
+                            }
+                        }
+                        if (iface) break;
+                    }
+                    if (!iface && device.configurations?.[0]?.interfaces?.length) {
+                        iface = device.configurations[0].interfaces[0];
+                    }
+                    if (!iface) { await device.close(); throw new Error('لم يتم العثور على واجهة'); }
+
+                    await device.selectConfiguration(iface.configurationValue || 1);
+                    await device.claimInterface(iface.interfaceNumber);
+
+                    let outEndpoint = null;
+                    for (const ep of iface.alternate.endpoints || iface.endpoints || []) {
+                        if (ep.direction === 'out') { outEndpoint = ep; break; }
+                    }
+
+                    this.device = device;
+                    this.connected = true;
+                    this.outEndpoint = outEndpoint;
+
+                    localStorage.setItem('luccaPrinterInfo', JSON.stringify({
+                        vendorId: device.vendorId,
+                        productId: device.productId,
+                        serial: device.serialNumber
+                    }));
+
+                    this.updateUI();
+                    msg('printerMsg', '✅ تم توصيل الطابعة بنجاح', 'success');
+                    try { await this.testPrint(); } catch(e) {}
+                } catch(e) {
+                    this.connected = false;
+                    this.device = null;
+                    this.updateUI();
+                    throw e;
+                }
+            },
+
+            async disconnect() {
+                if (this.device) {
+                    try { await this.device.close(); } catch(e) {}
+                }
+                this.device = null;
+                this.connected = false;
+                this.outEndpoint = null;
+                localStorage.removeItem('luccaPrinterInfo');
+                this.updateUI();
+                msg('printerMsg', '🔌 تم فصل الطابعة', 'success');
+            },
+
+            async sendRaw(data) {
+                if (!this.connected || !this.device) throw new Error('الطابعة غير متصلة');
+                const encoder = new TextEncoder();
+                const bytes = encoder.encode(data);
+                try {
+                    if (this.outEndpoint) {
+                        await this.device.transferOut(this.outEndpoint.endpointNumber, bytes);
+                    } else {
+                        await this.device.transferOut(2, bytes);
+                    }
+                } catch(e) {
+                    this.connected = false;
+                    this.device = null;
+                    this.updateUI();
+                    throw new Error('انقطع الاتصال: ' + e.message);
+                }
+            },
+
+            async testPrint() {
+                const ESC = '\x1b';
+                const testData = ESC + '\x40' + ESC + '\x74\x11' + ESC + '\x61\x01' + ESC + '\x45\x01' +
+                    'LUCCA CAFFE' + ESC + '\x45\x00' + '\x0a' +
+                    ESC + '\x61\x00' +
+                    'طباعة اختبارية' + '\x0a' +
+                    'تم الاتصال بنجاح!' + '\x0a' +
+                    'شكراً لاستخدام النظام' + '\x0a\x0a\x0a' +
+                    '\x1d\x56\x00';
+                await this.sendRaw(testData);
+            }
+        };
+
+        function connectAdminPrinter() {
+            if (AdminPrinter.connected) {
+                AdminPrinter.disconnect();
+            } else {
+                navigator.usb.requestDevice({
+                    filters: [
+                        { vendorId: 0x04b8 }, { vendorId: 0x067b }, { vendorId: 0x0416 },
+                        { vendorId: 0x1504 }, { vendorId: 0x0525 }, { vendorId: 0x0fe6 },
+                        { vendorId: 0x1fc9 }, { vendorId: 0x2c02 }
+                    ]
+                }).then(device => {
+                    if (device) AdminPrinter.connect(device).catch(e => msg('printerMsg', '❌ ' + e.message, 'error'));
+                }).catch(e => {
+                    if (e.name !== 'NotFoundError') msg('printerMsg', '❌ ' + e.message, 'error');
+                });
+            }
+        }
+
+        function testAdminPrinter() {
+            AdminPrinter.testPrint()
+                .then(() => msg('printerMsg', '✅ تمت طباعة الاختبار بنجاح', 'success'))
+                .catch(e => msg('printerMsg', '❌ ' + e.message, 'error'));
+        }
+
+        function savePrinterSettings() {
+            const paperSize = document.getElementById('paperSize').value;
+            const copies = document.getElementById('printCopies').value;
+            localStorage.setItem('luccaPaperSize', paperSize);
+            localStorage.setItem('luccaPrintCopies', copies);
+            msg('printerMsg', '✅ تم حفظ إعدادات الطابعة');
+        }
+
         // Boot
         document.addEventListener('DOMContentLoaded', async () => {
             await init();
+            AdminPrinter.init().catch(() => {});
             // Try auto-login if user saved in localStorage
             const savedUser = window.LuccaDB.Users.getCurrentUser();
             if (savedUser) {

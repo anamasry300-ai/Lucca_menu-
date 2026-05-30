@@ -124,6 +124,7 @@
                 <div class="order-actions">
                     <button type="button" class="submit-order-btn" id="requestCheckBtn">📝 تسجيل الطلب</button>
                     <button type="button" class="secondary-order-btn" id="requestBillBtn" style="background:var(--terracotta);color:white;" onclick="requestBill()">🧾 طلب الحساب</button>
+                    <button type="button" class="secondary-order-btn" id="printerConnectBtn" style="background:#27ae60;color:white;border:1px solid #27ae60;display:none;">🔌 توصيل الطابعة</button>
                     <button type="button" class="secondary-order-btn" id="thermalPrintBtn" style="background:#2c3e50;color:white;border:1px solid #2c3e50;">🖨️ طباعة حرارية</button>
                     <button type="button" class="secondary-order-btn" id="copyInvoiceBtn">نسخ الملخص</button>
                     <button type="button" class="secondary-order-btn" id="exportImageBtn">تصدير صورة</button>
@@ -1905,6 +1906,273 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
             if (firstCategory) {
                 firstCategory.classList.add('expanded');
             }
+        });
+
+        // ==================== مدير الطابعة الحرارية (WebUSB + ESC/POS) ====================
+        const PrinterManager = {
+            device: null,
+            connected: false,
+
+            async init() {
+                const connectBtn = document.getElementById('printerConnectBtn');
+                if (!navigator.usb) {
+                    connectBtn.style.display = 'none';
+                    return;
+                }
+                connectBtn.style.display = 'inline-block';
+                connectBtn.onclick = () => this.toggleConnection();
+
+                // Auto-reconnect if saved
+                const saved = localStorage.getItem('luccaPrinterInfo');
+                if (saved) {
+                    try {
+                        const info = JSON.parse(saved);
+                        const devices = await navigator.usb.getDevices();
+                        const match = devices.find(d => d.serialNumber === info.serial && d.vendorId === info.vendorId);
+                        if (match) {
+                            await this.connectToDevice(match);
+                        }
+                    } catch(e) {}
+                }
+                this.updateUI();
+            },
+
+            updateUI() {
+                const btn = document.getElementById('printerConnectBtn');
+                if (!btn) return;
+                if (this.connected) {
+                    btn.textContent = '🔌 قطع الطابعة';
+                    btn.style.background = '#e74c3c';
+                    btn.style.borderColor = '#e74c3c';
+                } else {
+                    btn.textContent = '🔌 توصيل الطابعة';
+                    btn.style.background = '#27ae60';
+                    btn.style.borderColor = '#27ae60';
+                }
+            },
+
+            async toggleConnection() {
+                if (this.connected) {
+                    await this.disconnect();
+                } else {
+                    try {
+                        const device = await navigator.usb.requestDevice({
+                            filters: [
+                                { vendorId: 0x04b8 }, // Epson
+                                { vendorId: 0x067b }, // Prolific (many Chinese printers)
+                                { vendorId: 0x0416 }, // Winbond
+                                { vendorId: 0x1504 }, // Sino Wealth
+                                { vendorId: 0x0525 }, // Netchip
+                                { vendorId: 0x0fe6 }, // SavePoint (Xprinter)
+                                { vendorId: 0x1fc9 }, // NXP
+                                { vendorId: 0x2c02 }, // Xprinter
+                            ]
+                        });
+                        if (!device) return;
+                        await this.connectToDevice(device);
+                    } catch(e) {
+                        if (e.name !== 'NotFoundError') {
+                            setOrderStatus('❌ فشل الاتصال بالطابعة: ' + e.message, 'error');
+                        }
+                    }
+                }
+            },
+
+            async connectToDevice(device) {
+                try {
+                    await device.open();
+                    // Try to find the data interface
+                    let iface = null;
+                    for (const config of device.configurations || []) {
+                        for (const ifc of config.interfaces || []) {
+                            // Skip HID and audio interfaces
+                            if (ifc.alternate?.classCode === 3 || ifc.alternate?.classCode === 1) continue;
+                            if (ifc.alternate && ifc.endpoints && ifc.endpoints.length) {
+                                iface = ifc;
+                                break;
+                            }
+                        }
+                        if (iface) break;
+                    }
+                    if (!iface && device.configurations?.[0]?.interfaces?.length) {
+                        iface = device.configurations[0].interfaces[0];
+                    }
+                    if (!iface) { await device.close(); throw new Error('لم يتم العثور على واجهة بيانات'); }
+
+                    await device.selectConfiguration(iface.configurationValue || 1);
+                    await device.claimInterface(iface.interfaceNumber);
+
+                    // Find OUT endpoint
+                    let outEndpoint = null;
+                    for (const ep of iface.alternate.endpoints || iface.endpoints || []) {
+                        if (ep.direction === 'out') { outEndpoint = ep; break; }
+                    }
+
+                    this.device = device;
+                    this.connected = true;
+                    this.outEndpoint = outEndpoint;
+
+                    // Save for auto-reconnect
+                    localStorage.setItem('luccaPrinterInfo', JSON.stringify({
+                        vendorId: device.vendorId,
+                        productId: device.productId,
+                        serial: device.serialNumber
+                    }));
+
+                    this.updateUI();
+                    setOrderStatus('✅ الطابعة الحرارية متصلة', 'success');
+
+                    // Auto-test on connect
+                    try { await this.testPrint(); } catch(e) {}
+                } catch(e) {
+                    this.connected = false;
+                    this.device = null;
+                    this.updateUI();
+                    throw e;
+                }
+            },
+
+            async disconnect() {
+                if (this.device) {
+                    try { await this.device.close(); } catch(e) {}
+                }
+                this.device = null;
+                this.connected = false;
+                this.outEndpoint = null;
+                localStorage.removeItem('luccaPrinterInfo');
+                this.updateUI();
+                setOrderStatus('🔌 تم فصل الطابعة', 'success');
+            },
+
+            // Build ESC/POS receipt bytes
+            buildReceipt(order, formData, subtotal) {
+                const now = new Date();
+                const dateStr = now.toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
+                const timeStr = now.toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' });
+                const discount = formData.discount || 0;
+                const discountAmount = subtotal * (discount / 100);
+                const total = subtotal - discountAmount;
+                const items = order.items || [];
+                const tableLabel = order.tableId === 'takeaway' || order.tableId == 0 ? 'تيك أواي' : 'طاولة ' + (order.tableId || '-');
+
+                const lines = [];
+                const w = (s, len=32) => String(s || '').padEnd(len, ' ');
+                const c = (s) => s;
+                const div = '─'.repeat(32);
+
+                // ESC/POS commands
+                const ESC = '\x1b';
+                const GS = '\x1d';
+                const init = ESC + '\x40';          // Initialize
+                const center = ESC + '\x61\x01';    // Center align
+                const left = ESC + '\x61\x00';      // Left align
+                const boldOn = ESC + '\x45\x01';      // Bold on
+                const boldOff = ESC + '\x45\x00';     // Bold off
+                const nl = '\x0a';                  // New line
+                const cut = GS + '\x56\x00';        // Full cut
+                const feed = ESC + '\x64\x03';      // Feed 3 lines
+                const utf8 = ESC + '\x74\x11';      // UTF-8
+
+                const cmd = (str) => str;
+
+                // Build receipt text
+                const r = [];
+                r.push(init + utf8);
+                r.push(center + boldOn + 'LUCCA' + boldOff + nl);
+                r.push(center + 'Caffe Italiano' + nl);
+                r.push(center + 'بورسعيد - شارع محمد علي' + nl);
+                r.push(center + '01551007413' + nl);
+                r.push(div + nl);
+                r.push('فاتورة #' + String(order.id || '').padStart(4, '0') + w('') + dateStr + nl);
+                r.push(tableLabel + w('') + timeStr + nl);
+                if (formData.customerName) r.push('عميل: ' + formData.customerName + nl);
+                if (formData.customerPhone) r.push('موبايل: ' + formData.customerPhone + nl);
+                r.push(div + nl);
+                r.push('الصنف' + w('') + ' ع  السعر' + nl);
+                r.push('─'.repeat(32) + nl);
+                for (const item of items) {
+                    const name = (item.name || '').substring(0, 16);
+                    const qty = item.quantity || 1;
+                    const price = (item.price || 0) * qty;
+                    const line = name + w('', 16 - name.length) + ' ' + String(qty).padStart(2) + ' ' + String(price.toFixed(0)).padStart(6);
+                    r.push(line + nl);
+                }
+                r.push(div + nl);
+                r.push('المجموع:' + w('') + String(subtotal.toFixed(0)) + ' ج.م' + nl);
+                if (discount > 0) {
+                    r.push('خصم ' + discount + '%:' + w('') + '-' + String(discountAmount.toFixed(0)) + ' ج.م' + nl);
+                }
+                r.push(boldOn + 'الإجمالي:' + w('') + String(total.toFixed(0)) + ' ج.م' + boldOff + nl);
+                if (formData.customerNotes) {
+                    r.push(nl + 'ملاحظات: ' + formData.customerNotes + nl);
+                }
+                r.push(nl + center + 'شكراً لزيارتكم!' + nl);
+                r.push(center + 'Buon Appetito!' + nl);
+                r.push(feed + cut);
+
+                return r.join('');
+            },
+
+            async testPrint() {
+                const testData = '\x1b\x40\x1b\x74\x11\x1b\x61\x01\x1b\x45\x01' +
+                    'LUCCA TEST' + '\x1b\x45\x00\x0a' +
+                    'طباعة اختبارية' + '\x0a\x0a' +
+                    '\x1b\x61\x00' +
+                    'تم الاتصال بنجاح!' + '\x0a' +
+                    'شكراً لاستخدام النظام' + '\x0a\x0a\x0a' +
+                    '\x1d\x56\x00';
+                await this.sendRaw(testData);
+            },
+
+            async sendRaw(data) {
+                if (!this.connected || !this.device) throw new Error('الطابعة غير متصلة');
+                const encoder = new TextEncoder();
+                const bytes = encoder.encode(data);
+                try {
+                    if (this.outEndpoint) {
+                        await this.device.transferOut(this.outEndpoint.endpointNumber, bytes);
+                    } else {
+                        // Try endpoint 2 (common for Epson)
+                        await this.device.transferOut(2, bytes);
+                    }
+                } catch(e) {
+                    // If transfer fails, device may have disconnected
+                    this.connected = false;
+                    this.device = null;
+                    this.updateUI();
+                    throw new Error('انقطع الاتصال بالطابعة: ' + e.message);
+                }
+            },
+
+            async printReceipt(order, formData, subtotal) {
+                const data = this.buildReceipt(order, formData, subtotal);
+                await this.sendRaw(data);
+            },
+
+            isConnected() { return this.connected; }
+        };
+
+        // Override thermal print to use WebUSB when connected
+        const origThermalPrint = thermalPrintInvoice;
+        thermalPrintInvoice = function(order, formData, subtotal) {
+            if (PrinterManager.isConnected()) {
+                PrinterManager.printReceipt(order, formData, subtotal)
+                    .then(() => {
+                        setOrderStatus('🖨️ تمت الطباعة على الطابعة الحرارية', 'success');
+                    })
+                    .catch(e => {
+                        setOrderStatus('❌ فشلت الطباعة: ' + e.message, 'error');
+                        // Fallback to window.print
+                        origThermalPrint(order, formData, subtotal);
+                    });
+            } else {
+                origThermalPrint(order, formData, subtotal);
+            }
+        };
+
+        // Init printer on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            PrinterManager.init().catch(() => {});
         });
     </script>
 </body>
