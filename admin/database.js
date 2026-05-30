@@ -174,12 +174,23 @@ const ServerAPI = {
             const token = this.getToken();
             if (token) headers['Authorization'] = 'Bearer ' + token;
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 2000);
+            const timer = setTimeout(() => controller.abort(), 800);
             const res = await fetch(`${this.getBaseUrl()}/api/${store}`, { headers, signal: controller.signal });
             clearTimeout(timer);
             if (res.ok) return await res.json();
             return null;
         } catch(e) { return null; }
+    },
+
+    // جلب بيانات السيرفر في الخلفية وتحديث المحلي بدون إبطاء
+    async syncToLocal(store) {
+        try {
+            const serverData = await this.getAll(store);
+            if (Array.isArray(serverData)) {
+                await db.clear(store);
+                for (const item of serverData) await db.add(store, item);
+            }
+        } catch(e) {}
     },
 
     async add(store, item) {
@@ -286,12 +297,9 @@ const Users = {
     },
 
     async getAll() {
-        const serverData = await ServerAPI.getAll('users');
-        if (Array.isArray(serverData)) {
-            try { await db.clear('users'); for (const item of serverData) await db.add('users', item); } catch(e) {}
-            return serverData;
-        }
-        return db.getAll('users');
+        const localData = await db.getAll('users');
+        ServerAPI.syncToLocal('users');
+        return localData;
     },
 
     async createDefaultAdmin() {
@@ -323,11 +331,9 @@ const Tables = {
     },
 
     async getAll() {
-        const serverData = await ServerAPI.getAll('tables');
-        if (serverData && serverData.length) {
-            return serverData;
-        }
-        return db.getAll('tables');
+        const localData = await db.getAll('tables');
+        ServerAPI.syncToLocal('tables');
+        return localData;
     },
 
     async update(id, data) {
@@ -458,12 +464,9 @@ const Orders = {
     },
 
     async getAll() {
-        const serverData = await ServerAPI.getAll('orders');
-        if (Array.isArray(serverData)) {
-            try { await db.clear('orders'); for (const item of serverData) await db.add('orders', item); } catch(e) {}
-            return serverData;
-        }
-        return db.getAll('orders');
+        const localData = await db.getAll('orders');
+        ServerAPI.syncToLocal('orders');
+        return localData;
     },
 
     async getByTable(tableId) {
@@ -575,12 +578,9 @@ const Customers = {
     },
 
     async getAll() {
-        const serverData = await ServerAPI.getAll('customers');
-        if (Array.isArray(serverData)) {
-            try { await db.clear('customers'); for (const item of serverData) await db.add('customers', item); } catch(e) {}
-            return serverData;
-        }
-        return db.getAll('customers');
+        const localData = await db.getAll('customers');
+        ServerAPI.syncToLocal('customers');
+        return localData;
     },
 
     async search(phone) {
@@ -592,15 +592,8 @@ const Customers = {
 // ==================== إدارة الإعدادات ====================
 const Settings = {
     async get(key) {
-        const serverData = await ServerAPI.getAll('settings');
-        if (Array.isArray(serverData)) {
-            const found = serverData.find(s => s.key === key);
-            if (found) {
-                try { await db.put('settings', found); } catch(e) {}
-                return found.value;
-            }
-        }
         const setting = await db.get('settings', key);
+        ServerAPI.syncToLocal('settings');
         return setting?.value;
     },
 
@@ -610,25 +603,18 @@ const Settings = {
     },
 
     async getAll() {
-        const serverData = await ServerAPI.getAll('settings');
-        if (Array.isArray(serverData)) {
-            try { await db.clear('settings'); for (const item of serverData) await db.add('settings', item); } catch(e) {}
-            return serverData.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {});
-        }
-        const settings = await db.getAll('settings');
-        return settings.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {});
+        const localData = await db.getAll('settings');
+        ServerAPI.syncToLocal('settings');
+        return localData.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {});
     }
 };
 
 // ==================== إدارة المخزون ====================
 const Inventory = {
     async getAll() {
-        const serverData = await ServerAPI.getAll('inventory');
-        if (Array.isArray(serverData)) {
-            try { await db.clear('inventory'); for (const item of serverData) await db.add('inventory', item); } catch(e) {}
-            return serverData;
-        }
-        return db.getAll('inventory');
+        const localData = await db.getAll('inventory');
+        ServerAPI.syncToLocal('inventory');
+        return localData;
     },
 
     async add(item) {
@@ -671,12 +657,9 @@ const Inventory = {
 // ==================== إدارة المشتريات ====================
 const Purchases = {
     async getAll() {
-        const serverData = await ServerAPI.getAll('purchases');
-        if (Array.isArray(serverData)) {
-            try { await db.clear('purchases'); for (const item of serverData) await db.add('purchases', item); } catch(e) {}
-            return serverData;
-        }
-        return db.getAll('purchases');
+        const localData = await db.getAll('purchases');
+        ServerAPI.syncToLocal('purchases');
+        return localData;
     },
 
     async add(purchase) {
@@ -703,12 +686,9 @@ const Purchases = {
 // ==================== إدارة الموظفين ====================
 const Employees = {
     async getAll() {
-        const serverData = await ServerAPI.getAll('employees');
-        if (Array.isArray(serverData)) {
-            try { await db.clear('employees'); for (const item of serverData) await db.add('employees', item); } catch(e) {}
-            return serverData;
-        }
-        return db.getAll('employees');
+        const localData = await db.getAll('employees');
+        ServerAPI.syncToLocal('employees');
+        return localData;
     },
 
     async add(employee) {
@@ -746,12 +726,9 @@ const Employees = {
 // ==================== الحضور والانصراف ====================
 const Attendance = {
     async getAll() {
-        const serverData = await ServerAPI.getAll('attendance');
-        if (Array.isArray(serverData)) {
-            try { await db.clear('attendance'); for (const item of serverData) await db.add('attendance', item); } catch(e) {}
-            return serverData;
-        }
-        return db.getAll('attendance');
+        const localData = await db.getAll('attendance');
+        ServerAPI.syncToLocal('attendance');
+        return localData;
     },
 
     async checkIn(employeeId, notes) {
@@ -817,12 +794,9 @@ const Attendance = {
 // ==================== إدارة المصروفات ====================
 const Expenses = {
     async getAll() {
-        const serverData = await ServerAPI.getAll('expenses');
-        if (Array.isArray(serverData)) {
-            try { await db.clear('expenses'); for (const item of serverData) await db.add('expenses', item); } catch(e) {}
-            return serverData;
-        }
-        return db.getAll('expenses');
+        const localData = await db.getAll('expenses');
+        ServerAPI.syncToLocal('expenses');
+        return localData;
     },
 
     async add(expense) {
@@ -873,12 +847,9 @@ const Expenses = {
 // ==================== إدارة الشيفتات ====================
 const Shifts = {
     async getAll() {
-        const serverData = await ServerAPI.getAll('shifts');
-        if (Array.isArray(serverData)) {
-            try { await db.clear('shifts'); for (const item of serverData) await db.add('shifts', item); } catch(e) {}
-            return serverData;
-        }
-        return db.getAll('shifts');
+        const localData = await db.getAll('shifts');
+        ServerAPI.syncToLocal('shifts');
+        return localData;
     },
 
     async start(employeeId, notes = '') {
@@ -1117,18 +1088,10 @@ const ServerSync = {
 async function initSystem() {
     await db.init();
 
-    // Auto-fetch API key from server for write operations
-    try {
-        const baseUrl = ServerAPI.getBaseUrl();
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 2000);
-        const resp = await fetch(`${baseUrl}/api/public-key`, { signal: controller.signal });
-        clearTimeout(timer);
-        if (resp.ok) {
-            const data = await resp.json();
-            if (data.apiKey) localStorage.setItem('luccaApiKey', data.apiKey);
-        }
-    } catch(e) {}
+    // Auto-fetch API key from server (short timeout, best-effort)
+    ServerAPI.getAll('public-key').then(data => {
+        if (data?.apiKey) localStorage.setItem('luccaApiKey', data.apiKey);
+    }).catch(() => {});
 
     await Tables.init();
     await Users.createDefaultAdmin();
@@ -1136,10 +1099,9 @@ async function initSystem() {
         await MenuSync.syncFromMenuData(menuData);
     }
 
-    // Push local data to server first (so nothing gets lost)
-    await ServerSync.pushAll().catch(() => {});
-    // Then pull data from other devices
-    await ServerSync.pullAll().catch(() => {});
+    // Push/pull server in background — don't block page load
+    ServerSync.pushAll().catch(() => {});
+    ServerSync.pullAll().catch(() => {});
 
     console.log('✅ تم تهيئة نظام Lucca Caffè');
 }
