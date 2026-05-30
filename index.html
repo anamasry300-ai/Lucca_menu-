@@ -124,6 +124,7 @@
                 <div class="order-actions">
                     <button type="button" class="submit-order-btn" id="requestCheckBtn">📝 تسجيل الطلب</button>
                     <button type="button" class="secondary-order-btn" id="requestBillBtn" style="background:var(--terracotta);color:white;" onclick="requestBill()">🧾 طلب الحساب</button>
+                    <button type="button" class="secondary-order-btn" id="thermalPrintBtn" style="background:#2c3e50;color:white;border:1px solid #2c3e50;">🖨️ طباعة حرارية</button>
                     <button type="button" class="secondary-order-btn" id="copyInvoiceBtn">نسخ الملخص</button>
                     <button type="button" class="secondary-order-btn" id="exportImageBtn">تصدير صورة</button>
                     <button type="button" class="secondary-order-btn" id="exportPdfBtn">تصدير PDF</button>
@@ -210,9 +211,11 @@
     <div class="invoice-modal" id="invoiceModal">
         <div class="invoice-content">
             <div id="invoiceContent"></div>
-            <div class="invoice-actions" style="display:flex;gap:10px;margin-top:20px;padding-top:15px;border-top:2px dashed #C85A3E;">
-                <button class="btn-print" style="flex:1;padding:12px;background:var(--terracotta);color:white;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">🧾 تأكيد وطباعة</button>
-                <button class="btn-close-invoice" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">إغلاق</button>
+            <div class="invoice-actions" style="display:flex;gap:10px;margin-top:20px;padding-top:15px;border-top:2px dashed #C85A3E;flex-wrap:wrap;">
+                <button class="btn-thermal" style="flex:1;min-width:100px;padding:12px;background:#2c3e50;color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:700;">🖨️ طباعة حرارية</button>
+                <button class="btn-print" style="flex:1;min-width:100px;padding:12px;background:var(--terracotta);color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:700;">🧾 طباعة عادية</button>
+                <button class="btn-image-export" style="flex:1;min-width:100px;padding:12px;background:#8e44ad;color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:700;">📸 تصدير صورة</button>
+                <button class="btn-close-invoice" style="flex:1;min-width:100px;padding:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;">إغلاق</button>
             </div>
         </div>
     </div>
@@ -370,6 +373,7 @@
 
             document.getElementById('clearOrderBtn').addEventListener('click', clearOrder);
             document.getElementById('requestCheckBtn').addEventListener('click', requestCheck);
+            document.getElementById('thermalPrintBtn').addEventListener('click', thermalPrintPreview);
             document.getElementById('copyInvoiceBtn').addEventListener('click', copyInvoiceSummary);
             document.getElementById('exportImageBtn').addEventListener('click', exportInvoiceAsImage);
             document.getElementById('exportPdfBtn').addEventListener('click', exportInvoiceAsPDF);
@@ -1624,23 +1628,41 @@
             // Show invoice in modal
             const modal = document.getElementById('invoiceModal');
             const content = document.getElementById('invoiceContent');
-            content.innerHTML = generateInvoiceHTML(order, formData, subtotal);
+            const fullHtml = generateInvoiceHTML(order, formData, subtotal, false);
+            content.innerHTML = fullHtml;
             modal.classList.add('show');
 
-            // Print
-            document.querySelector('#invoiceModal .btn-print').onclick = () => {
-                printInvoiceContent(content.innerHTML);
+            function closeAndClear() {
                 modal.classList.remove('show');
                 clearOrder();
                 loadTables();
+            }
+
+            // Thermal print
+            document.querySelector('#invoiceModal .btn-thermal').onclick = () => {
+                thermalPrintInvoice(order, formData, subtotal);
+                closeAndClear();
+                setOrderStatus('✅ تم إرسال الفاتورة للطابعة الحرارية', 'success');
+            };
+
+            // Normal print
+            document.querySelector('#invoiceModal .btn-print').onclick = () => {
+                printInvoiceContent(content.innerHTML);
+                closeAndClear();
                 setOrderStatus('✅ تمت طباعة الفاتورة والطلب مسجل في المحاسبة', 'success');
+            };
+
+            // Export image
+            document.querySelector('#invoiceModal .btn-image-export').onclick = async () => {
+                modal.classList.remove('show');
+                await exportInvoiceAsImage(true);
+                closeAndClear();
+                setOrderStatus('✅ تم تصدير صورة الفاتورة', 'success');
             };
 
             // Close
             document.querySelector('#invoiceModal .btn-close-invoice').onclick = () => {
-                modal.classList.remove('show');
-                clearOrder();
-                loadTables();
+                closeAndClear();
                 setOrderStatus('✅ الطلب مسجل في المحاسبة', 'success');
             };
         }
@@ -1658,6 +1680,109 @@
             </style></head><body>${html}</body></html>`);
             w.document.close();
             w.print();
+        }
+
+        function thermalPrintInvoice(order, formData, subtotal) {
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
+            const timeStr = now.toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' });
+            const discount = formData.discount || 0;
+            const discountAmount = subtotal * (discount / 100);
+            const total = subtotal - discountAmount;
+            const items = order.items || [];
+
+            const itemRows = items.map(i => {
+                const line = i.name.substring(0, 28);
+                const qty = i.quantity || 1;
+                const price = (i.price || 0) * qty;
+                return `<tr><td style="padding:3px 4px;text-align:right;">${line}</td><td style="padding:3px 4px;text-align:center;width:30px;">${qty}</td><td style="padding:3px 4px;text-align:left;width:60px;">${price.toFixed(0)}</td></tr>`;
+            }).join('');
+
+            const tableLabel = order.tableId === 'takeaway' || order.tableId == 0 ? '🛵 تيك أواي' : 'طاولة ' + (order.tableId || '-');
+
+            const thermalHtml = `
+                <!DOCTYPE html>
+                <html dir="rtl">
+                <head>
+                    <meta charset="utf-8">
+                    <title>فاتورة ${order.id}</title>
+                    <style>
+                        @page { size: 80mm auto; margin: 0; }
+                        * { margin: 0; padding: 0; box-sizing: border-box; }
+                        body {
+                            font-family: 'Courier New', 'Tajawal', monospace;
+                            font-size: 11px;
+                            padding: 10px 8px;
+                            direction: rtl;
+                            color: #000;
+                            width: 72mm;
+                        }
+                        .header { text-align: center; margin-bottom: 8px; }
+                        .header h1 { font-size: 20px; font-weight: 900; letter-spacing: 2px; }
+                        .header .sub { font-size: 10px; margin: 2px 0; }
+                        .header .addr { font-size: 8px; color: #555; }
+                        .divider { border-top: 1px dashed #000; margin: 6px 0; }
+                        .info-row { display: flex; justify-content: space-between; font-size: 10px; margin: 3px 0; }
+                        table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 10px; }
+                        th { border-bottom: 1px solid #000; padding: 4px 4px; text-align: right; font-size: 10px; }
+                        th:last-child, td:last-child { text-align: left; }
+                        th:nth-child(2), td:nth-child(2) { text-align: center; }
+                        .total-row { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; margin: 4px 0; }
+                        .footer { text-align: center; margin-top: 8px; font-size: 9px; }
+                        .barcode { text-align: center; font-family: 'Courier New', monospace; font-size: 14px; letter-spacing: 2px; margin: 6px 0; }
+                        @media print { body { print-color-adjust: exact; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>LUCCA</h1>
+        <div class="sub">Caffe Italiano</div>
+        <div class="addr">بورسعيد - شارع محمد علي</div>
+        <div class="addr">01551007413</div>
+    </div>
+    <div class="divider"></div>
+    <div class="info-row"><span>فاتورة #${String(order.id || '').padStart(4, '0')}</span><span>${dateStr}</span></div>
+    <div class="info-row"><span>${tableLabel}</span><span>${timeStr}</span></div>
+    ${formData.customerName ? `<div class="info-row"><span>عميل: ${formData.customerName}</span></div>` : ''}
+    ${formData.customerPhone ? `<div class="info-row"><span>موبايل: ${formData.customerPhone}</span></div>` : ''}
+    <div class="divider"></div>
+    <table>
+        <thead><tr><th>الصنف</th><th>ع</th><th>السعر</th></tr></thead>
+        <tbody>${itemRows}</tbody>
+    </table>
+    <div class="divider"></div>
+    <div class="total-row"><span>المجموع:</span><span>${subtotal.toFixed(0)} ج.م</span></div>
+    ${discount > 0 ? `<div class="info-row"><span>خصم ${discount}%:</span><span>-${discountAmount.toFixed(0)} ج.م</span></div>` : ''}
+    <div class="total-row" style="font-size:14px;border-top:1px solid #000;padding-top:4px;">
+        <span>الإجمالي:</span><span>${total.toFixed(0)} ج.م</span>
+    </div>
+    ${formData.customerNotes ? `<div class="info-row" style="margin-top:4px;"><span>📝 ${formData.customerNotes}</span></div>` : ''}
+    <div class="barcode">* * *</div>
+    <div class="footer">
+        <div>شكراً لزيارتكم!</div>
+        <div>Buon Appetito!</div>
+    </div>
+</body></html>`;
+
+const w = window.open('', '_blank', 'width=380,height=600');
+w.document.write(thermalHtml);
+w.document.close();
+// Small delay to let content render before print
+setTimeout(() => { w.focus(); w.print(); }, 300);
+}
+
+        function thermalPrintPreview() {
+            const items = buildOrderPayload();
+            if (items.length === 0) { setOrderStatus('أضف أصنافاً أولاً.', 'error'); return; }
+            const formData = collectCustomerForm();
+            const subtotal = items.reduce((s, i) => s + (i.price * i.quantity), 0);
+            const discount = formData.discount || 0;
+            const discountAmount = subtotal * (discount / 100);
+            const total = subtotal - discountAmount;
+            const tableNum = document.getElementById('tableSelect').value || '-';
+            const order = { id: Date.now(), tableId: tableNum, items };
+            thermalPrintInvoice(order, formData, subtotal);
+            setOrderStatus('🖨️ تم إرسال الفاتورة للطابعة الحرارية', 'success');
         }
 
         function toggleCategory(header) {
