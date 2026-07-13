@@ -7,7 +7,7 @@
 
 // ==================== قاعدة البيانات المحلية ====================
 const DB_NAME = 'lucca_caffe_db';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 class LuccaDatabase {
     constructor() {
@@ -93,6 +93,21 @@ class LuccaDatabase {
                     shiftStore.createIndex('date', 'date', { unique: false });
                     shiftStore.createIndex('employeeId', 'employeeId', { unique: false });
                 }
+
+                // جدول الفواتير — سجل دائم للمبيعات
+                if (!db.objectStoreNames.contains('invoices')) {
+                    const invStore = db.createObjectStore('invoices', { keyPath: 'id', autoIncrement: true });
+                    invStore.createIndex('orderId', 'orderId', { unique: true });
+                    invStore.createIndex('date', 'date', { unique: false });
+                    invStore.createIndex('tableId', 'tableId', { unique: false });
+                }
+
+                // جدول المدفوعات
+                if (!db.objectStoreNames.contains('payments')) {
+                    const payStore = db.createObjectStore('payments', { keyPath: 'id', autoIncrement: true });
+                    payStore.createIndex('invoiceId', 'invoiceId', { unique: false });
+                    payStore.createIndex('date', 'date', { unique: false });
+                }
             };
         });
     }
@@ -174,7 +189,7 @@ const ServerAPI = {
             const token = this.getToken();
             if (token) headers['Authorization'] = 'Bearer ' + token;
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 800);
+            const timer = setTimeout(() => controller.abort(), 3000);
             const res = await fetch(`${this.getBaseUrl()}/api/${store}`, { headers, signal: controller.signal });
             clearTimeout(timer);
             if (res.ok) return await res.json();
@@ -182,15 +197,28 @@ const ServerAPI = {
         } catch(e) { return null; }
     },
 
+    // Lock to prevent concurrent syncToLocal race conditions
+    _syncLocks: {},
+
     // جلب بيانات السيرفر في الخلفية وتحديث المحلي بدون إبطاء
     async syncToLocal(store) {
+        // Prevent concurrent sync on same store
+        if (this._syncLocks[store]) return;
+        this._syncLocks[store] = true;
         try {
             const serverData = await this.getAll(store);
             if (Array.isArray(serverData)) {
-                await db.clear(store);
-                for (const item of serverData) await db.add(store, item);
+                // Use put (upsert) instead of clear+add to prevent race windows
+                for (const item of serverData) {
+                    try {
+                        await db.put(store, item);
+                    } catch(e) { /* skip individual item errors */ }
+                }
             }
-        } catch(e) {}
+        } catch(e) { /* silent */ }
+        finally {
+            this._syncLocks[store] = false;
+        }
     },
 
     async add(store, item) {
@@ -200,8 +228,18 @@ const ServerAPI = {
                 method: 'POST', headers, body: JSON.stringify(item)
             });
             if (res.ok) return await res.json();
+            if (res.status === 409) {
+                const errBody = await res.json().catch(() => ({}));
+                const err = new Error(errBody.error || 'الطاولة عليها طلب نشط بالفعل');
+                err.status = 409;
+                err.existingOrderId = errBody.existingOrderId;
+                throw err;
+            }
             return null;
-        } catch(e) { return null; }
+        } catch(e) {
+            if (e && e.status === 409) throw e;
+            return null;
+        }
     },
 
     async put(store, id, item) {
@@ -233,6 +271,26 @@ const ServerAPI = {
             if (res.ok) return await res.json();
             return null;
         } catch(e) { return null; }
+    },
+
+    async checkout(orderId, data) {
+        try {
+            const headers = { 'Content-Type': 'application/json', 'x-api-key': this.getApiKey() };
+            const res = await fetch(`${this.getBaseUrl()}/api/orders/${orderId}/checkout`, {
+                method: 'POST', headers, body: JSON.stringify(data || {})
+            });
+            if (res.ok) return await res.json();
+            const errBody = await res.json().catch(() => ({}));
+            if (res.status === 409) {
+                const err = new Error(errBody.error || 'الطلب مغلق بالفعل');
+                err.status = 409;
+                throw err;
+            }
+            return null;
+        } catch(e) {
+            if (e && e.status === 409) throw e;
+            return null;
+        }
     }
 };
 
@@ -261,7 +319,8 @@ const Users = {
         }
 
         if (valid) {
-            localStorage.setItem('currentUser', JSON.stringify(user));
+            const safe = { id: user.id, username: user.username, name: user.name, role: user.role };
+            localStorage.setItem('currentUser', JSON.stringify(safe));
             return user;
         }
         throw new Error('اسم المستخدم أو كلمة المرور خطأ');
@@ -297,9 +356,7 @@ const Users = {
     },
 
     async getAll() {
-        const localData = await db.getAll('users');
-        ServerAPI.syncToLocal('users');
-        return localData;
+        return db.getAll('users');
     },
 
     async createDefaultAdmin() {
@@ -324,16 +381,13 @@ const Tables = {
         if (tables.length === 0) {
             for (let i = 1; i <= 14; i++) {
                 const t = { id: i, number: i, status: 'available', capacity: 4, currentOrder: null };
-                await db.add('tables', t);
-                ServerAPI.add('tables', t).catch(() => {});
+                await db.put('tables', t);
             }
         }
     },
 
     async getAll() {
-        const localData = await db.getAll('tables');
-        ServerAPI.syncToLocal('tables');
-        return localData;
+        return db.getAll('tables');
     },
 
     async update(id, data) {
@@ -393,10 +447,9 @@ const Orders = {
             id = await db.add('orders', order);
         }
 
-        if (tableId) {
         if (tableId && !isNaN(tableId)) {
-            await Tables.update(parseInt(tableId), { status: 'occupied', currentOrder: id });
-        }
+            const tableStatus = order.status === 'completed' ? 'available' : 'occupied';
+            await Tables.update(parseInt(tableId), { status: tableStatus, currentOrder: order.status === 'pending' ? id : null });
         }
         if (customerPhone) {
             await Customers.add(customerPhone, customerName, {
@@ -409,6 +462,19 @@ const Orders = {
     },
 
     async create(tableId, items, customerName = '', customerPhone = '', options = {}) {
+        // Check for existing pending order on this table before creating
+        if (tableId && !isNaN(tableId)) {
+            const existingOrders = await db.getAll('orders');
+            const active = existingOrders.find(o =>
+                String(o.tableId) === String(tableId) &&
+                o.status === 'pending' &&
+                o.id !== (options.existingOrderId || null)
+            );
+            if (active) {
+                return active;
+            }
+        }
+
         const order = {
             tableId,
             items,
@@ -440,11 +506,28 @@ const Orders = {
         order.total = afterDiscount + order.tax;
 
         let id;
-        const serverResult = await ServerAPI.add('orders', order);
-        if (serverResult && serverResult.id) {
-            id = serverResult.id;
-            await db.put('orders', { ...order, id });
-        } else {
+        try {
+            const serverResult = await ServerAPI.add('orders', order);
+            if (serverResult && serverResult.id) {
+                id = serverResult.id;
+                await db.put('orders', { ...order, id });
+            } else {
+                id = await db.add('orders', order);
+            }
+        } catch(e) {
+            if (e.status === 409 && e.existingOrderId) {
+                const existing = (await db.getAll('orders')).find(o => o.id == e.existingOrderId || o.id === e.existingOrderId);
+                if (existing) {
+                    existing.items = items;
+                    existing.customerName = customerName || existing.customerName;
+                    existing.customerPhone = customerPhone || existing.customerPhone;
+                    existing.subtotal = order.subtotal;
+                    existing.discount = order.discount;
+                    existing.total = order.total;
+                    await db.put('orders', existing);
+                    return existing;
+                }
+            }
             id = await db.add('orders', order);
         }
 
@@ -464,39 +547,113 @@ const Orders = {
     },
 
     async getAll() {
-        const localData = await db.getAll('orders');
-        ServerAPI.syncToLocal('orders');
-        return localData;
+        return db.getAll('orders');
     },
 
     async getByTable(tableId) {
         const orders = await this.getAll();
-        return orders.filter(o => o.tableId === tableId && o.status !== 'completed');
+        return orders.filter(o => String(o.tableId) === String(tableId) && o.status === 'pending');
+    },
+
+    async closeOrder(orderId) {
+        const orders = await db.getAll('orders');
+        const localOrder = orders.find(o => o.id === orderId);
+        if (!localOrder) throw new Error('الطلب غير موجود');
+        if (localOrder.status === 'closed') throw new Error('الطلب مغلق بالفعل');
+
+        localOrder.status = 'closed';
+        await db.put('orders', localOrder);
+
+        if (localOrder.tableId && !isNaN(parseInt(localOrder.tableId))) {
+            await Tables.update(parseInt(localOrder.tableId), { status: 'available', currentOrder: null });
+        }
+
+        return localOrder;
     },
 
     async updateStatus(orderId, status) {
-        const serverOk = await ServerAPI.put('orders', orderId, { status });
-        if (serverOk) {
-            const order = await ServerAPI.get('orders', orderId);
-            if (order) {
-                await db.put('orders', order);
-                if (status === 'completed' || status === 'cancelled') {
-                    await Tables.update(order.tableId, { status: 'available', currentOrder: null });
-                }
-                return order;
-            }
-        }
         const orders = await db.getAll('orders');
-        const order = orders.find(o => o.id === orderId);
-        if (order) {
-            order.status = status;
-            await db.put('orders', order);
-            if (status === 'completed' || status === 'cancelled') {
-                await Tables.update(order.tableId, { status: 'available', currentOrder: null });
-            }
-            ServerAPI.put('orders', orderId, order).catch(() => {});
+        const localOrder = orders.find(o => o.id === orderId);
+        if (!localOrder) throw new Error('الطلب غير موجود');
+        localOrder.status = status;
+        await db.put('orders', localOrder);
+        if (['cancelled', 'closed'].includes(status) && localOrder.tableId && !isNaN(parseInt(localOrder.tableId))) {
+            await Tables.update(parseInt(localOrder.tableId), { status: 'available', currentOrder: null });
         }
-        return order;
+        ServerAPI.put('orders', orderId, localOrder).catch(() => {});
+        return localOrder;
+    },
+
+    // Professional checkout: closes order, saves invoice+payment, updates inventory, frees table
+    async checkout(orderId, paymentMethod) {
+        const orders = await db.getAll('orders');
+        const localOrder = orders.find(o => o.id === orderId);
+        if (!localOrder) throw new Error('الطلب غير موجود');
+        if (localOrder.status === 'closed') throw new Error('الطلب مغلق بالفعل');
+
+        // Try server checkout first (atomic)
+        const serverResult = await ServerAPI.checkout(orderId, { paymentMethod: paymentMethod || 'cash' });
+        if (serverResult && serverResult.success) {
+            // Server handled it atomically — sync local state from server
+            if (serverResult.order) {
+                await db.put('orders', serverResult.order);
+            }
+            if (localOrder.tableId && !isNaN(parseInt(localOrder.tableId))) {
+                await Tables.update(parseInt(localOrder.tableId), { status: 'available', currentOrder: null });
+            }
+            return { ...localOrder, status: 'closed' };
+        }
+
+        // Server unavailable — do local checkout atomically
+        const now = new Date().toISOString();
+        const subtotal = localOrder.subtotal || (localOrder.items || []).reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
+        const discountAmount = localOrder.discountAmount || (subtotal * (localOrder.discount || 0) / 100);
+        const total = localOrder.total || (subtotal - discountAmount + (localOrder.tax || 0));
+
+        // 1. Create invoice (immutable record of the sale)
+        const invoice = {
+            orderId: localOrder.id,
+            tableId: localOrder.tableId,
+            customerName: localOrder.customerName || '',
+            customerPhone: localOrder.customerPhone || '',
+            items: localOrder.items || [],
+            subtotal,
+            discount: localOrder.discount || 0,
+            discountAmount,
+            tax: localOrder.tax || 0,
+            total,
+            paymentMethod: paymentMethod || 'cash',
+            date: now,
+            createdBy: Users.getCurrentUser()?.name || 'unknown'
+        };
+        const invoiceId = await db.add('invoices', invoice);
+
+        // 2. Record payment
+        const payment = {
+            invoiceId,
+            amount: total,
+            method: paymentMethod || 'cash',
+            date: now
+        };
+        await db.add('payments', payment);
+
+        // 3. Deduct inventory (work in background)
+        Inventory.deductForCheckout(localOrder.items || []).catch(() => {});
+
+        // 4. Close the order
+        localOrder.status = 'closed';
+        localOrder.paymentMethod = paymentMethod || 'cash';
+        await db.put('orders', localOrder);
+
+        // 5. Free the table
+        if (localOrder.tableId && !isNaN(parseInt(localOrder.tableId))) {
+            await Tables.update(parseInt(localOrder.tableId), { status: 'available', currentOrder: null });
+        }
+
+        // 6. Sync to server in background
+        ServerAPI.checkout(orderId, { paymentMethod: paymentMethod || 'cash' }).catch(() => {});
+
+        return { ...localOrder, _invoiceId: invoiceId };
     },
 
     async updateOrder(orderId, updates) {
@@ -530,7 +687,7 @@ const Orders = {
     async getDailySales() {
         const orders = await this.getAll();
         const today = new Date().toISOString().split('T')[0];
-        return orders.filter(o => o.date.startsWith(today) && (o.status === 'completed' || o.status === 'pending'));
+        return orders.filter(o => o.date.startsWith(today) && (o.status === 'closed' || o.status === 'completed' || o.status === 'pending'));
     },
 
     async getByDateRange(startDate, endDate) {
@@ -578,9 +735,7 @@ const Customers = {
     },
 
     async getAll() {
-        const localData = await db.getAll('customers');
-        ServerAPI.syncToLocal('customers');
-        return localData;
+        return db.getAll('customers');
     },
 
     async search(phone) {
@@ -593,7 +748,6 @@ const Customers = {
 const Settings = {
     async get(key) {
         const setting = await db.get('settings', key);
-        ServerAPI.syncToLocal('settings');
         return setting?.value;
     },
 
@@ -604,7 +758,6 @@ const Settings = {
 
     async getAll() {
         const localData = await db.getAll('settings');
-        ServerAPI.syncToLocal('settings');
         return localData.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {});
     }
 };
@@ -612,9 +765,7 @@ const Settings = {
 // ==================== إدارة المخزون ====================
 const Inventory = {
     async getAll() {
-        const localData = await db.getAll('inventory');
-        ServerAPI.syncToLocal('inventory');
-        return localData;
+        return db.getAll('inventory');
     },
 
     async add(item) {
@@ -651,15 +802,35 @@ const Inventory = {
             ServerAPI.put('inventory', id, item).catch(() => {});
         }
         return item;
+    },
+
+    // Deduct inventory for all items in a checkout order
+    async deductForCheckout(items) {
+        if (!items || !items.length) return;
+        const allInventory = await this.getAll();
+        if (!allInventory.length) return;
+
+        for (const orderItem of items) {
+            const name = (orderItem.name || '').trim();
+            if (!name) continue;
+            const invItem = allInventory.find(i =>
+                (i.name || '').trim().toLowerCase() === name.toLowerCase()
+            );
+            if (invItem && invItem.quantity > 0) {
+                const qty = orderItem.quantity || 1;
+                invItem.quantity = Math.max(0, (invItem.quantity || 0) - qty);
+                invItem.lastUpdated = new Date().toISOString();
+                await db.put('inventory', invItem);
+                ServerAPI.put('inventory', invItem.id, invItem).catch(() => {});
+            }
+        }
     }
 };
 
 // ==================== إدارة المشتريات ====================
 const Purchases = {
     async getAll() {
-        const localData = await db.getAll('purchases');
-        ServerAPI.syncToLocal('purchases');
-        return localData;
+        return db.getAll('purchases');
     },
 
     async add(purchase) {
@@ -686,9 +857,7 @@ const Purchases = {
 // ==================== إدارة الموظفين ====================
 const Employees = {
     async getAll() {
-        const localData = await db.getAll('employees');
-        ServerAPI.syncToLocal('employees');
-        return localData;
+        return db.getAll('employees');
     },
 
     async add(employee) {
@@ -726,9 +895,7 @@ const Employees = {
 // ==================== الحضور والانصراف ====================
 const Attendance = {
     async getAll() {
-        const localData = await db.getAll('attendance');
-        ServerAPI.syncToLocal('attendance');
-        return localData;
+        return db.getAll('attendance');
     },
 
     async checkIn(employeeId, notes) {
@@ -794,9 +961,7 @@ const Attendance = {
 // ==================== إدارة المصروفات ====================
 const Expenses = {
     async getAll() {
-        const localData = await db.getAll('expenses');
-        ServerAPI.syncToLocal('expenses');
-        return localData;
+        return db.getAll('expenses');
     },
 
     async add(expense) {
@@ -847,9 +1012,7 @@ const Expenses = {
 // ==================== إدارة الشيفتات ====================
 const Shifts = {
     async getAll() {
-        const localData = await db.getAll('shifts');
-        ServerAPI.syncToLocal('shifts');
-        return localData;
+        return db.getAll('shifts');
     },
 
     async start(employeeId, notes = '') {
@@ -1099,9 +1262,15 @@ async function initSystem() {
         await MenuSync.syncFromMenuData(menuData);
     }
 
-    // Push/pull server in background — don't block page load
-    ServerSync.pushAll().catch(() => {});
-    ServerSync.pullAll().catch(() => {});
+    // Push/pull server sequentially to prevent race conditions
+    setTimeout(async () => {
+        try {
+            await ServerSync.pushAll();
+        } catch(e) {}
+        try {
+            await ServerSync.pullAll();
+        } catch(e) {}
+    }, 500);
 
     console.log('✅ تم تهيئة نظام Lucca Caffè');
 }

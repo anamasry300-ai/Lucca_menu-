@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { initDb, getDb, saveDb, closeDb } from './db.js';
+import { initDb, getDb, saveDb, closeDb, queryAll, queryOne, beginTransaction, commitTransaction, rollbackTransaction } from './db.js';
 import crudRoutes from './routes/crud.js';
 import specialRoutes from './routes/special.js';
 
@@ -32,26 +32,78 @@ app.use('/api', specialRoutes);
 app.use('/api', crudRoutes);
 
 // Sync: POST /api/sync
-app.post('/api/sync', (req, res) => {
+// Checkout endpoint: atomically close order and free table
+app.post('/api/orders/:id/checkout', (req, res) => {
   try {
     const db = getDb();
+    const orderId = req.params.id;
+    const { paymentMethod } = req.body;
+
+    const order = queryOne('SELECT * FROM orders WHERE id = ?', [orderId]);
+    if (!order) { res.status(404).json({ error: 'Order not found' }); return; }
+    if (order.status === 'closed') { res.status(409).json({ error: 'Order is already closed' }); return; }
+
+    beginTransaction();
+    try {
+      // 1. Close the order
+      db.run('UPDATE orders SET status = ?, paymentMethod = ? WHERE id = ?', ['closed', paymentMethod || 'cash', orderId]);
+
+      // 2. Free the table if this is a dine-in order
+      const tableId = order.tableId as string | undefined;
+      if (tableId && tableId !== 'takeaway' && !isNaN(Number(tableId))) {
+        db.run('UPDATE tables SET status = ?, currentOrder = ? WHERE id = ?', ['available', null, Number(tableId)]);
+      }
+
+      // 3. Update daily shift sales data
+      const today = new Date().toISOString().slice(0, 10);
+      const existingShift = queryOne('SELECT * FROM daily_shifts WHERE date = ?', [today]);
+      const total = (order.total as number) || 0;
+      if (existingShift) {
+        const cashSales = paymentMethod === 'cash' ? (existingShift.cashSales as number || 0) + total : (existingShift.cashSales as number || 0);
+        const cardSales = paymentMethod !== 'cash' ? (existingShift.cardSales as number || 0) + total : (existingShift.cardSales as number || 0);
+        const totalSales = (existingShift.totalSales as number || 0) + total;
+        const orderCount = (existingShift.orderCount as number || 0) + 1;
+        db.run(
+          'UPDATE daily_shifts SET cashSales = ?, cardSales = ?, totalSales = ?, orderCount = ? WHERE date = ?',
+          [cashSales, cardSales, totalSales, orderCount, today]
+        );
+      }
+
+      commitTransaction();
+      const closedOrder = queryOne('SELECT * FROM orders WHERE id = ?', [orderId]);
+      res.json({ success: true, order: closedOrder ? { ...closedOrder, items: JSON.parse((closedOrder.items as string) || '[]') } : null });
+    } catch (e) {
+      rollbackTransaction();
+      throw e;
+    }
+  } catch (e: unknown) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+// Sync: POST /api/sync
+app.post('/api/sync', (req, res) => {
+  let db;
+  try {
+    db = getDb();
     const data = req.body;
     const stores = ['users', 'tables', 'orders', 'customers', 'settings', 'inventory', 'purchases', 'employees', 'attendance', 'expenses', 'shifts', 'daily_shifts'];
+    beginTransaction();
     for (const store of stores) {
       if (!Array.isArray(data[store])) continue;
       db.run(`DELETE FROM \`${store}\``);
       for (const item of data[store]) {
         const keys = Object.keys(item);
+        if (keys.length === 0) continue;
         const cols = keys.map(k => `\`${k}\``).join(', ');
         const vals = keys.map(() => '?').join(', ');
-        try {
-          db.run(`INSERT INTO \`${store}\` (${cols}) VALUES (${vals})`, keys.map(k => item[k]));
-        } catch { /* skip conflicts */ }
+        db.run(`INSERT OR REPLACE INTO \`${store}\` (${cols}) VALUES (${vals})`, keys.map(k => item[k]));
       }
     }
-    saveDb();
+    commitTransaction();
     res.json({ success: true, message: '✅ تم استيراد البيانات' });
   } catch (e: unknown) {
+    if (db) rollbackTransaction();
     res.status(500).json({ error: (e as Error).message });
   }
 });
