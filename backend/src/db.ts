@@ -88,7 +88,22 @@ export function getLastInsertId(): number {
   return _lastInsertId;
 }
 
+// Transaction helpers
+export function beginTransaction(): void {
+  getDb().run('BEGIN');
+}
+
+export function commitTransaction(): void {
+  getDb().run('COMMIT');
+  saveDb();
+}
+
+export function rollbackTransaction(): void {
+  getDb().run('ROLLBACK');
+}
+
 function migrate(db: SqlJsDatabase) {
+  db.run('PRAGMA foreign_keys = ON;');
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,7 +117,7 @@ function migrate(db: SqlJsDatabase) {
     CREATE TABLE IF NOT EXISTS tables (
       id INTEGER PRIMARY KEY,
       number INTEGER,
-      status TEXT DEFAULT 'available',
+      status TEXT DEFAULT 'available' CHECK(status IN ('available','occupied','reserved','cleaning','closed')),
       capacity INTEGER DEFAULT 4,
       currentOrder INTEGER
     );
@@ -117,7 +132,7 @@ function migrate(db: SqlJsDatabase) {
       customerNotes TEXT DEFAULT '',
       invoiceDelivery TEXT DEFAULT 'cashier',
       marketingOptIn INTEGER DEFAULT 0,
-      status TEXT DEFAULT 'pending',
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','completed','cancelled','closed')),
       subtotal REAL DEFAULT 0,
       discount REAL DEFAULT 0,
       discountAmount REAL DEFAULT 0,

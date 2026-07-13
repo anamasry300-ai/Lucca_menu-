@@ -1,0 +1,21 @@
+{
+  "name": "lucca-caffe-pos",
+  "version": "1.0.0",
+  "description": "Lucca Caffè - نظام إدارة المقهى",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "npm run icon && npx electron-packager . LuccaPOS --platform=win32 --arch=x64 --out=dist --overwrite --asar --icon=icon --ignore=node_modules --ignore=\\.git$ --ignore=README\\.md$ --ignore=backend --ignore=dist --ignore=scripts --ignore=\\.bat$ --ignore=\\.md$ --ignore=icon\\.svg$ --ignore=icon-tmp",
+    "icon": "node scripts/generate-icon.js"
+  },
+  "author": "Lucca Caffè",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^42.3.0",
+    "electron-packager": "^17.0.0"
+  },
+  "dependencies": {
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5"
+  }
+}

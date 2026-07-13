@@ -71,7 +71,7 @@
                             <select id="customerSelect" onchange="onCustomerSelect()" style="flex:1;">
                                 <option value="">➕ عميل جديد</option>
                             </select>
-                            <button type="button" onclick="loadCustomerSelect()" title="تحديث قائمة العملاء" style="padding:8px 12px;border:2px solid var(--olive-light);border-radius:8px;background:var(--warm-white);cursor:pointer;">🔄</button>
+                            <button type="button" onclick="loadCustomerSelect()" title="تحديث قائمة العملاء" style="padding:8px 12px;border:2px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;">🔄</button>
                         </div>
                     </label>
                     <label class="field-group">
@@ -84,7 +84,7 @@
                     </label>
                     <label class="field-group">
                         <span>&nbsp;</span>
-                        <button type="button" id="saveCustomerBtn" style="padding:8px;border:1px solid var(--olive-light);border-radius:8px;background:var(--cream);cursor:pointer;font-family:'Tajawal',sans-serif;font-size:0.85rem;">💾 حفظ العميل</button>
+                        <button type="button" id="saveCustomerBtn" style="padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--border);cursor:pointer;font-family:'Tajawal',sans-serif;font-size:0.85rem;">💾 حفظ العميل</button>
                     </label>
                     <label class="field-group">
                         <span>🏷️ الخصم %</span>
@@ -110,8 +110,8 @@
                     </label>
                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                         <div class="integration-badge" id="integrationBadge">جاري تجهيز الربط مع النظام المحاسبي...</div>
-                        <button onclick="showServerSettings()" style="background:none;border:1px solid var(--olive-light);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.8rem;">⚙️</button>
-                        <a href="admin/" target="_blank" style="background:none;border:1px solid var(--terracotta);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.8rem;color:var(--terracotta);text-decoration:none;">🔐 لوحة التحكم</a>
+                        <button onclick="showServerSettings()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.8rem;">⚙️</button>
+                        <a href="admin/" target="_blank" class="btn btn-sm btn-ghost" style="border:1px solid var(--border);text-decoration:none;">🔐 لوحة التحكم</a>
                     </div>
                 </div>
             </div>
@@ -123,10 +123,11 @@
                 <div class="order-total">الإجمالي: <span id="orderTotal">0</span> ج.م</div>
                 <div class="order-actions">
                     <button type="button" class="submit-order-btn" id="requestCheckBtn">📝 تسجيل الطلب</button>
-                    <button type="button" class="secondary-order-btn" id="requestBillBtn" style="background:var(--terracotta);color:white;" onclick="requestBill()">🧾 طلب الحساب</button>
-                    <button type="button" class="secondary-order-btn" id="printerConnectBtn" style="background:#27ae60;color:white;border:1px solid #27ae60;display:none;">🔌 توصيل طابعة USB</button>
-                    <button type="button" class="secondary-order-btn" id="serialConnectBtn" style="background:#8e44ad;color:white;border:1px solid #8e44ad;display:none;">🔌 توصيل تسلسلي</button>
-                    <button type="button" class="secondary-order-btn" id="thermalPrintBtn" style="background:#2c3e50;color:white;border:1px solid #2c3e50;">🖨️ طباعة حرارية</button>
+                    <button type="button" class="btn btn-primary" id="requestBillBtn" onclick="requestBill()">🧾 طلب الحساب</button>
+                    <button type="button" class="btn btn-success" id="printerConnectBtn" style="display:none;">🔌 توصيل طابعة USB</button>
+                    <button type="button" class="btn" id="serialConnectBtn" style="background:#7C3AED;color:white;border:1px solid #7C3AED;display:none;">🔌 توصيل تسلسلي</button>
+                    <button type="button" class="btn btn-kitchen" id="kitchenPrintBtn">👨‍🍳 طباعة للمطبخ</button>
+                    <button type="button" class="btn" id="thermalPrintBtn" style="background:var(--text);color:white;">🖨️ طباعة حرارية</button>
                 </div>
                 <div class="order-status" id="orderStatus">سيتم حفظ الطلب على النظام المحاسبي عند تسجيله.</div>
             </div>
@@ -164,44 +165,22 @@
         </div>
     </div>
 
-    <div id="invoiceExportContainer" style="display:none; position:fixed; left:-9999px; top:0; width:400px; padding:30px; background:white; font-family:'Tajawal',Arial,sans-serif; direction:rtl;">
-        <div style="text-align:center; border-bottom:2px dashed #C85A3E; padding-bottom:20px; margin-bottom:20px;">
-            <h1 style="color:#C85A3E; font-size:2rem; margin:0;">LUCCA</h1>
-            <p style="color:#697259; margin:5px 0;">Caffe Italiano</p>
-            <p style="color:#666; font-size:0.9rem; margin:5px 0;">شارع محمد علي - بجوار كلية التربية - بورسعيد</p>
+    <div id="invoiceExportContainer" style="display:none; position:fixed; left:-9999px; top:0; width:400px; padding:24px; background:white; font-family:'Tajawal',Arial,sans-serif; direction:rtl;">
+        <div style="text-align:center; border-bottom:2px dashed #2563EB; padding-bottom:16px; margin-bottom:16px;">
+            <h1 style="color:#2563EB; font-size:1.8rem; margin:0;">LUCCA</h1>
+            <p style="color:#475569; margin:4px 0;">Caffe Italiano</p>
+            <p style="color:#64748B; font-size:0.85rem; margin:4px 0;">شارع محمد علي - بجوار كلية التربية - بورسعيد</p>
         </div>
         <div id="invoiceExportContent"></div>
-        <div style="text-align:center; margin-top:20px; padding-top:15px; border-top:2px dashed #C85A3E;">
-            <p style="color:#C85A3E; font-weight:bold; margin:0;">Buon Appetito!</p>
-            <p style="color:#999; font-size:0.8rem; margin:5px 0;">للحجز والاستفسار: 01551007413</p>
+        <div style="text-align:center; margin-top:16px; padding-top:12px; border-top:2px dashed #2563EB;">
+            <p style="color:#2563EB; font-weight:bold; margin:0;">Buon Appetito!</p>
+            <p style="color:#94A3B8; font-size:0.8rem; margin:4px 0;">للحجز والاستفسار: 01551007413</p>
         </div>
     </div>
-
-    <style>
-        .invoice-modal {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.8);
-            z-index: 2000;
-            align-items: center;
-            justify-content: center;
-        }
-        .invoice-modal.show { display: flex; }
-        .invoice-content {
-            background: white;
-            width: 90%;
-            max-width: 400px;
-            max-height: 90vh;
-            overflow-y: auto;
-            border-radius: 15px;
-            padding: 25px;
-            direction: rtl;
-        }
-        .kitchen-ticket { background:#fff; border:2px solid var(--cream); border-radius:12px; padding:14px; margin-bottom:12px; }
-        .kitchen-ticket-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--cream); }
-        .kitchen-done-btn { width:100%; padding:10px; background:var(--olive); color:#fff; border:none; border-radius:8px; cursor:pointer; font-size:0.95rem; font-weight:700; transition:background 0.2s; }
-        .kitchen-done-btn:hover { background:var(--terracotta); }
+        .kitchen-ticket { background:#fff; border:2px solid var(--border); border-radius:12px; padding:14px; margin-bottom:12px; }
+        .kitchen-ticket-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+        .kitchen-done-btn { width:100%; padding:10px; background:var(--text-secondary); color:#fff; border:none; border-radius:8px; cursor:pointer; font-size:0.95rem; font-weight:700; transition:background 0.2s; }
+        .kitchen-done-btn:hover { background:var(--primary); }
         .kitchen-btn { padding:8px 12px; background:#e67e22; color:white; border:none; border-radius:8px; cursor:pointer; font-size:0.85rem; font-weight:600; white-space:nowrap; }
         .kitchen-btn:hover { opacity:0.9; }
     </style>
@@ -211,7 +190,7 @@
             <div id="invoiceContent"></div>
             <div class="invoice-actions" style="display:flex;gap:10px;margin-top:20px;padding-top:15px;border-top:2px dashed #C85A3E;flex-wrap:wrap;">
                 <button class="btn-thermal" style="flex:1;min-width:100px;padding:12px;background:#2c3e50;color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:700;">🖨️ طباعة حرارية</button>
-                <button class="btn-print" style="flex:1;min-width:100px;padding:12px;background:var(--terracotta);color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:700;">🧾 طباعة</button>
+                <button class="btn-print" style="flex:1;min-width:100px;padding:12px;background:var(--primary);color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:700;">🧾 طباعة</button>
                 <button class="btn-whatsapp" style="flex:1;min-width:100px;padding:12px;background:#25D366;color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:700;">💬 واتساب</button>
                 <button class="btn-close-invoice" style="flex:1;min-width:100px;padding:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;">إغلاق</button>
             </div>
@@ -230,11 +209,11 @@
     <div class="invoice-modal" id="kitchenModal">
         <div class="invoice-content" style="max-width:600px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-                <h3 style="color:var(--terracotta);font-family:'Playfair Display',serif;margin:0;">🍳 المطبخ</h3>
-                <span id="kitchenRefreshInfo" style="font-size:0.8rem;color:var(--olive);">يتحدث تلقائيًا</span>
+                <h3 style="color:var(--primary);font-family:'Playfair Display',serif;margin:0;">🍳 المطبخ</h3>
+                <span id="kitchenRefreshInfo" style="font-size:0.8rem;color:var(--text-secondary);">يتحدث تلقائيًا</span>
             </div>
             <div id="kitchenOrdersList" style="max-height:60vh;overflow-y:auto;">
-                <div style="text-align:center;color:var(--olive);padding:20px;">جاري تحميل الطلبات...</div>
+                <div style="text-align:center;color:var(--text-secondary);padding:20px;">جاري تحميل الطلبات...</div>
             </div>
             <div class="invoice-actions" style="display:flex;gap:10px;margin-top:20px;padding-top:15px;border-top:2px dashed #C85A3E;">
                 <button onclick="document.getElementById('kitchenModal').classList.remove('show')" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">إغلاق</button>
@@ -245,11 +224,11 @@
     <div class="invoice-modal" id="analyticsModal">
         <div class="invoice-content" style="max-width:500px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-                <h3 style="color:var(--terracotta);font-family:'Playfair Display',serif;margin:0;">📈 تحليلات المبيعات</h3>
+                <h3 style="color:var(--primary);font-family:'Playfair Display',serif;margin:0;">📈 تحليلات المبيعات</h3>
             </div>
-            <div id="analyticsRevenue" style="font-size:2rem;font-weight:900;color:var(--terracotta);text-align:center;margin-bottom:16px;">0 ج.م</div>
-            <div style="font-size:0.85rem;color:var(--olive);text-align:center;margin-bottom:16px;">مبيعات اليوم</div>
-            <canvas id="analyticsChart" width="400" height="200" style="width:100%;height:200px;background:var(--cream);border-radius:10px;"></canvas>
+            <div id="analyticsRevenue" style="font-size:2rem;font-weight:900;color:var(--primary);text-align:center;margin-bottom:16px;">0 ج.م</div>
+            <div style="font-size:0.85rem;color:var(--text-secondary);text-align:center;margin-bottom:16px;">مبيعات اليوم</div>
+            <canvas id="analyticsChart" width="400" height="200" style="width:100%;height:200px;background:var(--border);border-radius:10px;"></canvas>
             <div id="analyticsTopItems" style="margin-top:16px;"></div>
             <div class="invoice-actions" style="display:flex;gap:10px;margin-top:16px;padding-top:15px;border-top:2px dashed #C85A3E;">
                 <button onclick="document.getElementById('analyticsModal').classList.remove('show')" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">إغلاق</button>
@@ -259,12 +238,12 @@
 
     <div class="invoice-modal" id="serverSettingsModal">
         <div class="invoice-content" style="max-width:350px;">
-            <h3 style="color:var(--terracotta);font-family:'Playfair Display',serif;margin-bottom:16px;">⚙️ إعدادات السيرفر</h3>
-            <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--olive);">رابط السيرفر:</label>
-            <input type="text" id="serverUrlInput" style="width:100%;padding:10px;border:2px solid var(--olive-light);border-radius:8px;font-size:0.9rem;margin-bottom:12px;" placeholder="http://192.168.1.100:3000">
+            <h3 style="color:var(--primary);font-family:'Playfair Display',serif;margin-bottom:16px;">⚙️ إعدادات السيرفر</h3>
+            <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--text-secondary);">رابط السيرفر:</label>
+            <input type="text" id="serverUrlInput" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:8px;font-size:0.9rem;margin-bottom:12px;" placeholder="http://192.168.1.100:3000">
             <div style="display:flex;gap:10px;">
-                <button onclick="saveServerUrl()" style="flex:1;padding:12px;background:var(--terracotta);color:white;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">💾 حفظ</button>
-                <button onclick="testServerConnection()" style="flex:1;padding:12px;background:var(--olive);color:white;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">🔌 اختبار</button>
+                <button onclick="saveServerUrl()" style="flex:1;padding:12px;background:var(--primary);color:white;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">💾 حفظ</button>
+                <button onclick="testServerConnection()" style="flex:1;padding:12px;background:var(--text-secondary);color:white;border:none;border-radius:8px;cursor:pointer;font-size:1rem;">🔌 اختبار</button>
             </div>
             <div id="serverStatusMsg" style="margin-top:10px;font-size:0.85rem;text-align:center;"></div>
             <button onclick="document.getElementById('serverSettingsModal').classList.remove('show')" style="width:100%;padding:10px;margin-top:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;">إغلاق</button>
@@ -300,7 +279,9 @@
                             <span class="toggle-icon">▼</span>
                         </div>
                         <div class="category-items">
-                            ${category.items.map((item, itemIndex) => generateMenuItem(item, category, categoryIndex, itemIndex)).join('')}
+                            <div class="items-grid">
+                                ${category.items.map((item, itemIndex) => generateMenuItem(item, category, categoryIndex, itemIndex)).join('')}
+                            </div>
                         </div>
                     </div>
                 `;
@@ -312,66 +293,43 @@
 
         function generateMenuItem(item, category, categoryIndex, itemIndex) {
             const hasOrigins = item.origins && item.origins.length > 0;
-            const originsHTML = hasOrigins
-                ? item.origins.map(origin => `
-                    <span class="origin-tag" data-category="${categoryIndex}" data-item="${itemIndex}" data-origin="${origin}">${origin}</span>
-                `).join('')
-                : '';
-
             const badgeHTML = item.badge ? `<span class="badge badge-${item.badge}">${item.badge === 'popular' ? 'مطلوب' : item.badge === 'new' ? 'جديد' : 'مميز'}</span>` : '';
+            const originsAttr = hasOrigins ? item.origins.join(',') : '';
+            const itemKey = `item-${categoryIndex}-${itemIndex}`;
 
             return `
-                <div class="menu-item" data-category="${categoryIndex}" data-item="${itemIndex}">
+                <div class="menu-item" data-category="${categoryIndex}" data-item="${itemIndex}" data-origins="${originsAttr}" id="${itemKey}">
                     <div class="item-icon">${category.icon}</div>
-                    <div class="item-info">
-                        <div class="item-header">
-                            <div class="item-name">${item.name} ${badgeHTML}</div>
-                            <div class="item-price-section">
-                                <div class="item-price">${item.price} <span class="price-unit">ج.م</span></div>
-                            </div>
-                        </div>
-                        ${item.description ? `<div class="item-description">${item.description}</div>` : ''}
-                        ${hasOrigins ? `
-                            <div class="origin-selection">
-                                <div class="origin-label">اختر المحصول:</div>
-                                <div class="origin-options">${originsHTML}</div>
-                            </div>
-                        ` : ''}
-                        <div class="item-actions">
-                            <button type="button" class="add-order-btn" data-category="${categoryIndex}" data-item="${itemIndex}">أضف للطلب</button>
-                            <button type="button" class="view-details-btn" data-category="${categoryIndex}" data-item="${itemIndex}">عرض التفاصيل</button>
-                        </div>
-                    </div>
+                    <div class="item-name">${item.name}</div>
+                    <div class="item-price">${item.price} <span class="price-unit">ج.م</span></div>
+                    ${badgeHTML}
                 </div>
             `;
         }
 
         function attachMenuEvents() {
             const menu = document.getElementById('menuContent');
-            menu.addEventListener('click', function(e) {
-                const target = e.target.closest('button, .origin-tag');
-                if (!target) return;
-                const item = target.closest('.menu-item');
-                if (!item) return;
-                const ci = parseInt(item.dataset.category);
-                const ii = parseInt(item.dataset.item);
 
-                if (target.classList.contains('view-details-btn')) {
-                    openModal(appMenuData[ci].items[ii]);
-                } else if (target.classList.contains('add-order-btn')) {
-                    addToOrder(ci, ii, target);
-                } else if (target.classList.contains('origin-tag')) {
-                    item.querySelectorAll('.origin-tag').forEach(t => t.classList.remove('selected'));
-                    target.classList.add('selected');
-                    const desc = item.querySelector('.item-description');
-                    const base = appMenuData[ci].items[ii].description || '';
-                    if (desc) desc.textContent = `المحصول: ${target.dataset.origin}${base ? ' - ' + base : ''}`;
+            // Card click — whole card adds to order
+            menu.addEventListener('click', function(e) {
+                const card = e.target.closest('.menu-item');
+                if (!card) return;
+                const ci = parseInt(card.dataset.category);
+                const ii = parseInt(card.dataset.item);
+                const origins = card.dataset.origins ? card.dataset.origins.split(',') : [];
+                if (origins.length > 0) {
+                    showOriginPicker(ci, ii, origins);
+                } else {
+                    addToOrder(ci, ii, null);
+                    card.classList.add('added-anim');
+                    setTimeout(() => card.classList.remove('added-anim'), 400);
                 }
             });
 
             document.getElementById('clearOrderBtn').addEventListener('click', clearOrder);
             document.getElementById('requestCheckBtn').addEventListener('click', requestCheck);
             document.getElementById('thermalPrintBtn').addEventListener('click', thermalPrintPreview);
+            document.getElementById('kitchenPrintBtn').addEventListener('click', kitchenPrint);
             document.getElementById('freeTableBtn').addEventListener('click', freeSelectedTable);
             document.getElementById('dailyReportBtn').addEventListener('click', showDailyReport);
             document.getElementById('analyticsBtn').addEventListener('click', showAnalytics);
@@ -380,10 +338,56 @@
             document.getElementById('customerPhoneInput').addEventListener('blur', function() {
                 if (this.value.trim()) saveCustomerManually();
             });
+
+            // Auto-save on field changes
+            ['discountInput', 'customerNotesInput', 'customerNameInput', 'customerPhoneInput'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.addEventListener('blur', autoSave);
+            });
+            const pm = document.getElementById('paymentMethod');
+            if (pm) pm.addEventListener('change', autoSave);
+        }
+
+        let _tableTimer = null;
+
+        function formatElapsed(startISO) {
+            if (!startISO) return '';
+            const start = new Date(startISO);
+            if (isNaN(start.getTime())) return '';
+            const diff = Date.now() - start.getTime();
+            const mins = Math.floor(diff / 60000);
+            const secs = Math.floor((diff % 60000) / 1000);
+            return `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
+        }
+
+        function buildTableHTML(table, pendingOrders) {
+            const order = pendingOrders.find(o => String(o.tableId) === String(table.number));
+            const statusLabels = { available: 'فارغة', occupied: 'مشغولة', reserved: 'محجوزة', cleaning: 'تنظيف', closed: 'مغلقة' };
+            const label = statusLabels[table.status] || table.status;
+            let extra = '';
+
+            if (table.status === 'occupied' && order) {
+                const itemCount = (order.items || []).reduce((s, i) => s + (i.quantity || 1), 0);
+                const total = (order.items || []).reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
+                const customer = order.customerName || '';
+                const elapsed = formatElapsed(order.date);
+                extra = `
+                    ${customer ? `<div class="card-customer">${customer}</div>` : ''}
+                    <div class="card-meta">${itemCount} صنف · ${total.toFixed(0)} ج.م</div>
+                    <div class="card-timer" data-start="${order.date || ''}">${elapsed}</div>
+                `;
+            }
+
+            return `
+                <div class="card-num">${table.number}</div>
+                <div class="card-status"><span class="card-status-dot"></span>${label}</div>
+                ${extra}
+            `;
         }
 
         async function loadTables() {
             const select = document.getElementById('tableSelect');
+            const prevValue = select.value; // Save selection before clearing
             select.innerHTML = '<option value="">اختر</option><option value="takeaway">🛵 تيك أواي</option>';
             const grid = document.getElementById('gridCards');
             grid.innerHTML = '';
@@ -397,24 +401,28 @@
             takCard.addEventListener('click', () => selectTable('takeaway'));
             grid.appendChild(takCard);
 
+            let pendingOrders = [];
+            if (window.LuccaDB && window.LuccaDB.Orders) {
+                try { pendingOrders = await LuccaDB.Orders.getAll().then(orders => orders.filter(o => o.status === 'pending')); }
+                catch(e) {}
+            }
+
             if (window.LuccaDB && window.LuccaDB.Tables) {
                 try {
                     const tables = await window.LuccaDB.Tables.getAll();
                     tables.forEach(table => {
+                        const statusIcons = { available: '', occupied: '', reserved: '🔵', cleaning: '🟡', closed: '' };
+                        const icon = statusIcons[table.status] || '';
                         const option = document.createElement('option');
                         option.value = table.number;
-                        const statusIcon = table.status === 'occupied' ? '🔴' : '🟢';
-                        option.textContent = `طاولة ${table.number} ${statusIcon}`;
+                        option.textContent = icon ? `طاولة ${table.number} ${icon}` : `طاولة ${table.number}`;
                         select.appendChild(option);
 
                         const card = document.createElement('div');
                         card.className = `table-card ${table.status}`;
                         card.dataset.table = table.number;
                         if (select.value == table.number) card.classList.add('selected');
-                        card.innerHTML = `
-                            <div class="card-num">${table.number}</div>
-                            <div class="card-status">${table.status === 'available' ? 'فارغة' : 'مشغولة'}</div>
-                        `;
+                        card.innerHTML = buildTableHTML(table, pendingOrders);
                         card.addEventListener('click', () => selectTable(table.number));
                         grid.appendChild(card);
                     });
@@ -424,7 +432,20 @@
             } else {
                 fallbackTables(select);
             }
+            // Restore previous table selection and fully initialize the order state
+            if (prevValue) {
+                selectTable(prevValue);
+            }
             loadCustomerSelect();
+
+            // Start live timer
+            if (_tableTimer) clearInterval(_tableTimer);
+            _tableTimer = setInterval(() => {
+                document.querySelectorAll('.card-timer').forEach(el => {
+                    const start = el.dataset.start;
+                    if (start) el.textContent = formatElapsed(start);
+                });
+            }, 1000);
         }
 
         function selectTable(tableNum) {
@@ -439,14 +460,31 @@
 
         function fallbackTables(select) {
             select.innerHTML = '<option value="">اختر</option><option value="takeaway">🛵 تيك أواي</option>';
+            const grid = document.getElementById('gridCards');
+            if (!grid) return;
+            grid.innerHTML = '';
+
+            // Takeaway card
+            const takCard = document.createElement('div');
+            takCard.className = 'table-card takeaway';
+            takCard.dataset.table = 'takeaway';
+            takCard.innerHTML = '<div class="card-num" style="font-size:1.4rem;">🛵</div><div class="card-status">تيك أواي</div>';
+            takCard.addEventListener('click', () => selectTable('takeaway'));
+            grid.appendChild(takCard);
+
             for (let i = 1; i <= 14; i++) {
                 const option = document.createElement('option');
                 option.value = i;
                 option.textContent = `طاولة ${i}`;
                 select.appendChild(option);
+
+                const card = document.createElement('div');
+                card.className = 'table-card available';
+                card.dataset.table = i;
+                card.innerHTML = `<div class="card-num">${i}</div><div class="card-status">فارغة</div>`;
+                card.addEventListener('click', () => selectTable(i));
+                grid.appendChild(card);
             }
-            const grid = document.getElementById('gridCards');
-            if (grid) grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--olive);padding:12px;font-size:0.85rem;">جاري تحميل الطاولات...</div>';
         }
 
         async function freeSelectedTable() {
@@ -462,9 +500,20 @@
 
             if (window.LuccaDB && window.LuccaDB.Tables) {
                 try {
+                    // If there's a pending order on this table, cancel it first
+                    if (currentOrderId) {
+                        await LuccaDB.Orders.updateStatus(currentOrderId, 'cancelled');
+                        currentOrderId = null;
+                    } else {
+                        const allOrders = await LuccaDB.Orders.getAll();
+                        const pendingOrder = allOrders.find(o => String(o.tableId) === String(tableNum) && o.status === 'pending');
+                        if (pendingOrder) {
+                            await LuccaDB.Orders.updateStatus(pendingOrder.id, 'cancelled');
+                        }
+                    }
                     await window.LuccaDB.Tables.update(parseInt(tableNum), { status: 'available', currentOrder: null });
                     setOrderStatus(`طاولة ${tableNum} أصبحت متاحة ✓`, 'success');
-                    clearOrder();
+                    await clearOrder();
                     await loadTables();
                 } catch (e) {
                     setOrderStatus('حدث خطأ أثناء تحرير الطاولة', 'error');
@@ -525,13 +574,11 @@
         }
 
         async function showDailyReport() {
-            if (!window.LuccaDB) { setOrderStatus('قاعدة البيانات غير متصلة', 'error'); return; }
+            if (!window.LuccaDB || !window.LuccaDB.Orders) { setOrderStatus('قاعدة البيانات غير متصلة', 'error'); return; }
             setOrderStatus('جاري تحميل التقرير...', 'neutral');
             try {
-                // Load من IndexedDB فورًا (أسرع)
-                const localOrders = await LuccaDB.db.getAll('orders');
+                const localOrders = await LuccaDB.Orders.getAll();
                 showReportModal(filterTodayOrders(localOrders || []));
-                // ورا الكواليس: حاول تجيب من السيرفر وحدث لو فيه حاجة أحدث
                 setTimeout(async () => {
                     try {
                         const serverOrders = await LuccaDB.Orders.getAll();
@@ -564,36 +611,36 @@
             });
             const reportHTML = `
                 <div style="text-align:center;margin-bottom:16px;">
-                    <h3 style="color:var(--terracotta);font-family:'Playfair Display',serif;">📊 التقرير اليومي</h3>
-                    <p style="color:var(--olive);font-size:0.9rem;">${new Date().toLocaleDateString('ar-EG', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</p>
+                    <h3 style="color:var(--primary);font-family:'Playfair Display',serif;">📊 التقرير اليومي</h3>
+                    <p style="color:var(--text-secondary);font-size:0.9rem;">${new Date().toLocaleDateString('ar-EG', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</p>
                     <div style="display:flex;gap:8px;margin-top:8px;">
-                        <input type="date" id="reportDateFrom" style="flex:1;padding:6px;border:1px solid var(--olive-light);border-radius:6px;font-size:0.8rem;">
-                        <input type="date" id="reportDateTo" style="flex:1;padding:6px;border:1px solid var(--olive-light);border-radius:6px;font-size:0.8rem;">
-                        <button onclick="filterReportByDate()" style="padding:6px 10px;background:var(--olive);color:white;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem;">عرض</button>
+                        <input type="date" id="reportDateFrom" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:0.8rem;">
+                        <input type="date" id="reportDateTo" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:0.8rem;">
+                        <button onclick="filterReportByDate()" style="padding:6px 10px;background:var(--text-secondary);color:white;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem;">عرض</button>
                         <button onclick="exportReportCSV()" style="padding:6px 10px;background:#27ae60;color:white;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem;">📥 Excel</button>
                     </div>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
-                    <div style="background:var(--cream);padding:14px;border-radius:10px;text-align:center;">
-                        <div style="font-size:1.6rem;font-weight:900;color:var(--terracotta);">${todayOrders.length}</div>
-                        <div style="font-size:0.8rem;color:var(--olive);">أوردرات</div>
+                    <div style="background:var(--border);padding:14px;border-radius:10px;text-align:center;">
+                        <div style="font-size:1.6rem;font-weight:900;color:var(--primary);">${todayOrders.length}</div>
+                        <div style="font-size:0.8rem;color:var(--text-secondary);">أوردرات</div>
                     </div>
-                    <div style="background:var(--cream);padding:14px;border-radius:10px;text-align:center;">
-                        <div style="font-size:1.6rem;font-weight:900;color:var(--terracotta);">${itemsCount}</div>
-                        <div style="font-size:0.8rem;color:var(--olive);">أصناف</div>
+                    <div style="background:var(--border);padding:14px;border-radius:10px;text-align:center;">
+                        <div style="font-size:1.6rem;font-weight:900;color:var(--primary);">${itemsCount}</div>
+                        <div style="font-size:0.8rem;color:var(--text-secondary);">أصناف</div>
                     </div>
-                    <div style="background:var(--cream);padding:14px;border-radius:10px;text-align:center;">
-                        <div style="font-size:1.6rem;font-weight:900;color:var(--terracotta);">${total.toFixed(0)}</div>
-                        <div style="font-size:0.8rem;color:var(--olive);">ج.م</div>
+                    <div style="background:var(--border);padding:14px;border-radius:10px;text-align:center;">
+                        <div style="font-size:1.6rem;font-weight:900;color:var(--primary);">${total.toFixed(0)}</div>
+                        <div style="font-size:0.8rem;color:var(--text-secondary);">ج.م</div>
                     </div>
                 </div>
                 <div style="max-height:250px;overflow-y:auto;">
                     ${todayOrders.map(o => `
-                        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--cream);font-size:0.85rem;">
-                            <span>${o.tableId === 'takeaway' || o.tableId == 0 ? '🛵 تيك أواي' : 'طاولة ' + (o.tableId || '-')} ${o.customerName ? '- ' + o.customerName : ''} <span style="color:${o.status === 'completed' ? 'var(--terracotta)' : '#e67e22'};font-size:0.75rem;">${o.status === 'completed' ? '✓' : '⏳'}</span></span>
-                            <span style="font-weight:700;color:var(--terracotta);">${(o.total || 0).toFixed(0)} ج.م</span>
+                        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:0.85rem;">
+                            <span>${o.tableId === 'takeaway' || o.tableId == 0 ? '🛵 تيك أواي' : 'طاولة ' + (o.tableId || '-')} ${o.customerName ? '- ' + o.customerName : ''} <span style="color:${o.status === 'completed' ? 'var(--primary)' : '#e67e22'};font-size:0.75rem;">${o.status === 'completed' ? '✓' : '⏳'}</span></span>
+                            <span style="font-weight:700;color:var(--primary);">${(o.total || 0).toFixed(0)} ج.م</span>
                         </div>
-                    `).join('') || '<div style="text-align:center;color:var(--olive);padding:20px;">لا توجد أوردرات اليوم</div>'}
+                    `).join('') || '<div style="text-align:center;color:var(--text-secondary);padding:20px;">لا توجد أوردرات اليوم</div>'}
                 </div>
             `;
             const modal = document.getElementById('dailyReportModal');
@@ -665,7 +712,7 @@
             document.getElementById('analyticsModal').classList.add('show');
             try {
                 const all = await (window.LuccaDB ? LuccaDB.Orders.getAll() : Promise.resolve([]));
-                const completed = (all || []).filter(o => o.status === 'completed');
+                const completed = (all || []).filter(o => o.status === 'completed' || o.status === 'closed');
                 const today = new Date(); today.setHours(0,0,0,0);
                 const todaySales = completed.filter(o => new Date(o.date) >= today);
                 const total = todaySales.reduce((s, o) => s + (o.total || 0), 0);
@@ -679,14 +726,14 @@
                 const sorted = Object.entries(itemCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
                 const topEl = document.getElementById('analyticsTopItems');
                 topEl.innerHTML = sorted.length ? `
-                    <div style="font-size:0.95rem;font-weight:700;color:var(--olive);margin-bottom:8px;">🔥 أفضل 5 أصناف</div>
+                    <div style="font-size:0.95rem;font-weight:700;color:var(--text-secondary);margin-bottom:8px;">🔥 أفضل 5 أصناف</div>
                     ${sorted.map(([name, qty], i) => `
-                        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--cream);font-size:0.85rem;">
+                        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85rem;">
                             <span>${i + 1}. ${name}</span>
-                            <span style="font-weight:700;color:var(--terracotta);">${qty}</span>
+                            <span style="font-weight:700;color:var(--primary);">${qty}</span>
                         </div>
                     `).join('')}
-                ` : '<div style="text-align:center;color:var(--olive);padding:16px;">لا توجد مبيعات اليوم</div>';
+                ` : '<div style="text-align:center;color:var(--text-secondary);padding:16px;">لا توجد مبيعات اليوم</div>';
 
                 // Last 7 days chart
                 const ctx = document.getElementById('analyticsChart').getContext('2d');
@@ -754,14 +801,14 @@
                 const all = await (window.LuccaDB ? LuccaDB.Orders.getAll() : Promise.resolve([]));
                 const pending = (all || []).filter(o => o.status === 'pending');
                 if (pending.length === 0) {
-                    container.innerHTML = '<div style="text-align:center;color:var(--olive);padding:40px 20px;"><div style="font-size:3rem;margin-bottom:10px;">✅</div><div style="font-size:1.1rem;">لا توجد طلبات قيد التجهيز</div></div>';
+                    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:40px 20px;"><div style="font-size:3rem;margin-bottom:10px;">✅</div><div style="font-size:1.1rem;">لا توجد طلبات قيد التجهيز</div></div>';
                     return;
                 }
                 container.innerHTML = pending.map(o => {
                     const itemsList = (o.items || []).map(i => `
                         <div style="display:flex;justify-content:space-between;padding:2px 0;font-size:0.9rem;">
                             <span>${i.icon || '•'} ${i.name}${i.selectedOrigin ? ' (' + i.selectedOrigin + ')' : ''}</span>
-                            <span style="font-weight:700;color:var(--terracotta);">x${i.quantity}</span>
+                            <span style="font-weight:700;color:var(--primary);">x${i.quantity}</span>
                         </div>
                     `).join('');
                     const tableLabel = o.tableId === 'takeaway' || o.tableId == 0 ? '🛵 تيك أواي' : `🪑 طاولة ${o.tableId}`;
@@ -770,9 +817,9 @@
                         <div class="kitchen-ticket">
                             <div class="kitchen-ticket-header">
                                 <span style="font-weight:700;font-size:1.1rem;">${tableLabel}</span>
-                                <span style="font-size:0.8rem;color:var(--olive);">${time}</span>
+                                <span style="font-size:0.8rem;color:var(--text-secondary);">${time}</span>
                             </div>
-                            ${o.customerName ? `<div style="font-size:0.85rem;color:var(--olive);margin-bottom:6px;">👤 ${o.customerName}</div>` : ''}
+                            ${o.customerName ? `<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:6px;">👤 ${o.customerName}</div>` : ''}
                             ${o.customerNotes ? `<div style="font-size:0.85rem;color:#e67e22;margin-bottom:6px;">📝 ${o.customerNotes}</div>` : ''}
                             <div>${itemsList}</div>
                             <div style="margin-top:8px;">
@@ -791,7 +838,7 @@
             try {
                 await LuccaDB.Orders.updateStatus(orderId, 'completed');
                 renderKitchenOrders();
-                loadTables();
+                await loadTables();
             } catch(e) { console.log('Kitchen complete error:', e); }
         }
 
@@ -835,7 +882,7 @@
             return selectedTag ? selectedTag.dataset.origin : '';
         }
 
-        function addToOrder(categoryIndex, itemIndex, buttonEl) {
+        async function addToOrder(categoryIndex, itemIndex, buttonEl) {
             const selectedOrigin = getSelectedOrigin(categoryIndex, itemIndex);
             const existing = currentOrder.find(entry =>
                 entry.categoryIndex === categoryIndex &&
@@ -859,9 +906,51 @@
             }
 
             renderOrderSummary();
+            await autoSave();
         }
 
-        function changeOrderQuantity(categoryIndex, itemIndex, selectedOrigin, delta) {
+        function showOriginPicker(categoryIndex, itemIndex, origins) {
+            const item = appMenuData[categoryIndex].items[itemIndex];
+            const overlay = document.createElement('div');
+            overlay.className = 'origin-picker-overlay';
+            overlay.innerHTML = `
+                <div class="origin-picker">
+                    <div class="origin-picker-title">اختر المحصول لـ ${item.name}</div>
+                    <div class="origin-picker-options">
+                        ${origins.map((o, i) => `<button class="origin-picker-btn" data-origin="${o}" data-idx="${i}">${o}</button>`).join('')}
+                    </div>
+                    <button class="origin-picker-cancel">إلغاء</button>
+                </div>
+            `;
+            overlay.querySelectorAll('.origin-picker-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const selectedOrigin = btn.dataset.origin;
+                    addToOrderWithOrigin(categoryIndex, itemIndex, selectedOrigin);
+                    document.body.removeChild(overlay);
+                });
+            });
+            overlay.querySelector('.origin-picker-cancel').addEventListener('click', () => {
+                document.body.removeChild(overlay);
+            });
+            document.body.appendChild(overlay);
+        }
+
+        async function addToOrderWithOrigin(categoryIndex, itemIndex, selectedOrigin) {
+            const existing = currentOrder.find(entry =>
+                entry.categoryIndex === categoryIndex &&
+                entry.itemIndex === itemIndex &&
+                entry.selectedOrigin === selectedOrigin
+            );
+            if (existing) {
+                existing.quantity += 1;
+            } else {
+                currentOrder.push({ categoryIndex, itemIndex, quantity: 1, selectedOrigin });
+            }
+            renderOrderSummary();
+            await autoSave();
+        }
+
+        async function changeOrderQuantity(categoryIndex, itemIndex, selectedOrigin, delta) {
             const entry = currentOrder.find(order =>
                 order.categoryIndex === categoryIndex &&
                 order.itemIndex === itemIndex &&
@@ -872,17 +961,25 @@
 
             entry.quantity += delta;
             if (entry.quantity <= 0) {
-                currentOrder.splice(currentOrder.indexOf(entry), 1);
+                const idx = currentOrder.indexOf(entry);
+                if (idx !== -1) currentOrder.splice(idx, 1);
             }
             renderOrderSummary();
+            await autoSave();
         }
 
-        function clearOrder() {
+        async function clearOrder() {
+            // Keep the existing order but clear its items — preserves currentOrderId for autoSave
+            const oldId = currentOrderId;
             currentOrder.length = 0;
-            currentOrderId = null;
-            document.getElementById('requestCheckBtn').textContent = '📝 تسجيل الطلب';
+            if (oldId && window.LuccaDB && window.LuccaDB.Orders) {
+                try {
+                    await LuccaDB.Orders.updateOrder(oldId, { items: [], subtotal: 0, discount: 0, discountAmount: 0, tax: 0, total: 0 });
+                } catch(e) { console.log('Clear order items error:', e); }
+            }
+            const tableNum = document.getElementById('tableSelect').value;
             const hint = document.getElementById('orderSummary').querySelector('.order-hint');
-            if (hint) hint.textContent = 'اختر الطاولة وأضف الأصناف من المنيو ثم سجل الطلب';
+            if (hint) hint.textContent = tableNum ? 'تم مسح الأصناف، أضف أصناف جديدة' : 'اختر الطاولة وأضف الأصناف من المنيو';
             renderOrderSummary();
         }
 
@@ -897,33 +994,44 @@
             if (currentOrder.length === 0) {
                 container.innerHTML = '<div class="empty-order">لم يتم اختيار أي صنف حتى الآن.</div>';
                 countBadge.textContent = '0 صنف';
-                countBadge.style.background = 'var(--olive)';
+                countBadge.style.background = 'var(--text-secondary)';
             } else {
-                currentOrder.forEach(entry => {
-                    const itemData = appMenuData[entry.categoryIndex].items[entry.itemIndex];
-                    const itemLabel = entry.selectedOrigin ? `${itemData.name} - ${entry.selectedOrigin}` : itemData.name;
-                    const itemTotal = itemData.price * entry.quantity;
+                currentOrder.forEach((entry, idx) => {
+                    let itemName, itemPrice;
+                    if (entry._orphan) {
+                        itemName = entry.selectedOrigin ? `${entry.name} - ${entry.selectedOrigin}` : entry.name;
+                        itemPrice = entry.price || 0;
+                    } else {
+                        const cat = appMenuData[entry.categoryIndex];
+                        if (!cat) return;
+                        const itemData = cat.items[entry.itemIndex];
+                        if (!itemData) return;
+                        itemName = entry.selectedOrigin ? `${itemData.name} - ${entry.selectedOrigin}` : itemData.name;
+                        itemPrice = itemData.price;
+                    }
+                    const itemTotal = itemPrice * entry.quantity;
                     total += itemTotal;
                     itemCount += entry.quantity;
+                    const isOrphan = entry._orphan ? ' data-orphan="true"' : '';
 
                     container.insertAdjacentHTML('beforeend', `
                         <div class="order-item">
                             <div class="order-item-details">
-                                <div class="order-item-name">${itemLabel}</div>
+                                <div class="order-item-name">${itemName}</div>
                                 <div class="order-item-controls">
-                                    <button type="button" class="qty-btn" data-action="decrease" data-category="${entry.categoryIndex}" data-item="${entry.itemIndex}" data-origin="${entry.selectedOrigin || ''}">−</button>
+                                    <button type="button" class="qty-btn" data-action="decrease" data-idx="${idx}"${isOrphan} data-category="${entry.categoryIndex}" data-item="${entry.itemIndex}" data-origin="${entry.selectedOrigin || ''}">−</button>
                                     <span>${entry.quantity}</span>
-                                    <button type="button" class="qty-btn" data-action="increase" data-category="${entry.categoryIndex}" data-item="${entry.itemIndex}" data-origin="${entry.selectedOrigin || ''}">+</button>
-                                    <button type="button" class="qty-btn delete-btn" data-action="delete" data-category="${entry.categoryIndex}" data-item="${entry.itemIndex}" data-origin="${entry.selectedOrigin || ''}">✕</button>
+                                    <button type="button" class="qty-btn" data-action="increase" data-idx="${idx}"${isOrphan} data-category="${entry.categoryIndex}" data-item="${entry.itemIndex}" data-origin="${entry.selectedOrigin || ''}">+</button>
+                                    <button type="button" class="qty-btn delete-btn" data-action="delete" data-idx="${idx}"${isOrphan} data-category="${entry.categoryIndex}" data-item="${entry.itemIndex}" data-origin="${entry.selectedOrigin || ''}">✕</button>
                                 </div>
                             </div>
-                            <div class="order-item-price">${itemTotal} ج.م</div>
+                            <div class="order-item-price">${itemTotal.toFixed(0)} ج.م</div>
                         </div>
                     `);
                 });
 
                 countBadge.textContent = `${itemCount} صنف`;
-                countBadge.style.background = itemCount > 0 ? 'var(--terracotta)' : 'var(--olive)';
+                countBadge.style.background = itemCount > 0 ? 'var(--primary)' : 'var(--text-secondary)';
             }
 
             totalEl.textContent = total.toFixed(2);
@@ -933,21 +1041,41 @@
         function attachOrderButtons() {
             document.querySelectorAll('.qty-btn').forEach(btn => {
                 btn.addEventListener('click', function() {
+                    const isOrphan = this.dataset.orphan !== undefined;
+                    const idx = parseInt(this.dataset.idx, 10);
                     const categoryIndex = parseInt(this.dataset.category, 10);
                     const itemIndex = parseInt(this.dataset.item, 10);
                     const selectedOrigin = this.dataset.origin || '';
                     const action = this.dataset.action;
                     if (action === 'delete') {
-                        removeOrderItem(categoryIndex, itemIndex, selectedOrigin);
+                        if (isOrphan && !isNaN(idx)) {
+                            currentOrder.splice(idx, 1);
+                            renderOrderSummary();
+                            autoSave();
+                        } else {
+                            removeOrderItem(categoryIndex, itemIndex, selectedOrigin);
+                        }
                     } else {
                         const delta = action === 'increase' ? 1 : -1;
-                        changeOrderQuantity(categoryIndex, itemIndex, selectedOrigin, delta);
+                        if (isOrphan && !isNaN(idx)) {
+                            const entry = currentOrder[idx];
+                            if (entry) {
+                                entry.quantity += delta;
+                                if (entry.quantity <= 0) {
+                                    currentOrder.splice(idx, 1);
+                                }
+                                renderOrderSummary();
+                                autoSave();
+                            }
+                        } else {
+                            changeOrderQuantity(categoryIndex, itemIndex, selectedOrigin, delta);
+                        }
                     }
                 });
             });
         }
 
-        function removeOrderItem(categoryIndex, itemIndex, selectedOrigin) {
+        async function removeOrderItem(categoryIndex, itemIndex, selectedOrigin) {
             const idx = currentOrder.findIndex(e =>
                 e.categoryIndex === categoryIndex &&
                 e.itemIndex === itemIndex &&
@@ -956,6 +1084,7 @@
             if (idx >= 0) {
                 currentOrder.splice(idx, 1);
                 renderOrderSummary();
+                await autoSave();
             }
         }
 
@@ -1024,12 +1153,10 @@
             const val = select.value;
             if (!val) { nameInput.value = ''; phoneInput.value = ''; return; }
             phoneInput.value = val;
-            try {
-                LuccaDB.Customers.getAll().then(customers => {
-                    const c = customers.find(x => x.phone === val);
-                    if (c) nameInput.value = c.name || '';
-                });
-            } catch(e) {}
+            LuccaDB.Customers.getAll().then(customers => {
+                const c = customers.find(x => x.phone === val);
+                if (c) nameInput.value = c.name || '';
+            }).catch(() => {});
         }
 
         function collectCustomerForm() {
@@ -1045,17 +1172,29 @@
 
         function buildOrderPayload() {
             return currentOrder.map(entry => {
-                const itemData = appMenuData[entry.categoryIndex].items[entry.itemIndex];
+                if (entry._orphan) {
+                    const label = entry.selectedOrigin ? `${entry.name} - ${entry.selectedOrigin}` : entry.name;
+                    return {
+                        name: label,
+                        price: entry.price || 0,
+                        quantity: entry.quantity,
+                        category: 'أصناف أخرى',
+                        selectedOrigin: entry.selectedOrigin || ''
+                    };
+                }
+                const cat = appMenuData[entry.categoryIndex];
+                if (!cat) return null;
+                const itemData = cat.items[entry.itemIndex];
+                if (!itemData) return null;
                 const label = entry.selectedOrigin ? `${itemData.name} - ${entry.selectedOrigin}` : itemData.name;
-
                 return {
                     name: label,
                     price: itemData.price,
                     quantity: entry.quantity,
-                    category: appMenuData[entry.categoryIndex].title,
+                    category: cat.title,
                     selectedOrigin: entry.selectedOrigin || ''
                 };
-            });
+            }).filter(Boolean);
         }
 
         async function copyInvoiceSummary() {
@@ -1382,13 +1521,33 @@
         // ==================== السلة والطلبات ====================
         let currentOrderId = null; // Track current pending order for selected table
 
+        let _tableBusy = false;
+        let _initPromise = null;
         async function onTableChange() {
+            if (_tableBusy) return;
+            _tableBusy = true;
             const tableNum = document.getElementById('tableSelect').value;
             const title = document.querySelector('.order-summary h3');
-            if (!tableNum) { title.textContent = 'طلبك'; currentOrderId = null; currentOrder.length = 0; renderOrderSummary(); return; }
+            if (!tableNum) {
+                title.textContent = 'طلبك';
+                currentOrderId = null;
+                currentOrder.length = 0;
+                renderOrderSummary();
+                _tableBusy = false;
+                return;
+            }
             title.textContent = tableNum === 'takeaway' ? '🛵 تيك أواي' : `طاولة ${tableNum}`;
-            currentOrderId = null;
-            
+
+            // Wait for DB initialization if not ready
+            if (_initPromise) {
+                try { await _initPromise; } catch(e) { console.log('DB init failed in onTableChange'); _tableBusy = false; return; }
+            }
+            if (!window.LuccaDB || !window.LuccaDB.Orders) {
+                setOrderStatus('النظام ليس جاهزاً بعد، حاول مرة أخرى', 'error');
+                _tableBusy = false;
+                return;
+            }
+
             try {
                 const orders = await LuccaDB.Orders.getAll();
                 const pending = orders.find(o => o.tableId == tableNum && o.status === 'pending');
@@ -1400,7 +1559,6 @@
                     document.getElementById('customerNotesInput').value = pending.customerNotes || '';
                     document.getElementById('paymentMethod').value = pending.paymentMethod || 'cash';
 
-                    // Load existing items into currentOrder
                     currentOrder.length = 0;
                     const allItems = appMenuData.flatMap((cat, ci) =>
                         cat.items.map((item, ii) => ({ ci, ii, name: item.name }))
@@ -1409,21 +1567,69 @@
                         const match = allItems.find(a => a.name === pi.name);
                         if (match) {
                             currentOrder.push({ categoryIndex: match.ci, itemIndex: match.ii, quantity: pi.quantity, selectedOrigin: pi.selectedOrigin || '' });
+                        } else {
+                            currentOrder.push({ name: pi.name, price: pi.price || 0, quantity: pi.quantity, selectedOrigin: pi.selectedOrigin || '', _orphan: true });
                         }
                     });
                     renderOrderSummary();
-                    
-                    document.getElementById('orderSummary').querySelector('.order-hint').textContent = 
+
+                    document.getElementById('orderSummary').querySelector('.order-hint').textContent =
                         `🔄 طلب موجود (فاتورة #${pending.id}) - أضف أصناف جديدة`;
-                    document.getElementById('requestCheckBtn').textContent = '➕ إضافة للطلب';
                 } else {
+                    // Preserve items added without a table (currentOrderId was null)
+                    const unsavedItems = (!currentOrderId && currentOrder.length > 0) ? [...currentOrder] : [];
                     currentOrder.length = 0;
                     renderOrderSummary();
-                    document.getElementById('orderSummary').querySelector('.order-hint').textContent = 
+                    const tid = tableNum === 'takeaway' ? 'takeaway' : parseInt(tableNum);
+                    const newOrder = await LuccaDB.Orders.create(tid, [], '', '', { status: 'pending' });
+                    currentOrderId = newOrder.id;
+                    if (unsavedItems.length > 0) {
+                        currentOrder.push(...unsavedItems);
+                        await autoSave();
+                        renderOrderSummary();
+                    }
+                    document.getElementById('customerNameInput').value = '';
+                    document.getElementById('customerPhoneInput').value = '';
+                    document.getElementById('discountInput').value = '0';
+                    document.getElementById('customerNotesInput').value = '';
+                    document.getElementById('paymentMethod').value = 'cash';
+                    document.getElementById('orderSummary').querySelector('.order-hint').textContent =
                         'أضف الأصناف من المنيو';
-                    document.getElementById('requestCheckBtn').textContent = '📝 تسجيل الطلب';
                 }
-            } catch(e) { console.log('Table change:', e); }
+            } catch(e) {
+                setOrderStatus('❌ فشل تحميل الطاولة: ' + e.message, 'error');
+                console.log('Table change error:', e);
+            }
+            finally { _tableBusy = false; }
+        }
+
+        async function autoSave() {
+            if (!currentOrderId) return;
+            try {
+                const items = buildOrderPayload();
+                const formData = collectCustomerForm();
+                const subtotal = items.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
+                const discount = formData.discount || 0;
+                const discountAmount = subtotal * (discount / 100);
+                const afterDiscount = subtotal - discountAmount;
+                const taxRate = parseFloat(await (window.LuccaDB?.Settings?.get?.('taxRate'))) || 14;
+                const tax = afterDiscount * (taxRate / 100);
+                const total = afterDiscount + tax;
+                const paymentMethod = document.getElementById('paymentMethod').value || 'cash';
+
+                await LuccaDB.Orders.updateOrder(currentOrderId, {
+                    items,
+                    customerName: formData.customerName,
+                    customerPhone: formData.customerPhone,
+                    customerNotes: formData.customerNotes,
+                    paymentMethod,
+                    discount,
+                    discountAmount,
+                    subtotal,
+                    tax,
+                    total
+                });
+            } catch(e) { console.log('Auto-save error:', e); }
         }
 
         // Listen for table change
@@ -1434,89 +1640,76 @@
             }
         });
 
+        async function tryRecoverOrderId(tableNum) {
+            if (!window.LuccaDB || !window.LuccaDB.Orders) return false;
+            try {
+                const orders = await LuccaDB.Orders.getAll();
+                const pending = orders.find(o => o.tableId == tableNum && o.status === 'pending');
+                if (pending) {
+                    currentOrderId = pending.id;
+                    document.getElementById('customerNameInput').value = pending.customerName || '';
+                    document.getElementById('customerPhoneInput').value = pending.customerPhone || '';
+                    document.getElementById('discountInput').value = pending.discount || 0;
+                    document.getElementById('customerNotesInput').value = pending.customerNotes || '';
+                    document.getElementById('paymentMethod').value = pending.paymentMethod || 'cash';
+                    document.getElementById('orderSummary').querySelector('.order-hint').textContent =
+                        `🔄 طلب موجود (فاتورة #${pending.id}) - أضف أصناف جديدة`;
+                    currentOrder.length = 0;
+                    const allItems = appMenuData.flatMap((cat, ci) =>
+                        cat.items.map((item, ii) => ({ ci, ii, name: item.name }))
+                    );
+                    (pending.items || []).forEach(pi => {
+                        const match = allItems.find(a => a.name === pi.name);
+                        if (match) {
+                            currentOrder.push({ categoryIndex: match.ci, itemIndex: match.ii, quantity: pi.quantity, selectedOrigin: pi.selectedOrigin || '' });
+                        } else {
+                            currentOrder.push({ name: pi.name, price: pi.price || 0, quantity: pi.quantity, selectedOrigin: pi.selectedOrigin || '', _orphan: true });
+                        }
+                    });
+                    renderOrderSummary();
+                    return true;
+                }
+            } catch(e) { console.log('Recovery error:', e); }
+            return false;
+        }
+
         async function requestCheck() {
+            const tableNum = document.getElementById('tableSelect').value;
+            if (!tableNum) {
+                setOrderStatus('اختر رقم الطاولة أولاً.', 'error');
+                return;
+            }
+            if (!currentOrderId) {
+                const recovered = await tryRecoverOrderId(tableNum);
+                if (!recovered) {
+                    setOrderStatus('لم يتم إنشاء طلب بعد، اختر الطاولة أولاً.', 'error');
+                    return;
+                }
+            }
             const items = buildOrderPayload();
             if (items.length === 0) {
                 setOrderStatus('أضف أصنافاً أولاً.', 'error');
                 return;
             }
 
-            const formData = collectCustomerForm();
-            const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const discount = formData.discount || 0;
-            const discountAmount = subtotal * (discount / 100);
-            const afterDiscount = subtotal - discountAmount;
-            const tableNum = document.getElementById('tableSelect').value || null;
-            const paymentMethod = document.getElementById('paymentMethod').value;
-
-            if (!tableNum) {
-                setOrderStatus('اختر رقم الطاولة أولاً.', 'error');
-                return;
-            }
-
-            setOrderStatus('جارٍ حفظ الطلب...', 'neutral');
+            setOrderStatus('جارٍ المزامنة...', 'neutral');
 
             try {
-                if (currentOrderId && window.LuccaDB && window.LuccaDB.Orders) {
-                    // Update existing order - add items
-                    const orders = await LuccaDB.Orders.getAll();
-                    const existing = orders.find(o => o.id === currentOrderId);
-                    if (existing) {
-                        // Merge items
-                        const mergedItems = [...(existing.items || [])];
-                        items.forEach(newItem => {
-                            const found = mergedItems.find(mi => mi.name === newItem.name);
-                            if (found) found.quantity += newItem.quantity;
-                            else mergedItems.push(newItem);
-                        });
-                        const newSubtotal = mergedItems.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
-                        const newDiscountAmount = newSubtotal * (discount / 100);
-                        const newAfterDiscount = newSubtotal - newDiscountAmount;
-                        const taxRate = parseFloat(await LuccaDB.Settings.get('taxRate')) || 14;
-                        const newTax = newAfterDiscount * (taxRate / 100);
+                // Auto-save final time to ensure everything is fresh
+                await autoSave();
 
-                        await LuccaDB.Orders.updateOrder(currentOrderId, {
-                            items: mergedItems,
-                            customerName: formData.customerName,
-                            customerPhone: formData.customerPhone,
-                            paymentMethod: paymentMethod,
-                            discount: discount,
-                            discountAmount: newDiscountAmount,
-                            subtotal: newSubtotal,
-                            tax: newTax,
-                            total: newAfterDiscount + newTax,
-                            customerNotes: formData.customerNotes
-                        });
-                    }
-                } else if (window.LuccaDB && window.LuccaDB.Orders) {
-                    // Create new pending order
-                    const order = await LuccaDB.Orders.create(
-                        parseInt(tableNum),
-                        items,
-                        formData.customerName,
-                        formData.customerPhone,
-                        {
-                            paymentMethod,
-                            customerNotes: formData.customerNotes,
-                            marketingOptIn: formData.offersOptIn,
-                            invoiceDelivery: formData.invoiceDelivery,
-                            discount: formData.discount,
-                            status: 'pending'
-                        }
-                    );
-                    currentOrderId = order.id;
-                }
+                const formData = collectCustomerForm();
+                const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
                 setIntegrationBadge('متصل✓', true);
-                setOrderStatus(tableNum === 'takeaway' ? '✅ تم تسجيل طلب التيك أواي' : `✅ تم تسجيل الطلب - الطاولة ${tableNum}`, 'success');
-                
-                // Save items for auto-download
+                setOrderStatus(tableNum === 'takeaway' ? '✅ تم حفظ طلب التيك أواي' : `✅ تم حفظ الطلب - الطاولة ${tableNum}`, 'success');
+
                 window._lastSubmittedItems = items;
-                
-                // Send WhatsApp فورًا
+
+                // Send WhatsApp if requested
                 if ((formData.invoiceDelivery === 'whatsapp' || formData.invoiceDelivery === 'business') && formData.customerPhone) {
-                    const order = { tableId: tableNum, discount: formData.discount };
-                    const msg = generateWhatsAppMessage(order, items, subtotal);
+                    const orderObj = { tableId: tableNum, discount: formData.discount };
+                    const msg = generateWhatsAppMessage(orderObj, items, subtotal);
                     const phone = normalizePhoneNumber(formData.customerPhone);
                     const waUrl = formData.invoiceDelivery === 'business'
                         ? `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`
@@ -1528,19 +1721,16 @@
                     a.click();
                 }
 
-                // Don't clear - let captain keep adding
-                currentOrder.length = 0;
+                // Keep order for adding more items
                 document.getElementById('orderItems').innerHTML = '';
                 document.getElementById('orderTotal').textContent = '0';
-                document.getElementById('requestCheckBtn').textContent = '➕ إضافة للطلب';
                 document.getElementById('orderSummary').querySelector('.order-hint').textContent = 
                     `🔄 طلب موجود (فاتورة #${currentOrderId}) - أضف أصناف جديدة`;
-                
+
                 await loadTables();
                 document.getElementById('tableSelect').value = tableNum;
-                await loadCustomerSelect();
 
-                // Push to server in background (مش بيوقف حاجة)
+                // Push to server in background
                 setTimeout(async () => {
                     try {
                         const serverUrl = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
@@ -1566,87 +1756,98 @@
                 // Auto-download invoice image
                 setTimeout(() => exportInvoiceAsImage(true), 200);
             } catch (e) {
-                setOrderStatus('❌ فشل حفظ الطلب: ' + e.message, 'error');
-                console.error('Order error:', e);
+                setOrderStatus('❌ فشل المزامنة: ' + e.message, 'error');
+                console.error('Sync error:', e);
             }
         }
 
-        function requestBill() {
+        async function requestBill() {
             const tableNum = document.getElementById('tableSelect').value;
             if (!tableNum) { setOrderStatus('اختر الطاولة أولاً', 'error'); return; }
             if (!currentOrderId) {
-                setOrderStatus('سجل الطلب أولاً ثم اطلب الحساب', 'error');
-                return;
+                const recovered = await tryRecoverOrderId(tableNum);
+                if (!recovered) {
+                    setOrderStatus('سجل الطلب أولاً ثم اطلب الحساب', 'error');
+                    return;
+                }
             }
             openInvoiceModal();
         }
 
         async function openInvoiceModal() {
             const tableNum = document.getElementById('tableSelect').value;
-            const orders = await LuccaDB.Orders.getAll();
-            const order = orders.find(o => o.id === currentOrderId);
-            if (!order) { setOrderStatus('الطلب غير موجود', 'error'); return; }
+            const paymentMethod = document.getElementById('paymentMethod').value || 'cash';
 
-            // Complete the order immediately for accounting
-            await LuccaDB.Orders.updateStatus(currentOrderId, 'completed');
-            const completedOrderId = currentOrderId;
-            currentOrderId = null;
+            try {
+                // Use professional checkout — closes order, saves invoice+payment, frees table atomically
+                const closedOrder = await LuccaDB.Orders.checkout(currentOrderId, paymentMethod);
+                const orderId = currentOrderId;
+                currentOrderId = null;
 
-            const items = order.items || [];
-            const formData = {
-                customerName: order.customerName || '',
-                customerPhone: order.customerPhone || '',
-                customerNotes: order.customerNotes || '',
-                discount: order.discount || 0
-            };
+                // Fetch the latest order data for invoice display
+                const allOrders = await LuccaDB.Orders.getAll();
+                const order = allOrders.find(o => o.id === orderId) || closedOrder;
+                const items = (order && order.items) || [];
+                const formData = {
+                    customerName: (order && order.customerName) || '',
+                    customerPhone: (order && order.customerPhone) || '',
+                    customerNotes: (order && order.customerNotes) || '',
+                    discount: (order && order.discount) || 0
+                };
+                const subtotal = items.reduce((s, i) => s + ((i.price || 0) * (i.quantity || 1)), 0);
+                const discount = formData.discount || 0;
+                const total = subtotal - (subtotal * discount / 100);
 
-            const subtotal = items.reduce((s, i) => s + (i.price * i.quantity), 0);
-            const discount = formData.discount || 0;
-            const total = subtotal - (subtotal * discount / 100);
+                // Show invoice in modal
+                const modal = document.getElementById('invoiceModal');
+                const content = document.getElementById('invoiceContent');
+                const fullHtml = generateInvoiceHTML(order, formData, subtotal, false);
+                content.innerHTML = fullHtml;
+                modal.classList.add('show');
 
-            // Show invoice in modal
-            const modal = document.getElementById('invoiceModal');
-            const content = document.getElementById('invoiceContent');
-            const fullHtml = generateInvoiceHTML(order, formData, subtotal, false);
-            content.innerHTML = fullHtml;
-            modal.classList.add('show');
+                async function closeAndClear() {
+                    modal.classList.remove('show');
+                    await clearOrder();
+                    document.querySelectorAll('.table-card').forEach(c => c.classList.remove('selected'));
+                    await loadTables();
+                }
 
-            function closeAndClear() {
-                modal.classList.remove('show');
-                clearOrder();
-                loadTables();
+                // Thermal print
+                document.querySelector('#invoiceModal .btn-thermal').onclick = () => {
+                    thermalPrintInvoice(order, formData, subtotal);
+                    closeAndClear();
+                    setOrderStatus('✅ تم إرسال الفاتورة للطابعة الحرارية', 'success');
+                };
+
+                // Normal print
+                document.querySelector('#invoiceModal .btn-print').onclick = () => {
+                    printInvoiceContent(content.innerHTML);
+                    closeAndClear();
+                    setOrderStatus('✅ تمت طباعة الفاتورة والطلب مسجل في المحاسبة', 'success');
+                };
+
+                // WhatsApp
+                document.querySelector('#invoiceModal .btn-whatsapp').onclick = () => {
+                    const phone = normalizePhoneNumber(order.customerPhone || '');
+                    if (!phone) { setOrderStatus('❌ رقم العميل غير موجود', 'error'); return; }
+                    const msg = generateWhatsAppMessage(order, items, subtotal);
+                    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+                    window.open(waUrl, '_blank');
+                    closeAndClear();
+                    setOrderStatus('✅ تم إرسال الفاتورة على واتساب', 'success');
+                };
+
+                // Close
+                document.querySelector('#invoiceModal .btn-close-invoice').onclick = () => {
+                    closeAndClear();
+                    setOrderStatus('✅ الطلب مسجل في المحاسبة', 'success');
+                };
+
+                setOrderStatus('✅ تم إنهاء الطلب والفواتير محفوظة', 'success');
+            } catch (e) {
+                setOrderStatus('❌ فشل إنهاء الطلب: ' + e.message, 'error');
+                console.error('Checkout error:', e);
             }
-
-            // Thermal print
-            document.querySelector('#invoiceModal .btn-thermal').onclick = () => {
-                thermalPrintInvoice(order, formData, subtotal);
-                closeAndClear();
-                setOrderStatus('✅ تم إرسال الفاتورة للطابعة الحرارية', 'success');
-            };
-
-            // Normal print
-            document.querySelector('#invoiceModal .btn-print').onclick = () => {
-                printInvoiceContent(content.innerHTML);
-                closeAndClear();
-                setOrderStatus('✅ تمت طباعة الفاتورة والطلب مسجل في المحاسبة', 'success');
-            };
-
-            // WhatsApp
-            document.querySelector('#invoiceModal .btn-whatsapp').onclick = () => {
-                const phone = normalizePhoneNumber(order.customerPhone || '');
-                if (!phone) { setOrderStatus('❌ رقم العميل غير موجود', 'error'); return; }
-                const msg = generateWhatsAppMessage(order, items, subtotal);
-                const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-                window.open(waUrl, '_blank');
-                closeAndClear();
-                setOrderStatus('✅ تم إرسال الفاتورة على واتساب', 'success');
-            };
-
-            // Close
-            document.querySelector('#invoiceModal .btn-close-invoice').onclick = () => {
-                closeAndClear();
-                setOrderStatus('✅ الطلب مسجل في المحاسبة', 'success');
-            };
         }
 
         function printInvoiceContent(html) {
@@ -1753,6 +1954,53 @@ w.document.close();
 setTimeout(() => { w.focus(); w.print(); }, 300);
 }
 
+        async function kitchenPrint() {
+            // Items are already auto-saved — just read from DB
+            if (!currentOrderId) {
+                const tableNum = document.getElementById('tableSelect').value;
+                if (tableNum && await tryRecoverOrderId(tableNum)) {
+                    // recovered
+                } else {
+                    setOrderStatus('لا يوجد طلب نشط.', 'error'); return;
+                }
+            }
+            let items;
+            try {
+                const orders = await LuccaDB.Orders.getAll();
+                const order = orders.find(o => o.id === currentOrderId);
+                if (!order || !order.items || order.items.length === 0) { setOrderStatus('الطلب فارغ.', 'error'); return; }
+                items = order.items;
+            } catch(e) { setOrderStatus('فشل قراءة الطلب.', 'error'); return; }
+
+            const tableNum = document.getElementById('tableSelect').value || '-';
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' });
+            const dateStr = now.toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
+            const itemRows = items.map(i =>
+                `<tr><td style="padding:4px 6px;text-align:right;font-size:13px;">${i.name}</td><td style="padding:4px 6px;text-align:center;width:40px;font-size:13px;">×${i.quantity || 1}</td></tr>`
+            ).join('');
+
+            const html = `
+                <div style="font-family:Tahoma,sans-serif;direction:rtl;padding:10px;max-width:280px;margin:0 auto;">
+                    <div style="text-align:center;border-bottom:2px dashed #333;padding-bottom:8px;margin-bottom:8px;">
+                        <div style="font-size:18px;font-weight:bold;">👨‍🍳 مطبخ LUCCA</div>
+                        <div style="font-size:11px;color:#666;">${dateStr} - ${timeStr}</div>
+                        <div style="font-size:14px;font-weight:bold;margin-top:4px;">${tableNum === 'takeaway' ? '🛵 تيك أواي' : `طاولة ${tableNum}`}</div>
+                    </div>
+                    <table style="width:100%;border-collapse:collapse;">
+                        ${itemRows}
+                    </table>
+                    <div style="border-top:1px dashed #999;margin-top:8px;padding-top:6px;text-align:center;font-size:10px;color:#999;">شكراً لكم</div>
+                </div>
+            `;
+
+            const w = window.open('', '_blank', 'width=320,height=500');
+            w.document.write(`<html><head><meta charset="utf-8"><style>body{margin:0;padding:0;}@media print{body{print-color-adjust:exact;}}</style></head><body>${html}</body></html>`);
+            w.document.close();
+            setTimeout(() => { w.focus(); w.print(); }, 300);
+            setOrderStatus('✅ تم إرسال الطلب للمطبخ', 'success');
+        }
+
         function thermalPrintPreview() {
             const items = buildOrderPayload();
             if (items.length === 0) { setOrderStatus('أضف أصنافاً أولاً.', 'error'); return; }
@@ -1795,7 +2043,7 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
                 items.forEach(item => {
                     const text = item.textContent.toLowerCase();
                     if (text.includes(searchTerm)) {
-                        item.style.display = 'flex';
+                        item.style.display = '';
                         hasVisible = true;
                         anyVisible = true;
                     } else {
@@ -1867,21 +2115,23 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
 
             // Show tables immediately (fallback), then upgrade when DB is ready
             fallbackTables(document.getElementById('tableSelect'));
-            await loadCustomerSelect();
 
+            // Start DB init BEFORE any await — so onTableChange can wait for it
             if (window.LuccaDB && window.LuccaDB.initSystem) {
-                // Initialize DB + server sync in background — لا يوقف الصفحة
-                window.LuccaDB.initSystem()
-                    .then(() => {
+                _initPromise = window.LuccaDB.initSystem();
+                _initPromise
+                    .then(async () => {
                         dbReady = true;
                         setIntegrationBadge('متصل✓', true);
-                        loadTables();
+                        await loadTables();
                         loadCustomerSelect();
                     })
                     .catch(() => {
                         setIntegrationBadge('غير متصل', false);
                     });
             }
+
+            await loadCustomerSelect();
 
             const firstCategory = document.querySelector('.category');
             if (firstCategory) {
@@ -2043,8 +2293,7 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
             // --- Sending ---
             async sendRaw(data) {
                 if (!this.connected) throw new Error('الطابعة غير متصلة');
-                const encoder = new TextEncoder();
-                const bytes = encoder.encode(data);
+                const bytes = this._encode(data);
 
                 if (this.connType === 'usb') {
                     try {
@@ -2066,6 +2315,42 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
                         throw new Error('انقطع الاتصال التسلسلي: ' + e.message);
                     }
                 }
+            },
+
+            // Encode string to CP1256 bytes for ESC/POS thermal printer
+            _encode(str) {
+                const cp1256 = {
+                    0x60C: 0x81, 0x61B: 0x83, 0x61F: 0x84, 0x621: 0x85, 0x622: 0x86,
+                    0x623: 0x87, 0x624: 0x88, 0x625: 0x89, 0x626: 0x8A, 0x627: 0x8B,
+                    0x628: 0x8C, 0x629: 0x8D, 0x62A: 0x8E, 0x62B: 0x8F, 0x62C: 0x90,
+                    0x62D: 0x91, 0x62E: 0x92, 0x62F: 0x93, 0x630: 0x94, 0x631: 0x95,
+                    0x632: 0x96, 0x633: 0x97, 0x634: 0x98, 0x635: 0x99, 0x636: 0x9A,
+                    0x637: 0x9B, 0x638: 0x9C, 0x639: 0x9D, 0x63A: 0x9E, 0x640: 0xA0,
+                    0x641: 0xA1, 0x642: 0xA2, 0x643: 0xA3, 0x644: 0xA4, 0x645: 0xA5,
+                    0x646: 0xA6, 0x647: 0xA7, 0x648: 0xA8, 0x649: 0xA9, 0x64A: 0xAA,
+                    0x64B: 0xAB, 0x64C: 0xAC, 0x64D: 0xAD, 0x64E: 0xAE, 0x64F: 0xAF,
+                    0x650: 0xB0, 0x651: 0xB1, 0x652: 0xB2, 0x660: 0xB3, 0x661: 0xB4,
+                    0x662: 0xB5, 0x663: 0xB6, 0x664: 0xB7, 0x665: 0xB8, 0x666: 0xB9,
+                    0x667: 0xBA, 0x668: 0xBB, 0x669: 0xBC, 0x66A: 0xBD, 0x66E: 0xBE,
+                    0x66F: 0xBF, 0x679: 0xC0, 0x67E: 0xC1, 0x686: 0xC2, 0x688: 0xC3,
+                    0x691: 0xC4, 0x698: 0xC5, 0x699: 0xC6, 0x69A: 0xC7, 0x6A9: 0xC8,
+                    0x6AF: 0xC9, 0x6BA: 0xCA, 0x6BE: 0xCB, 0x6C1: 0xCC, 0x6D2: 0xCD,
+                    0x6D5: 0xCE, 0x20: 0x20, 0x2C: 0x2C, 0x3001: 0x81
+                };
+                const out = [];
+                for (let i = 0; i < str.length; i++) {
+                    const code = str.charCodeAt(i);
+                    if (code < 0x80) {
+                        out.push(code);
+                    } else if (code === 0x6260) {
+                        out.push(0x8A);
+                    } else if (cp1256[code] !== undefined) {
+                        out.push(cp1256[code]);
+                    } else {
+                        out.push(0x3F);
+                    }
+                }
+                return new Uint8Array(out);
             },
 
             // --- Build ESC/POS receipt ---
