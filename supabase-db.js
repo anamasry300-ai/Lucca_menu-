@@ -325,6 +325,55 @@
     async pullAll() {}
   };
 
+  const KnowledgeBase = {
+    async addDocument(doc) {
+      const entry = { name: doc.name || 'Untitled', type: doc.type || 'text', content: doc.content || '', tags: doc.tags || '', chunks_count: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      const id = await _db.add('knowledge_documents', entry);
+      const chunks = (doc.content || '').split(/(?<=[.!?\n])\s+/).filter(c => c.trim().length > 5);
+      for (let i = 0; i < chunks.length; i++) {
+        await _db.add('knowledge_chunks', { document_id: id, content: chunks[i].trim(), chunk_index: i, tokens_estimate: Math.ceil(chunks[i].split(/\s+/).length * 1.3) });
+      }
+      entry.chunks_count = chunks.length;
+      entry.id = id;
+      await _db.put('knowledge_documents', entry);
+      return entry;
+    },
+    async getAllDocuments() { return _db.getAll('knowledge_documents'); },
+    async getDocument(id) { return _db.get('knowledge_documents', id); },
+    async removeDocument(id) {
+      const chunks = await _db.getAll('knowledge_chunks');
+      for (const c of chunks.filter(c => c.document_id === id)) await _db.delete('knowledge_chunks', c.id);
+      return _db.delete('knowledge_documents', id);
+    },
+    async searchChunks(query) {
+      const all = await _db.getAll('knowledge_chunks');
+      const terms = query.toLowerCase().split(/[\s,.\-!?]+/).filter(t => t.length > 1);
+      return all.filter(chunk => {
+        const content = (chunk.content || '').toLowerCase();
+        return terms.some(t => content.includes(t));
+      }).sort((a, b) => {
+        const scoreA = terms.filter(t => (a.content || '').toLowerCase().includes(t)).length;
+        const scoreB = terms.filter(t => (b.content || '').toLowerCase().includes(t)).length;
+        return scoreB - scoreA;
+      }).slice(0, 20);
+    },
+    async search(query) {
+      const results = await this.searchChunks(query);
+      if (results.length === 0) return null;
+      return { results, context: results.slice(0, 3).map(r => r.content).join('\n---\n'), count: results.length };
+    },
+    async ingestText(name, text, tags) { return this.addDocument({ name, type: 'text', content: text, tags }); },
+    async getStats() {
+      const docs = await this.getAllDocuments();
+      let totalChunks = 0;
+      for (const doc of docs) {
+        const chunks = await _db.getAll('knowledge_chunks');
+        totalChunks += chunks.filter(c => c.document_id === doc.id).length;
+      }
+      return { documents: docs.length, chunks: totalChunks, tokens: 0 };
+    }
+  };
+
   async function initSystem() {
     await Users.createDefaultAdmin();
     await Tables.init();
@@ -339,6 +388,6 @@
     ProductVariations: { async getAll() { return _db.getAll('product_variations'); } },
     Taxes: { async getAll() { return _db.getAll('taxes'); } },
     AuditLogs, OrderStatusHistory: { async getAll() { return _db.getAll('order_status_history'); } },
-    BotMemory, initSystem
+    BotMemory, KnowledgeBase, initSystem
   };
 })();
