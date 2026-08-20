@@ -342,7 +342,7 @@
         }
 
         .header-search::before {
-            content: 'ًں”چ';
+            content: '🔍';
             position: absolute;
             right: 12px;
             top: 50%;
@@ -1505,16 +1505,16 @@
 <div class="login-screen" id="loginScreen">
     <div class="login-card">
         <h1>LUCCA</h1>
-        <p>ظ„ظˆط­ط© ط§ظ„طھط­ظƒظ… - ط¥ط¯ط§ط±ط© ط§ظ„ظ…ط·ط¹ظ…</p>
+        <p>لوحة التحكم - إدارة المطعم</p>
         <div class="form-row">
-            <label>ط§ط³ظ… ط§ظ„ظ…ط³طھط®ط¯ظ…</label>
-            <input type="text" id="loginUser" placeholder="ط§ط³ظ… ط§ظ„ظ…ط³طھط®ط¯ظ…" autocomplete="username">
+            <label>اسم المستخدم</label>
+            <input type="text" id="loginUser" placeholder="اسم المستخدم" autocomplete="username">
         </div>
         <div class="form-row">
-            <label>ظƒظ„ظ…ط© ط§ظ„ظ…ط±ظˆط±</label>
-            <input type="password" id="loginPass" placeholder="ظƒظ„ظ…ط© ط§ظ„ظ…ط±ظˆط±" autocomplete="current-password">
+            <label>كلمة المرور</label>
+            <input type="password" id="loginPass" placeholder="كلمة المرور" autocomplete="current-password">
         </div>
-        <button class="btn btn-primary" onclick="doLogin()">طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„</button>
+        <button class="btn btn-primary" onclick="doLogin()">تسجيل الدخول</button>
         <div id="loginError" style="color:var(--danger);font-size:0.85rem;margin-top:12px;text-align:center"></div>
     </div>
 </div>
@@ -1575,34 +1575,34 @@
         <header class="app-header">
             <div class="header-right">
                 <div class="header-search">
-                    <input type="text" id="globalSearch" placeholder="ط¨ط­ط« ط¹ظ† ظ…ظ†طھط¬..." onkeyup="handleGlobalSearch(this.value)">
+                    <input type="text" id="globalSearch" placeholder="بحث عن منتج..." onkeyup="handleGlobalSearch(this.value)">
                 </div>
                 <div class="date-filter">
                     <input type="date" id="dateFrom" onchange="onDateFilterChange()">
-                    <span style="color:var(--text-muted);font-size:0.8125rem">ط¥ظ„ظ‰</span>
+                    <span style="color:var(--text-muted);font-size:0.8125rem">إلى</span>
                     <input type="date" id="dateTo" onchange="onDateFilterChange()">
                     <div class="date-presets" id="datePresets">
-                        <button class="date-preset active" data-range="today">ط§ظ„ظٹظˆظ…</button>
-                        <button class="date-preset" data-range="yesterday">ط£ظ…ط³</button>
-                        <button class="date-preset" data-range="7d">7 ط£ظٹط§ظ…</button>
-                        <button class="date-preset" data-range="30d">30 ظٹظˆظ…</button>
-                        <button class="date-preset" data-range="month">ظ‡ط°ط§ ط§ظ„ط´ظ‡ط±</button>
+                        <button class="date-preset active" data-range="today">اليوم</button>
+                        <button class="date-preset" data-range="yesterday">أمس</button>
+                        <button class="date-preset" data-range="7d">7 أيام</button>
+                        <button class="date-preset" data-range="30d">30 يوم</button>
+                        <button class="date-preset" data-range="month">هذا الشهر</button>
                     </div>
                 </div>
             </div>
             <div class="header-left">
                 <div class="header-actions">
-                    <button class="header-btn" onclick="toggleDarkMode()" title="ط§ظ„ظˆط¶ط¹ ط§ظ„ظ„ظٹظ„ظٹ">ًںŒ™</button>
-                    <button class="header-btn" onclick="refreshDashboard()" title="طھط­ط¯ظٹط«">ًں”„</button>
+                    <button class="header-btn" onclick="toggleDarkMode()" title="الوضع الليلي">🌙</button>
+                    <button class="header-btn" onclick="refreshDashboard()" title="تحديث">🔄</button>
                 </div>
                 <div class="header-user" id="headerUser">
                     <div class="header-user-avatar" id="userAvatar">A</div>
                     <div class="header-user-info">
-                        <div class="name" id="userDisplayName">ط§ظ„ظ…ط¯ظٹط±</div>
-                        <div class="role" id="userRoleDisplay">ظ…ط¯ظٹط±</div>
+                        <div class="name" id="userDisplayName">المدير</div>
+                        <div class="role" id="userRoleDisplay">مدير</div>
                     </div>
                 </div>
-                <button class="btn btn-ghost btn-sm" onclick="doLogout()">ط®ط±ظˆط¬</button>
+                <button class="btn btn-ghost btn-sm" onclick="doLogout()">خروج</button>
             </div>
         </header>
 
@@ -1614,58 +1614,58 @@
                 <div class="kpi-grid" id="kpiGrid">
                     <div class="kpi-card green">
                         <div class="kpi-header">
-                            <div class="kpi-icon">ًں’°</div>
-                            <div class="kpi-trend neutral" id="kpiSalesTrend">â€”</div>
+                            <div class="kpi-icon">💰</div>
+                            <div class="kpi-trend neutral" id="kpiSalesTrend">—</div>
                         </div>
                         <div class="kpi-value" id="kpiSales">0</div>
-                        <div class="kpi-label">طµط§ظپظٹ ط§ظ„ظ…ط¨ظٹط¹ط§طھ</div>
+                        <div class="kpi-label">صافي المبيعات</div>
                     </div>
                     <div class="kpi-card blue">
                         <div class="kpi-header">
-                            <div class="kpi-icon">ًں“‹</div>
-                            <div class="kpi-trend neutral" id="kpiOrdersTrend">â€”</div>
+                            <div class="kpi-icon">📋</div>
+                            <div class="kpi-trend neutral" id="kpiOrdersTrend">—</div>
                         </div>
                         <div class="kpi-value" id="kpiOrders">0</div>
-                        <div class="kpi-label">ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط·ظ„ط¨ط§طھ</div>
+                        <div class="kpi-label">إجمالي الطلبات</div>
                     </div>
                     <div class="kpi-card purple">
                         <div class="kpi-header">
-                            <div class="kpi-icon">ًں“ٹ</div>
-                            <div class="kpi-trend neutral" id="kpiAvgTrend">â€”</div>
+                            <div class="kpi-icon">📊</div>
+                            <div class="kpi-trend neutral" id="kpiAvgTrend">—</div>
                         </div>
                         <div class="kpi-value" id="kpiAvgOrder">0</div>
-                        <div class="kpi-label">ظ…طھظˆط³ط· ط§ظ„ط·ظ„ط¨</div>
+                        <div class="kpi-label">متوسط الطلب</div>
                     </div>
                     <div class="kpi-card orange">
                         <div class="kpi-header">
-                            <div class="kpi-icon">ًںڈ·ï¸ڈ</div>
+                            <div class="kpi-icon">🏷️</div>
                         </div>
                         <div class="kpi-value" id="kpiDiscounts">0</div>
-                        <div class="kpi-label">ط§ظ„ط®طµظˆظ…ط§طھ</div>
+                        <div class="kpi-label">الخصومات</div>
                     </div>
                     <div class="kpi-card red">
                         <div class="kpi-header">
-                            <div class="kpi-icon">â†©ï¸ڈ</div>
+                            <div class="kpi-icon">↩️</div>
                         </div>
                         <div class="kpi-value" id="kpiRefunds">0</div>
-                        <div class="kpi-label">ط§ظ„ظ…ط±طھط¬ط¹ط§طھ</div>
+                        <div class="kpi-label">المرتجعات</div>
                     </div>
                     <div class="kpi-card green" id="kpiProfitCard">
                         <div class="kpi-header">
-                            <div class="kpi-icon">ًں“ˆ</div>
+                            <div class="kpi-icon">📈</div>
                         </div>
-                        <div class="kpi-value" id="kpiProfit">â€”</div>
-                        <div class="kpi-label">طµط§ظپظٹ ط§ظ„ط±ط¨ط­</div>
+                        <div class="kpi-value" id="kpiProfit">—</div>
+                        <div class="kpi-label">صافي الربح</div>
                     </div>
                 </div>
 
                 <div class="chart-container" style="margin-bottom:24px">
                     <div class="chart-header">
-                        <div class="chart-title">ًں“ˆ ظ†ط¸ط±ط© ط¹ظ„ظ‰ ط§ظ„ظ…ط¨ظٹط¹ط§طھ</div>
+                        <div class="chart-title">📈 نظرة على المبيعات</div>
                         <div class="chart-tabs">
-                            <button class="chart-tab active" onclick="setChartView('daily',this)">ظٹظˆظ…ظٹ</button>
-                            <button class="chart-tab" onclick="setChartView('weekly',this)">ط£ط³ط¨ظˆط¹ظٹ</button>
-                            <button class="chart-tab" onclick="setChartView('monthly',this)">ط´ظ‡ط±ظٹ</button>
+                            <button class="chart-tab active" onclick="setChartView('daily',this)">يومي</button>
+                            <button class="chart-tab" onclick="setChartView('weekly',this)">أسبوعي</button>
+                            <button class="chart-tab" onclick="setChartView('monthly',this)">شهري</button>
                         </div>
                     </div>
                     <div class="chart-body" id="salesChartBody">
@@ -1675,33 +1675,33 @@
 
                 <div class="grid-2" style="margin-bottom:24px">
                     <div class="panel">
-                        <div class="panel-header"><div class="panel-title">ًں“‚ ط§ظ„ظ…ط¨ظٹط¹ط§طھ ط­ط³ط¨ ط§ظ„ظ‚ط³ظ…</div></div>
+                        <div class="panel-header"><div class="panel-title">📂 المبيعات حسب القسم</div></div>
                         <div class="panel-body" id="categoryAnalytics"><div class="loading"><div class="spinner"></div></div></div>
                     </div>
                     <div class="panel">
-                        <div class="panel-header"><div class="panel-title">ًں’³ ط·ط±ظ‚ ط§ظ„ط¯ظپط¹</div></div>
+                        <div class="panel-header"><div class="panel-title">💳 طرق الدفع</div></div>
                         <div class="panel-body" id="paymentAnalytics"><div class="loading"><div class="spinner"></div></div></div>
                     </div>
                 </div>
 
                 <div class="grid-2" style="margin-bottom:24px">
                     <div class="panel">
-                        <div class="panel-header"><div class="panel-title">ًںڈ† ط£ظپط¶ظ„ ط§ظ„ظ…ظ†طھط¬ط§طھ</div></div>
+                        <div class="panel-header"><div class="panel-title">🏆 أفضل المنتجات</div></div>
                         <div class="panel-body no-pad" id="topProductsPanel"><div class="loading"><div class="spinner"></div></div></div>
                     </div>
                     <div class="panel">
-                        <div class="panel-header"><div class="panel-title">ًں”” ط§ظ„ط·ظ„ط¨ط§طھ ط§ظ„ظ†ط´ط·ط©</div></div>
+                        <div class="panel-header"><div class="panel-title">🔔 الطلبات النشطة</div></div>
                         <div class="panel-body no-pad" id="liveOrdersPanel"><div class="loading"><div class="spinner"></div></div></div>
                     </div>
                 </div>
 
                 <div class="grid-2" style="margin-bottom:24px">
                     <div class="panel">
-                        <div class="panel-header"><div class="panel-title">ًںھ‘ ط­ط§ظ„ط© ط§ظ„ط·ط§ظˆظ„ط§طھ</div></div>
+                        <div class="panel-header"><div class="panel-title">🪑 حالة الطاولات</div></div>
                         <div class="panel-body" id="tablesStatusPanel"><div class="loading"><div class="spinner"></div></div></div>
                     </div>
                     <div class="panel">
-                        <div class="panel-header"><div class="panel-title">ًں’، ط±ط¤ظ‰ ×¢×،×§ظٹط©</div></div>
+                        <div class="panel-header"><div class="panel-title">💡 رؤى עסקية</div></div>
                         <div class="panel-body" id="insightsPanel"><div class="loading"><div class="spinner"></div></div></div>
                     </div>
                 </div>
@@ -1711,60 +1711,60 @@
 
             <!-- ===== ORDERS ===== -->
             <div class="page" id="page-orders-page">
-                <div class="section-title">ًں“‹ ط¥ط¯ط§ط±ط© ط§ظ„ط·ظ„ط¨ط§طھ</div>
+                <div class="section-title">📋 إدارة الطلبات</div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:1;min-width:140px"><label>ظ…ظ† طھط§ط±ظٹط®</label><input type="date" id="ordersDateFrom"></div>
-                        <div style="flex:1;min-width:140px"><label>ط¥ظ„ظ‰ طھط§ط±ظٹط®</label><input type="date" id="ordersDateTo"></div>
-                        <div style="flex:1;min-width:140px"><label>ط§ظ„ط­ط§ظ„ط©</label>
-                            <select id="ordersStatusFilter"><option value="">ط§ظ„ظƒظ„</option><option value="pending">ظ‚ظٹط¯ ط§ظ„ط§ظ†طھط¸ط§ط±</option><option value="in_preparation">ظ‚ظٹط¯ ط§ظ„طھط­ط¶ظٹط±</option><option value="ready">ط¬ط§ظ‡ط²</option><option value="served">طھظ… ط§ظ„طھظ‚ط¯ظٹظ…</option><option value="closed">ظ…ط؛ظ„ظ‚</option><option value="cancelled">ظ…ظ„ط؛ظٹ</option></select>
+                        <div style="flex:1;min-width:140px"><label>من تاريخ</label><input type="date" id="ordersDateFrom"></div>
+                        <div style="flex:1;min-width:140px"><label>إلى تاريخ</label><input type="date" id="ordersDateTo"></div>
+                        <div style="flex:1;min-width:140px"><label>الحالة</label>
+                            <select id="ordersStatusFilter"><option value="">الكل</option><option value="pending">قيد الانتظار</option><option value="in_preparation">قيد التحضير</option><option value="ready">جاهز</option><option value="served">تم التقديم</option><option value="closed">مغلق</option><option value="cancelled">ملغي</option></select>
                         </div>
-                        <button class="btn btn-primary" onclick="loadOrders()">ط¨ط­ط«</button>
+                        <button class="btn btn-primary" onclick="loadOrders()">بحث</button>
                     </div>
                 </div></div>
                 <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
-                    <div class="kpi-card blue"><div class="kpi-value" id="ordersKpiCount">0</div><div class="kpi-label">ط§ظ„ط·ظ„ط¨ط§طھ</div></div>
-                    <div class="kpi-card green"><div class="kpi-value" id="ordersKpiTotal">0</div><div class="kpi-label">ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ</div></div>
-                    <div class="kpi-card purple"><div class="kpi-value" id="ordersKpiAvg">0</div><div class="kpi-label">ط§ظ„ظ…طھظˆط³ط·</div></div>
-                    <div class="kpi-card red"><div class="kpi-value" id="ordersKpiCancelled">0</div><div class="kpi-label">ظ…ظ„ط؛ظٹط©</div></div>
+                    <div class="kpi-card blue"><div class="kpi-value" id="ordersKpiCount">0</div><div class="kpi-label">الطلبات</div></div>
+                    <div class="kpi-card green"><div class="kpi-value" id="ordersKpiTotal">0</div><div class="kpi-label">الإجمالي</div></div>
+                    <div class="kpi-card purple"><div class="kpi-value" id="ordersKpiAvg">0</div><div class="kpi-label">المتوسط</div></div>
+                    <div class="kpi-card red"><div class="kpi-value" id="ordersKpiCancelled">0</div><div class="kpi-label">ملغية</div></div>
                 </div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط±ظ‚ظ…</th><th>ط§ظ„ط·ط§ظˆظ„ط©</th><th>ط§ظ„ط¹ظ…ظٹظ„</th><th>ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ</th><th>ط§ظ„ط¯ظپط¹</th><th>ط§ظ„ط­ط§ظ„ط©</th><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط¥ط¬ط±ط§ط،ط§طھ</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>رقم</th><th>الطاولة</th><th>العميل</th><th>الإجمالي</th><th>الدفع</th><th>الحالة</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
                     <tbody id="ordersBody"></tbody></table>
                 </div></div>
             </div>
 
             <!-- ===== TABLES ===== -->
             <div class="page" id="page-tables-page">
-                <div class="section-title">ًںھ‘ ط¥ط¯ط§ط±ط© ط§ظ„ط·ط§ظˆظ„ط§طھ</div>
+                <div class="section-title">🪑 إدارة الطاولات</div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:1;min-width:120px"><label>ط±ظ‚ظ… ط§ظ„ط·ط§ظˆظ„ط©</label><input type="number" id="tableNumber" min="1"></div>
-                        <div style="flex:1;min-width:120px"><label>ط§ظ„ط³ط¹ط©</label><input type="number" id="tableCapacity" min="1" value="4"></div>
-                        <div style="flex:2;min-width:160px"><label>ط§ظ„ظ…ظ†ط·ظ‚ط©</label><input type="text" id="tableZone" placeholder="طµط§ظ„ط© / VIP / طھط±ط§ط³"></div>
-                        <button class="btn btn-primary" onclick="addTable()">ط¥ط¶ط§ظپط©</button>
+                        <div style="flex:1;min-width:120px"><label>رقم الطاولة</label><input type="number" id="tableNumber" min="1"></div>
+                        <div style="flex:1;min-width:120px"><label>السعة</label><input type="number" id="tableCapacity" min="1" value="4"></div>
+                        <div style="flex:2;min-width:160px"><label>المنطقة</label><input type="text" id="tableZone" placeholder="صالة / VIP / تراس"></div>
+                        <button class="btn btn-primary" onclick="addTable()">إضافة</button>
                     </div>
                 </div></div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط±ظ‚ظ…</th><th>ط§ظ„ط³ط¹ط©</th><th>ط§ظ„ظ…ظ†ط·ظ‚ط©</th><th>ط§ظ„ط­ط§ظ„ط©</th><th>ط¥ط¬ط±ط§ط،ط§طھ</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>رقم</th><th>السعة</th><th>المنطقة</th><th>الحالة</th><th>إجراءات</th></tr></thead>
                     <tbody id="tablesBody"></tbody></table>
                 </div></div>
             </div>
 
             <!-- ===== CATEGORIES ===== -->
             <div class="page" id="page-categories-page">
-                <div class="section-title">ًں“‚ ط¥ط¯ط§ط±ط© ط§ظ„ط£ظ‚ط³ط§ظ…</div>
+                <div class="section-title">📂 إدارة الأقسام</div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:2;min-width:160px"><label>ط§ظ„ط§ط³ظ… ط¨ط§ظ„ط¹ط±ط¨ظٹط©</label><input type="text" id="catNameAr"></div>
-                        <div style="flex:2;min-width:160px"><label>ط§ظ„ط§ط³ظ… ط¨ط§ظ„ط¥ظ†ط¬ظ„ظٹط²ظٹط©</label><input type="text" id="catNameEn"></div>
-                        <div style="flex:1;min-width:80px"><label>ط§ظ„ط£ظٹظ‚ظˆظ†ط©</label><input type="text" id="catIcon" placeholder="âک•"></div>
-                        <div style="flex:1;min-width:80px"><label>ط§ظ„طھط±طھظٹط¨</label><input type="number" id="catSort" min="0" value="0"></div>
-                        <button class="btn btn-primary" onclick="addCategory()">ط¥ط¶ط§ظپط©</button>
+                        <div style="flex:2;min-width:160px"><label>الاسم بالعربية</label><input type="text" id="catNameAr"></div>
+                        <div style="flex:2;min-width:160px"><label>الاسم بالإنجليزية</label><input type="text" id="catNameEn"></div>
+                        <div style="flex:1;min-width:80px"><label>الأيقونة</label><input type="text" id="catIcon" placeholder="☕"></div>
+                        <div style="flex:1;min-width:80px"><label>الترتيب</label><input type="number" id="catSort" min="0" value="0"></div>
+                        <button class="btn btn-primary" onclick="addCategory()">إضافة</button>
                     </div>
                 </div></div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط§ظ„ط£ظٹظ‚ظˆظ†ط©</th><th>ط§ظ„ط§ط³ظ…</th><th>English</th><th>ط§ظ„طھط±طھظٹط¨</th><th>ط§ظ„ط­ط§ظ„ط©</th><th>ط¥ط¬ط±ط§ط،ط§طھ</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>الأيقونة</th><th>الاسم</th><th>English</th><th>الترتيب</th><th>الحالة</th><th>إجراءات</th></tr></thead>
                     <tbody id="categoriesBody"></tbody></table>
                 </div></div>
             </div>
@@ -1776,176 +1776,176 @@
                     <button class="btn btn-primary" onclick="openAddProductModal()" style="padding:12px 24px;font-size:1rem">➕ اضافة منتج جديد</button>
                 </div>
                 <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-                    <input type="text" id="prodSearch" placeholder="ΦΫΩ ηظ† ظ…ظ†طھط¬..." onkeyup="searchProducts()" style="flex:2;min-width:200px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);background:var(--surface);color:var(--text)">
-                    <select id="prodFilterCat" onchange="filterProducts()" style="flex:1;min-width:160px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);background:var(--surface);color:var(--text)"><option value="">ظƒظ„ ط§ظ„ط£ظ‚ط³ط§ظ…</option></select>
+                    <input type="text" id="prodSearch" placeholder="ΦΫΩ ηن منتج..." onkeyup="searchProducts()" style="flex:2;min-width:200px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);background:var(--surface);color:var(--text)">
+                    <select id="prodFilterCat" onchange="filterProducts()" style="flex:1;min-width:160px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);background:var(--surface);color:var(--text)"><option value="">كل الأقسام</option></select>
                 </div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط§ظ„ظ…ظ†طھط¬</th><th>ط§ظ„ظ‚ط³ظ…</th><th>ط§ظ„ط³ط¹ط±</th><th>ط§ظ„طھظƒظ„ظپط©</th><th>ط§ظ„ط±ط¨ط­</th><th>ط§ظ„ط´ط§ط±ط©</th><th>ط§ظ„ط­ط§ظ„ط©</th><th>ط¥ط¬ط±ط§ط،ط§طھ</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>المنتج</th><th>القسم</th><th>السعر</th><th>التكلفة</th><th>الربح</th><th>الشارة</th><th>الحالة</th><th>إجراءات</th></tr></thead>
                     <tbody id="productsBody"></tbody></table>
                 </div></div>
             </div>
 
             <!-- ===== PAYMENT METHODS ===== -->
             <div class="page" id="page-paymethods-page">
-                <div class="section-title">ًں’³ ط¥ط¯ط§ط±ط© ط·ط±ظ‚ ط§ظ„ط¯ظپط¹</div>
+                <div class="section-title">💳 إدارة طرق الدفع</div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:2;min-width:160px"><label>ط§ظ„ط§ط³ظ… ط¨ط§ظ„ط¹ط±ط¨ظٹط©</label><input type="text" id="pmNameAr"></div>
-                        <div style="flex:2;min-width:160px"><label>ط§ظ„ط§ط³ظ… ط¨ط§ظ„ط¥ظ†ط¬ظ„ظٹط²ظٹط©</label><input type="text" id="pmNameEn"></div>
-                        <div style="flex:1;min-width:120px"><label>ط§ظ„ظ†ظˆط¹</label><select id="pmType"><option value="cash">ظƒط§ط´</option><option value="card">ظƒط§ط±طھ</option><option value="digital">ط±ظ‚ظ…ظٹ</option><option value="other">ط£ط®ط±ظ‰</option></select></div>
-                        <div style="flex:1;min-width:80px"><label>ط§ظ„طھط±طھظٹط¨</label><input type="number" id="pmSort" min="0" value="0"></div>
-                        <button class="btn btn-primary" onclick="addPaymentMethod()">ط¥ط¶ط§ظپط©</button>
+                        <div style="flex:2;min-width:160px"><label>الاسم بالعربية</label><input type="text" id="pmNameAr"></div>
+                        <div style="flex:2;min-width:160px"><label>الاسم بالإنجليزية</label><input type="text" id="pmNameEn"></div>
+                        <div style="flex:1;min-width:120px"><label>النوع</label><select id="pmType"><option value="cash">كاش</option><option value="card">كارت</option><option value="digital">رقمي</option><option value="other">أخرى</option></select></div>
+                        <div style="flex:1;min-width:80px"><label>الترتيب</label><input type="number" id="pmSort" min="0" value="0"></div>
+                        <button class="btn btn-primary" onclick="addPaymentMethod()">إضافة</button>
                     </div>
                 </div></div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط§ظ„ط§ط³ظ…</th><th>English</th><th>ط§ظ„ظ†ظˆط¹</th><th>ط§ظ„طھط±طھظٹط¨</th><th>ط§ظ„ط­ط§ظ„ط©</th><th>ط¥ط¬ط±ط§ط،ط§طھ</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>الاسم</th><th>English</th><th>النوع</th><th>الترتيب</th><th>الحالة</th><th>إجراءات</th></tr></thead>
                     <tbody id="paymethodsBody"></tbody></table>
                 </div></div>
             </div>
 
             <!-- ===== EMPLOYEES ===== -->
             <div class="page" id="page-employees-page">
-                <div class="section-title">ًں‘¥ ط¥ط¯ط§ط±ط© ط§ظ„ظ…ظˆط¸ظپظٹظ†</div>
+                <div class="section-title">👥 إدارة الموظفين</div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:2;min-width:160px"><label>ط§ظ„ط§ط³ظ…</label><input type="text" id="empName"></div>
-                        <div style="flex:1;min-width:120px"><label>ط§ظ„ظ‡ط§طھظپ</label><input type="text" id="empPhone"></div>
-                        <div style="flex:1;min-width:120px"><label>ط§ظ„ظˆط¸ظٹظپط©</label><select id="empRole"><option value="cashier">ظƒط§ط´ظٹط±</option><option value="waiter">ط¬ط±ط³ظˆظ†</option><option value="chef">ط·ط¨ط§ط®</option><option value="manager">ظ…ط¯ظٹط±</option></select></div>
-                        <div style="flex:1;min-width:100px"><label>ط§ظ„ط±ط§طھط¨</label><input type="number" id="empSalary" min="0"></div>
-                        <button class="btn btn-primary" onclick="addEmployee()">ط¥ط¶ط§ظپط©</button>
+                        <div style="flex:2;min-width:160px"><label>الاسم</label><input type="text" id="empName"></div>
+                        <div style="flex:1;min-width:120px"><label>الهاتف</label><input type="text" id="empPhone"></div>
+                        <div style="flex:1;min-width:120px"><label>الوظيفة</label><select id="empRole"><option value="cashier">كاشير</option><option value="waiter">جرسون</option><option value="chef">طباخ</option><option value="manager">مدير</option></select></div>
+                        <div style="flex:1;min-width:100px"><label>الراتب</label><input type="number" id="empSalary" min="0"></div>
+                        <button class="btn btn-primary" onclick="addEmployee()">إضافة</button>
                     </div>
                 </div></div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط§ظ„ط§ط³ظ…</th><th>ط§ظ„ظ‡ط§طھظپ</th><th>ط§ظ„ظˆط¸ظٹظپط©</th><th>ط§ظ„ط±ط§طھط¨</th><th>ط§ظ„ط­ط§ظ„ط©</th><th>ط¥ط¬ط±ط§ط،ط§طھ</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>الاسم</th><th>الهاتف</th><th>الوظيفة</th><th>الراتب</th><th>الحالة</th><th>إجراءات</th></tr></thead>
                     <tbody id="employeesBody"></tbody></table>
                 </div></div>
             </div>
 
             <!-- ===== ATTENDANCE ===== -->
             <div class="page" id="page-attendance-page">
-                <div class="section-title">âڈ° ط§ظ„ط­ط¶ظˆط± ظˆط§ظ„ط§ظ†طµط±ط§ظپ</div>
+                <div class="section-title">⏰ الحضور والانصراف</div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:2;min-width:160px"><label>ط§ظ„ظ…ظˆط¸ظپ</label><select id="attEmployee"></select></div>
-                        <button class="btn btn-success" onclick="checkIn()">ط­ط¶ظˆط± âœ“</button>
-                        <button class="btn btn-warning" onclick="checkOut()">ط§ظ†طµط±ط§ظپ âœ—</button>
+                        <div style="flex:2;min-width:160px"><label>الموظف</label><select id="attEmployee"></select></div>
+                        <button class="btn btn-success" onclick="checkIn()">حضور ✓</button>
+                        <button class="btn btn-warning" onclick="checkOut()">انصراف ✗</button>
                     </div>
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
-                        <div style="flex:1;min-width:140px"><label>ظ…ظ†</label><input type="date" id="attDateFrom"></div>
-                        <div style="flex:1;min-width:140px"><label>ط¥ظ„ظ‰</label><input type="date" id="attDateTo"></div>
-                        <button class="btn btn-secondary" onclick="loadAttendance()">ط¨ط­ط«</button>
+                        <div style="flex:1;min-width:140px"><label>من</label><input type="date" id="attDateFrom"></div>
+                        <div style="flex:1;min-width:140px"><label>إلى</label><input type="date" id="attDateTo"></div>
+                        <button class="btn btn-secondary" onclick="loadAttendance()">بحث</button>
                     </div>
                 </div></div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط§ظ„ظ…ظˆط¸ظپ</th><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط§ظ„ط­ط¶ظˆط±</th><th>ط§ظ„ط§ظ†طµط±ط§ظپ</th><th>ط§ظ„ط³ط§ط¹ط§طھ</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>الموظف</th><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الساعات</th></tr></thead>
                     <tbody id="attendanceBody"></tbody></table>
                 </div></div>
             </div>
 
             <!-- ===== SHIFTS ===== -->
             <div class="page" id="page-shifts-page">
-                <div class="section-title">ًں“… ط¥ط¯ط§ط±ط© ط§ظ„ظˆط±ط¯ظٹط§طھ</div>
+                <div class="section-title">📅 إدارة الورديات</div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:2;min-width:160px"><label>ط§ظ„ظ…ظˆط¸ظپ</label><select id="shiftEmployee"></select></div>
-                        <button class="btn btn-success" onclick="startShift()">ط¨ط¯ط، ظˆط±ط¯ظٹط© â–¶</button>
-                        <button class="btn btn-warning" onclick="endShift()">ط¥ظ†ظ‡ط§ط، ظˆط±ط¯ظٹط© âڈ¹</button>
+                        <div style="flex:2;min-width:160px"><label>الموظف</label><select id="shiftEmployee"></select></div>
+                        <button class="btn btn-success" onclick="startShift()">بدء وردية ▶</button>
+                        <button class="btn btn-warning" onclick="endShift()">إنهاء وردية ⏹</button>
                     </div>
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
-                        <div style="flex:1;min-width:140px"><label>ظ…ظ†</label><input type="date" id="shiftDateFrom"></div>
-                        <div style="flex:1;min-width:140px"><label>ط¥ظ„ظ‰</label><input type="date" id="shiftDateTo"></div>
-                        <button class="btn btn-secondary" onclick="loadShifts()">ط¨ط­ط«</button>
+                        <div style="flex:1;min-width:140px"><label>من</label><input type="date" id="shiftDateFrom"></div>
+                        <div style="flex:1;min-width:140px"><label>إلى</label><input type="date" id="shiftDateTo"></div>
+                        <button class="btn btn-secondary" onclick="loadShifts()">بحث</button>
                     </div>
                 </div></div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط§ظ„ظ…ظˆط¸ظپ</th><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط§ظ„ط¨ط¯ط§ظٹط©</th><th>ط§ظ„ظ†ظ‡ط§ظٹط©</th><th>ط§ظ„ط³ط§ط¹ط§طھ</th><th>ط§ظ„ظ…ط¨ظٹط¹ط§طھ</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>الموظف</th><th>التاريخ</th><th>البداية</th><th>النهاية</th><th>الساعات</th><th>المبيعات</th></tr></thead>
                     <tbody id="shiftsBody"></tbody></table>
                 </div></div>
             </div>
 
             <!-- ===== INVENTORY ===== -->
             <div class="page" id="page-inventory-page">
-                <div class="section-title">ًں“¦ ط¥ط¯ط§ط±ط© ط§ظ„ظ…ط®ط²ظˆظ†</div>
+                <div class="section-title">📦 إدارة المخزون</div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:2;min-width:160px"><label>ط§ظ„ظ…ظ†طھط¬</label><input type="text" id="invName"></div>
-                        <div style="flex:1;min-width:80px"><label>ط§ظ„ظƒظ…ظٹط©</label><input type="number" id="invQty" min="0"></div>
-                        <div style="flex:1;min-width:100px"><label>ط§ظ„ظˆط­ط¯ط©</label><input type="text" id="invUnit" placeholder="ظƒط¬ظ…/ظ„طھط±/ظ‚ط·ط¹ط©"></div>
-                        <div style="flex:1;min-width:100px"><label>ط§ظ„طھظƒظ„ظپط©</label><input type="number" id="invCost" min="0" step="0.01"></div>
-                        <div style="flex:1;min-width:80px"><label>ط­ط¯ ط£ط¯ظ†ظ‰</label><input type="number" id="invMinStock" min="0" value="5"></div>
-                        <button class="btn btn-primary" onclick="addInventory()">ط¥ط¶ط§ظپط©</button>
+                        <div style="flex:2;min-width:160px"><label>المنتج</label><input type="text" id="invName"></div>
+                        <div style="flex:1;min-width:80px"><label>الكمية</label><input type="number" id="invQty" min="0"></div>
+                        <div style="flex:1;min-width:100px"><label>الوحدة</label><input type="text" id="invUnit" placeholder="كجم/لتر/قطعة"></div>
+                        <div style="flex:1;min-width:100px"><label>التكلفة</label><input type="number" id="invCost" min="0" step="0.01"></div>
+                        <div style="flex:1;min-width:80px"><label>حد أدنى</label><input type="number" id="invMinStock" min="0" value="5"></div>
+                        <button class="btn btn-primary" onclick="addInventory()">إضافة</button>
                     </div>
                 </div></div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط§ظ„ظ…ظ†طھط¬</th><th>ط§ظ„ظƒظ…ظٹط©</th><th>ط§ظ„ظˆط­ط¯ط©</th><th>ط§ظ„طھظƒظ„ظپط©</th><th>ط§ظ„ط­ط¯ ط§ظ„ط£ط¯ظ†ظ‰</th><th>ط¥ط¬ط±ط§ط،ط§طھ</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>المنتج</th><th>الكمية</th><th>الوحدة</th><th>التكلفة</th><th>الحد الأدنى</th><th>إجراءات</th></tr></thead>
                     <tbody id="inventoryBody"></tbody></table>
                 </div></div>
             </div>
 
             <!-- ===== PURCHASES ===== -->
             <div class="page" id="page-purchases-page">
-                <div class="section-title">ًں›’ ط§ظ„ظ…ط´طھط±ظٹط§طھ</div>
+                <div class="section-title">🛒 المشتريات</div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:2;min-width:160px"><label>ط§ظ„طµظ†ظپ</label><input type="text" id="purchItem"></div>
-                        <div style="flex:1;min-width:80px"><label>ط§ظ„ظƒظ…ظٹط©</label><input type="number" id="purchQty" min="1"></div>
-                        <div style="flex:1;min-width:100px"><label>ط§ظ„طھظƒظ„ظپط©</label><input type="number" id="purchCost" min="0" step="0.01"></div>
-                        <div style="flex:1;min-width:120px"><label>ط§ظ„ظ…ظˆط±ط¯</label><input type="text" id="purchSupplier"></div>
-                        <div style="flex:1;min-width:120px"><label>ظ…ظ„ط§ط­ط¸ط§طھ</label><input type="text" id="purchNotes"></div>
-                        <button class="btn btn-primary" onclick="addPurchase()">ط¥ط¶ط§ظپط©</button>
+                        <div style="flex:2;min-width:160px"><label>الصنف</label><input type="text" id="purchItem"></div>
+                        <div style="flex:1;min-width:80px"><label>الكمية</label><input type="number" id="purchQty" min="1"></div>
+                        <div style="flex:1;min-width:100px"><label>التكلفة</label><input type="number" id="purchCost" min="0" step="0.01"></div>
+                        <div style="flex:1;min-width:120px"><label>المورد</label><input type="text" id="purchSupplier"></div>
+                        <div style="flex:1;min-width:120px"><label>ملاحظات</label><input type="text" id="purchNotes"></div>
+                        <button class="btn btn-primary" onclick="addPurchase()">إضافة</button>
                     </div>
                 </div></div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط§ظ„طµظ†ظپ</th><th>ط§ظ„ظƒظ…ظٹط©</th><th>ط§ظ„طھظƒظ„ظپط©</th><th>ط§ظ„ظ…ظˆط±ط¯</th><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط¥ط¬ط±ط§ط،ط§طھ</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>الصنف</th><th>الكمية</th><th>التكلفة</th><th>المورد</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
                     <tbody id="purchasesBody"></tbody></table>
                 </div></div>
             </div>
 
             <!-- ===== EXPENSES ===== -->
             <div class="page" id="page-expenses-page">
-                <div class="section-title">ًں’° ط§ظ„ظ…طµط±ظˆظپط§طھ</div>
+                <div class="section-title">💰 المصروفات</div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:2;min-width:160px"><label>ط§ظ„ظˆطµظپ</label><input type="text" id="expDesc"></div>
-                        <div style="flex:1;min-width:100px"><label>ط§ظ„ظ…ط¨ظ„ط؛</label><input type="number" id="expAmount" min="0" step="0.01"></div>
-                        <div style="flex:1;min-width:120px"><label>ط§ظ„ظپط¦ط©</label><input type="text" id="expCategory" placeholder="ط¥ظٹط¬ط§ط±/ط±ظˆط§طھط¨/ط¹ط§ظ…"></div>
-                        <div style="flex:1;min-width:120px"><label>ظ…ظ„ط§ط­ط¸ط§طھ</label><input type="text" id="expNotes"></div>
-                        <button class="btn btn-primary" onclick="addExpense()">ط¥ط¶ط§ظپط©</button>
+                        <div style="flex:2;min-width:160px"><label>الوصف</label><input type="text" id="expDesc"></div>
+                        <div style="flex:1;min-width:100px"><label>المبلغ</label><input type="number" id="expAmount" min="0" step="0.01"></div>
+                        <div style="flex:1;min-width:120px"><label>الفئة</label><input type="text" id="expCategory" placeholder="إيجار/رواتب/عام"></div>
+                        <div style="flex:1;min-width:120px"><label>ملاحظات</label><input type="text" id="expNotes"></div>
+                        <button class="btn btn-primary" onclick="addExpense()">إضافة</button>
                     </div>
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
-                        <div style="flex:1;min-width:140px"><label>ظ…ظ†</label><input type="date" id="expDateFrom"></div>
-                        <div style="flex:1;min-width:140px"><label>ط¥ظ„ظ‰</label><input type="date" id="expDateTo"></div>
-                        <button class="btn btn-secondary" onclick="loadExpenses()">ط¨ط­ط«</button>
+                        <div style="flex:1;min-width:140px"><label>من</label><input type="date" id="expDateFrom"></div>
+                        <div style="flex:1;min-width:140px"><label>إلى</label><input type="date" id="expDateTo"></div>
+                        <button class="btn btn-secondary" onclick="loadExpenses()">بحث</button>
                     </div>
                 </div></div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط§ظ„ظˆطµظپ</th><th>ط§ظ„ظ…ط¨ظ„ط؛</th><th>ط§ظ„ظپط¦ط©</th><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط¥ط¬ط±ط§ط،ط§طھ</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>الوصف</th><th>المبلغ</th><th>الفئة</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
                     <tbody id="expensesBody"></tbody></table>
                 </div></div>
             </div>
 
             <!-- ===== REPORTS ===== -->
             <div class="page" id="page-reports-page">
-                <div class="section-title">ًں“ˆ ظ…ط±ظƒط² ط§ظ„طھظ‚ط§ط±ظٹط±</div>
+                <div class="section-title">📈 مركز التقارير</div>
                 <div class="report-grid" style="margin-bottom:24px">
-                    <div class="report-card" onclick="loadReport('sales')"><h3>ًں’° ط§ظ„ظ…ط¨ظٹط¹ط§طھ</h3><p>طھظپط§طµظٹظ„ ط§ظ„ظ…ط¨ظٹط¹ط§طھ ط§ظ„ظٹظˆظ…ظٹط© ظˆط§ظ„ط£ط³ط¨ظˆط¹ظٹط©</p></div>
-                    <div class="report-card" onclick="loadReport('orders')"><h3>ًں“‹ ط§ظ„ط·ظ„ط¨ط§طھ</h3><p>ط¬ظ…ظٹط¹ ط§ظ„ط·ظ„ط¨ط§طھ ظ…ط¹ ط­ط§ظ„ط§طھظ‡ط§</p></div>
-                    <div class="report-card" onclick="loadReport('payments')"><h3>ًں’³ ط§ظ„ظ…ط¯ظپظˆط¹ط§طھ</h3><p>طھط­ظ„ظٹظ„ ط·ط±ظ‚ ط§ظ„ط¯ظپط¹</p></div>
-                    <div class="report-card" onclick="loadReport('products')"><h3>ًںچ½ï¸ڈ ط§ظ„ظ…ظ†طھط¬ط§طھ</h3><p>ط£ط¯ط§ط، ظƒظ„ ظ…ظ†طھط¬</p></div>
-                    <div class="report-card" onclick="loadReport('categories')"><h3>ًں“‚ ط§ظ„ط£ظ‚ط³ط§ظ…</h3><p>ظ…ط¨ظٹط¹ط§طھ ظƒظ„ ظ‚ط³ظ…</p></div>
-                    <div class="report-card" onclick="loadReport('employees')"><h3>ًں‘¥ ط§ظ„ظ…ظˆط¸ظپظٹظ†</h3><p>ط£ط¯ط§ط، ظƒظ„ ظ…ظˆط¸ظپ</p></div>
-                    <div class="report-card" onclick="loadReport('discounts')"><h3>ًںڈ·ï¸ڈ ط§ظ„ط®طµظˆظ…ط§طھ</h3><p>طھط­ظ„ظٹظ„ ط§ظ„ط®طµظˆظ…ط§طھ ط§ظ„ظ…ط·ط¨ظ‚ط©</p></div>
-                    <div class="report-card" onclick="loadReport('refunds')"><h3>â†©ï¸ڈ ط§ظ„ظ…ط±طھط¬ط¹ط§طھ</h3><p>ط§ظ„ظ…ط±طھط¬ط¹ط§طھ ظˆط§ظ„ط¥ظ„ط؛ط§ط،ط§طھ</p></div>
-                    <div class="report-card" onclick="loadReport('profit')"><h3>ًں“ˆ ط§ظ„ط£ط±ط¨ط§ط­</h3><p>طµط§ظپظٹ ط§ظ„ط±ط¨ط­ ظˆظ‡ط§ظ…ط´ ط§ظ„ط±ط¨ط­</p></div>
-                    <div class="report-card" onclick="loadReport('inventory')"><h3>ًں“¦ ط§ظ„ظ…ط®ط²ظˆظ†</h3><p>ط­ط§ظ„ط© ط§ظ„ظ…ط®ط²ظˆظ† ظˆط§ظ„طھظ†ط¨ظٹظ‡ط§طھ</p></div>
-                    <div class="report-card" onclick="loadReport('shifts')"><h3>ًں“… ط§ظ„ظˆط±ط¯ظٹط§طھ</h3><p>ظ…ظ„ط®طµ ط§ظ„ظˆط±ط¯ظٹط§طھ ظˆط§ظ„ظ…ط¨ظٹط¹ط§طھ</p></div>
+                    <div class="report-card" onclick="loadReport('sales')"><h3>💰 المبيعات</h3><p>تفاصيل المبيعات اليومية والأسبوعية</p></div>
+                    <div class="report-card" onclick="loadReport('orders')"><h3>📋 الطلبات</h3><p>جميع الطلبات مع حالاتها</p></div>
+                    <div class="report-card" onclick="loadReport('payments')"><h3>💳 المدفوعات</h3><p>تحليل طرق الدفع</p></div>
+                    <div class="report-card" onclick="loadReport('products')"><h3>🍽️ المنتجات</h3><p>أداء كل منتج</p></div>
+                    <div class="report-card" onclick="loadReport('categories')"><h3>📂 الأقسام</h3><p>مبيعات كل قسم</p></div>
+                    <div class="report-card" onclick="loadReport('employees')"><h3>👥 الموظفين</h3><p>أداء كل موظف</p></div>
+                    <div class="report-card" onclick="loadReport('discounts')"><h3>🏷️ الخصومات</h3><p>تحليل الخصومات المطبقة</p></div>
+                    <div class="report-card" onclick="loadReport('refunds')"><h3>↩️ المرتجعات</h3><p>المرتجعات والإلغاءات</p></div>
+                    <div class="report-card" onclick="loadReport('profit')"><h3>📈 الأرباح</h3><p>صافي الربح وهامش الربح</p></div>
+                    <div class="report-card" onclick="loadReport('inventory')"><h3>📦 المخزون</h3><p>حالة المخزون والتنبيهات</p></div>
+                    <div class="report-card" onclick="loadReport('shifts')"><h3>📅 الورديات</h3><p>ملخص الورديات والمبيعات</p></div>
                 </div>
                 <div class="panel" id="reportOutput" style="display:none">
                     <div class="panel-header">
-                        <div class="panel-title" id="reportTitle">طھظ‚ط±ظٹط±</div>
+                        <div class="panel-title" id="reportTitle">تقرير</div>
                         <div style="display:flex;gap:8px">
-                            <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()">ًں“¥ طھطµط¯ظٹط± CSV</button>
-                            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('reportOutput').style.display='none'">âœ• ط¥ط؛ظ„ط§ظ‚</button>
+                            <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()">📥 تصدير CSV</button>
+                            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('reportOutput').style.display='none'">✕ إغلاق</button>
                         </div>
                     </div>
                     <div class="panel-body" id="reportContent"></div>
@@ -1954,33 +1954,33 @@
 
             <!-- ===== ROLES ===== -->
             <div class="page" id="page-roles-page">
-                <div class="section-title">ًں”‘ ط§ظ„ط£ط¯ظˆط§ط± ظˆط§ظ„طµظ„ط§ط­ظٹط§طھ</div>
+                <div class="section-title">🔑 الأدوار والصلاحيات</div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:1;min-width:120px"><label>ط§ط³ظ… ط§ظ„ظ…ط³طھط®ط¯ظ…</label><input type="text" id="roleUsername"></div>
-                        <div style="flex:1;min-width:120px"><label>ط§ظ„ط§ط³ظ… ط§ظ„ظ…ط¹ط±ظˆط¶</label><input type="text" id="roleDisplayName"></div>
-                        <div style="flex:1;min-width:120px"><label>ظƒظ„ظ…ط© ط§ظ„ظ…ط±ظˆط±</label><input type="password" id="rolePassword"></div>
-                        <div style="flex:1;min-width:120px"><label>ط§ظ„ط¯ظˆط±</label><select id="roleSelect"><option value="cashier">ظƒط§ط´ظٹط±</option><option value="manager">ظ…ط¯ظٹط±</option><option value="admin">ظ…ط¯ظٹط± ط§ظ„ظ†ط¸ط§ظ…</option><option value="kitchen">ظ…ط·ط¨ط®</option></select></div>
-                        <button class="btn btn-primary" onclick="addRoleUser()">ط¥ط¶ط§ظپط©</button>
+                        <div style="flex:1;min-width:120px"><label>اسم المستخدم</label><input type="text" id="roleUsername"></div>
+                        <div style="flex:1;min-width:120px"><label>الاسم المعروض</label><input type="text" id="roleDisplayName"></div>
+                        <div style="flex:1;min-width:120px"><label>كلمة المرور</label><input type="password" id="rolePassword"></div>
+                        <div style="flex:1;min-width:120px"><label>الدور</label><select id="roleSelect"><option value="cashier">كاشير</option><option value="manager">مدير</option><option value="admin">مدير النظام</option><option value="kitchen">مطبخ</option></select></div>
+                        <button class="btn btn-primary" onclick="addRoleUser()">إضافة</button>
                     </div>
                 </div></div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط§ظ„ظ…ط³طھط®ط¯ظ…</th><th>ط§ظ„ط§ط³ظ…</th><th>ط§ظ„ط¯ظˆط±</th><th>ط¥ط¬ط±ط§ط،ط§طھ</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>المستخدم</th><th>الاسم</th><th>الدور</th><th>إجراءات</th></tr></thead>
                     <tbody id="rolesBody"></tbody></table>
                 </div></div>
                 <div class="panel">
-                    <div class="panel-header"><div class="panel-title">matrix ط§ظ„طµظ„ط§ط­ظٹط§طھ</div></div>
+                    <div class="panel-header"><div class="panel-title">matrix الصلاحيات</div></div>
                     <div class="panel-body no-pad">
-                        <table class="data-table"><thead><tr><th>ط§ظ„طµظ„ط§ط­ظٹط©</th><th>ظƒط§ط´ظٹط±</th><th>ظ…ط¯ظٹط±</th><th>ظ…ط¯ظٹط± ط§ظ„ظ†ط¸ط§ظ…</th><th>ظ…ط·ط¨ط®</th></tr></thead>
+                        <table class="data-table"><thead><tr><th>الصلاحية</th><th>كاشير</th><th>مدير</th><th>مدير النظام</th><th>مطبخ</th></tr></thead>
                         <tbody>
-                            <tr><td>ط¹ط±ط¶ ظ„ظˆط­ط© ط§ظ„طھط­ظƒظ…</td><td>â‌Œ</td><td>âœ…</td><td>âœ…</td><td>â‌Œ</td></tr>
-                            <tr><td>ط¥ط¯ط§ط±ط© ط§ظ„ظ…ظ†طھط¬ط§طھ</td><td>â‌Œ</td><td>âœ…</td><td>âœ…</td><td>â‌Œ</td></tr>
-                            <tr><td>ط¥ط¯ط§ط±ط© ط§ظ„ظ…ظˆط¸ظپظٹظ†</td><td>â‌Œ</td><td>â‌Œ</td><td>âœ…</td><td>â‌Œ</td></tr>
-                            <tr><td>ط¹ط±ط¶ ط§ظ„طھظ‚ط§ط±ظٹط±</td><td>â‌Œ</td><td>âœ…</td><td>âœ…</td><td>â‌Œ</td></tr>
-                            <tr><td>ط¥ط¯ط§ط±ط© ط§ظ„ط·ظ„ط¨ط§طھ</td><td>âœ…</td><td>âœ…</td><td>âœ…</td><td>âœ…</td></tr>
-                            <tr><td>ط§ظ„ط®طµظˆظ…ط§طھ</td><td>â‌Œ</td><td>âœ…</td><td>âœ…</td><td>â‌Œ</td></tr>
-                            <tr><td>ط§ظ„ظ…ط±طھط¬ط¹ط§طھ</td><td>â‌Œ</td><td>âœ…</td><td>âœ…</td><td>â‌Œ</td></tr>
-                            <tr><td>ط¥ط¯ط§ط±ط© ط§ظ„ظ†ط¸ط§ظ…</td><td>â‌Œ</td><td>â‌Œ</td><td>âœ…</td><td>â‌Œ</td></tr>
+                            <tr><td>عرض لوحة التحكم</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+                            <tr><td>إدارة المنتجات</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+                            <tr><td>إدارة الموظفين</td><td>❌</td><td>❌</td><td>✅</td><td>❌</td></tr>
+                            <tr><td>عرض التقارير</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+                            <tr><td>إدارة الطلبات</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+                            <tr><td>الخصومات</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+                            <tr><td>المرتجعات</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+                            <tr><td>إدارة النظام</td><td>❌</td><td>❌</td><td>✅</td><td>❌</td></tr>
                         </tbody></table>
                     </div>
                 </div>
@@ -1988,26 +1988,26 @@
 
             <!-- ===== AUDIT LOG ===== -->
             <div class="page" id="page-audit-page">
-                <div class="section-title">ًں“‌ αΪظ„ ط§ظ„طھط¯ظ‚ظٹظ‚</div>
+                <div class="section-title">📝 αΪل التدقيق</div>
                 <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:20px">
-                    <div style="flex:1;min-width:140px"><label>ظ…ظ†</label><input type="date" id="auditDateFrom"></div>
-                    <div style="flex:1;min-width:140px"><label>ط¥ظ„ظ‰</label><input type="date" id="auditDateTo"></div>
-                    <div style="flex:1;min-width:140px"><label>ظ†ظˆط¹ ط§ظ„ط¹ظ…ظ„ظٹط©</label><select id="auditAction"><option value="">ط§ظ„ظƒظ„</option><option value="create">ط¥ظ†ط´ط§ط،</option><option value="update">طھط¹ط¯ظٹظ„</option><option value="delete">ط­ط°ظپ</option></select></div>
-                    <button class="btn btn-primary" onclick="loadAuditLogs()">ط¨ط­ط«</button>
+                    <div style="flex:1;min-width:140px"><label>من</label><input type="date" id="auditDateFrom"></div>
+                    <div style="flex:1;min-width:140px"><label>إلى</label><input type="date" id="auditDateTo"></div>
+                    <div style="flex:1;min-width:140px"><label>نوع العملية</label><select id="auditAction"><option value="">الكل</option><option value="create">إنشاء</option><option value="update">تعديل</option><option value="delete">حذف</option></select></div>
+                    <button class="btn btn-primary" onclick="loadAuditLogs()">بحث</button>
                 </div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط§ظ„ظ…ط³طھط®ط¯ظ…</th><th>ط§ظ„ط¹ظ…ظ„ظٹط©</th><th>ط§ظ„ظ†ظˆط¹</th><th>ط§ظ„طھظپط§طµظٹظ„</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>التاريخ</th><th>المستخدم</th><th>العملية</th><th>النوع</th><th>التفاصيل</th></tr></thead>
                     <tbody id="auditBody"></tbody></table>
                 </div></div>
             </div>
 
             <!-- ===== BACKUP ===== -->
             <div class="page" id="page-backup-page">
-                <div class="section-title">ًں’¾ ط§ظ„ظ†ط³ط® ط§ظ„ط§ط­طھظٹط§ط·ظٹ</div>
+                <div class="section-title">💾 النسخ الاحتياطي</div>
                 <div class="panel"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
-                        <button class="btn btn-primary" onclick="exportBackup()">ًں“¥ طھطµط¯ظٹط± ظ†ط³ط®ط© ط§ط­طھظٹط§ط·ظٹط©</button>
-                        <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()">ًں“¤ ط§ط³طھظٹط±ط§ط¯ ظ†ط³ط®ط©</button>
+                        <button class="btn btn-primary" onclick="exportBackup()">📥 تصدير نسخة احتياطية</button>
+                        <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()">📤 استيراد نسخة</button>
                         <input type="file" id="importFile" accept=".json" style="display:none" onchange="handleImport(event)">
                     </div>
                     <div id="backupInfo" style="color:var(--text-muted);font-size:0.85rem"></div>
@@ -2016,16 +2016,16 @@
 
             <!-- ===== SERVER ===== -->
             <div class="page" id="page-server-page">
-                <div class="section-title">ًںŒگ ط¥ط¹ط¯ط§ط¯ط§طھ ط§ظ„ط®ط§ط¯ظ…</div>
+                <div class="section-title">🌐 إعدادات الخادم</div>
                 <div class="panel"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:3;min-width:200px"><label>ط±ط§ط¨ط· ط§ظ„ط®ط§ط¯ظ…</label><input type="text" id="serverUrl" placeholder="http://localhost:3000"></div>
-                        <button class="btn btn-primary" onclick="saveServer()">ط­ظپط¸</button>
+                        <div style="flex:3;min-width:200px"><label>رابط الخادم</label><input type="text" id="serverUrl" placeholder="http://localhost:3000"></div>
+                        <button class="btn btn-primary" onclick="saveServer()">حفظ</button>
                     </div>
                     <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
-                        <button class="btn btn-secondary" onclick="testServer()">ًں”چ ط§ط®طھط¨ط§ط± ط§ظ„ط§طھطµط§ظ„</button>
-                        <button class="btn btn-success" onclick="syncPush()">â¬†ï¸ڈ ط±ظپط¹ ط§ظ„ط¨ظٹط§ظ†ط§طھ</button>
-                        <button class="btn btn-primary" onclick="syncPull()">â¬‡ï¸ڈ ط³ط­ط¨ ط§ظ„ط¨ظٹط§ظ†ط§طھ</button>
+                        <button class="btn btn-secondary" onclick="testServer()">🔍 اختبار الاتصال</button>
+                        <button class="btn btn-success" onclick="syncPush()">⬆️ رفع البيانات</button>
+                        <button class="btn btn-primary" onclick="syncPull()">⬇️ سحب البيانات</button>
                     </div>
                     <div id="serverStatus" style="margin-top:12px;font-size:0.85rem"></div>
                 </div></div>
@@ -2033,16 +2033,16 @@
 
             <!-- ===== PRINTER ===== -->
             <div class="page" id="page-printer-page">
-                <div class="section-title">ًں–¨ï¸ڈ ط§ظ„ط·ط§ط¨ط¹ط© ط§ظ„ط­ط±ط§ط±ظٹط©</div>
+                <div class="section-title">🖨️ الطابعة الحرارية</div>
                 <div class="panel"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:1;min-width:120px"><label>ط­ط¬ظ… ط§ظ„ظˆط±ظ‚</label><select id="printerPaper"><option value="58">58 ظ…ظ…</option><option value="80" selected>80 ظ…ظ…</option></select></div>
-                        <div style="flex:1;min-width:80px"><label>ط¹ط¯ط¯ ط§ظ„ظ†ط³ط®</label><input type="number" id="printerCopies" min="1" max="5" value="1"></div>
+                        <div style="flex:1;min-width:120px"><label>حجم الورق</label><select id="printerPaper"><option value="58">58 مم</option><option value="80" selected>80 مم</option></select></div>
+                        <div style="flex:1;min-width:80px"><label>عدد النسخ</label><input type="number" id="printerCopies" min="1" max="5" value="1"></div>
                     </div>
                     <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
-                        <button class="btn btn-primary" onclick="connectAdminPrinter()">ًں”Œ طھظˆطµظٹظ„ ط·ط§ط¨ط¹ط©</button>
-                        <button class="btn btn-secondary" onclick="testAdminPrinter()">ًں–¨ï¸ڈ ط·ط¨ط§ط¹ط© طھط¬ط±ظٹط¨ظٹط©</button>
-                        <button class="btn btn-ghost" onclick="savePrinterSettings()">ًں’¾ ط­ظپط¸ ط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ</button>
+                        <button class="btn btn-primary" onclick="connectAdminPrinter()">🔌 توصيل طابعة</button>
+                        <button class="btn btn-secondary" onclick="testAdminPrinter()">🖨️ طباعة تجريبية</button>
+                        <button class="btn btn-ghost" onclick="savePrinterSettings()">💾 حفظ الإعدادات</button>
                     </div>
                     <div id="printerStatus" style="margin-top:12px;font-size:0.85rem;color:var(--text-muted)"></div>
                 </div></div>
@@ -2096,7 +2096,7 @@ async function init(){
 async function doLogin(){
     const user = document.getElementById('loginUser').value.trim();
     const pass = document.getElementById('loginPass').value;
-    if(!user||!pass){ document.getElementById('loginError').textContent='ط£ط¯ط®ظ„ ط¨ظٹط§ظ†ط§طھ طµط­ظٹط­ط©'; return; }
+    if(!user||!pass){ document.getElementById('loginError').textContent='أدخل بيانات صحيحة'; return; }
     try {
         const u = await window.LuccaDB.Users.login(user, pass);
         currentUser = u;
@@ -2108,7 +2108,7 @@ async function doLogin(){
         initDateFilter();
         initTabs();
         refreshDashboard();
-    } catch(e){ document.getElementById('loginError').textContent = 'ط®ط·ط£ ظپظٹ طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„'; }
+    } catch(e){ document.getElementById('loginError').textContent = 'خطأ في تسجيل الدخول'; }
 }
 
 function doLogout(){
@@ -2226,7 +2226,7 @@ async function refreshDashboard(){
         renderInsights(insights);
         renderAlerts(alerts);
     } catch(e){
-        document.getElementById('kpiGrid').innerHTML = '<div class="alert alert-danger">ط®ط·ط£ ظپظٹ طھط­ظ…ظٹظ„ ط§ظ„ط¨ظٹط§ظ†ط§طھ: '+e.message+'</div>';
+        document.getElementById('kpiGrid').innerHTML = '<div class="alert alert-danger">خطأ في تحميل البيانات: '+e.message+'</div>';
     }
 }
 
@@ -2234,11 +2234,11 @@ function renderKPIs(d){
     const set = (id, val) => { const el=document.getElementById(id); if(el) el.textContent=val; };
     const setTrend = (id, change) => {
         const el = document.getElementById(id); if(!el) return;
-        if(change===undefined||change===null){ el.textContent='â€”'; el.className='kpi-trend neutral'; return; }
+        if(change===undefined||change===null){ el.textContent='—'; el.className='kpi-trend neutral'; return; }
         const v = Number(change);
-        if(v > 0){ el.textContent='â†‘ '+v.toFixed(1)+'%'; el.className='kpi-trend up'; }
-        else if(v < 0){ el.textContent='â†“ '+Math.abs(v).toFixed(1)+'%'; el.className='kpi-trend down'; }
-        else { el.textContent='â€” 0%'; el.className='kpi-trend neutral'; }
+        if(v > 0){ el.textContent='↑ '+v.toFixed(1)+'%'; el.className='kpi-trend up'; }
+        else if(v < 0){ el.textContent='↓ '+Math.abs(v).toFixed(1)+'%'; el.className='kpi-trend down'; }
+        else { el.textContent='— 0%'; el.className='kpi-trend neutral'; }
     };
     set('kpiSales', formatMoney(d.sales?.value||0));
     setTrend('kpiSalesTrend', d.sales?.change);
@@ -2249,12 +2249,12 @@ function renderKPIs(d){
     set('kpiDiscounts', formatMoney(d.discounts?.value||0));
     set('kpiRefunds', formatMoney(d.refunds?.value||0));
     if(d.grossProfit) set('kpiProfit', formatMoney(d.grossProfit.value)+' ('+d.grossProfit.margin?.toFixed(1)+'%)');
-    else set('kpiProfit', 'ط¨ظٹط§ظ†ط§طھ ط§ظ„طھظƒظ„ظپط© ط؛ظٹط± ظ…طھط§ط­ط©');
+    else set('kpiProfit', 'بيانات التكلفة غير متاحة');
 }
 
 function renderSalesChart(data){
     const body = document.getElementById('salesChartBody');
-    if(!data||data.length===0){ body.innerHTML='<div class="empty-state"><div class="icon">ًں“ٹ</div><p>ظ„ط§ طھظˆط¬ط¯ ط¨ظٹط§ظ†ط§طھ ظ…ط¨ظٹط¹ط§طھ</p></div>'; return; }
+    if(!data||data.length===0){ body.innerHTML='<div class="empty-state"><div class="icon">📊</div><p>لا توجد بيانات مبيعات</p></div>'; return; }
     const max = Math.max(...data.map(d=>d.revenue||0), 1);
     const colors = ['#3B82F6','#60A5FA','#93C5FD','#2563EB','#1D4ED8'];
     let html = '<div class="bar-chart">';
@@ -2276,7 +2276,7 @@ function setChartView(view, btn){
 
 function renderCategoryAnalytics(data){
     const el = document.getElementById('categoryAnalytics');
-    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">ًں“‚</div><p>ظ„ط§ طھظˆط¬ط¯ ط¨ظٹط§ظ†ط§طھ</p></div>'; return; }
+    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">📂</div><p>لا توجد بيانات</p></div>'; return; }
     const total = data.reduce((s,d)=>s+(d.revenue||0),0);
     const colors = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6'];
     let gradParts = []; let acc = 0;
@@ -2289,7 +2289,7 @@ function renderCategoryAnalytics(data){
     html += '<div class="donut-legend">';
     data.slice(0,7).forEach((d,i)=>{
         const pct = total>0?(d.revenue/total*100).toFixed(1):0;
-        html += '<div class="legend-item"><div class="legend-dot" style="background:'+colors[i]+'"></div>'+d.name+' â€” '+formatMoney(d.revenue)+' ('+pct+'%)</div>';
+        html += '<div class="legend-item"><div class="legend-dot" style="background:'+colors[i]+'"></div>'+d.name+' — '+formatMoney(d.revenue)+' ('+pct+'%)</div>';
     });
     html += '</div>';
     el.innerHTML = html;
@@ -2297,8 +2297,8 @@ function renderCategoryAnalytics(data){
 
 function renderPaymentAnalytics(data){
     const el = document.getElementById('paymentAnalytics');
-    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">ًں’³</div><p>ظ„ط§ طھظˆط¬ط¯ ط¨ظٹط§ظ†ط§طھ</p></div>'; return; }
-    const methodNames = {cash:'ظƒط§ط´',card:'ظƒط§ط±طھ',digital:'ط±ظ‚ظ…ظٹ',other:'ط£ط®ط±ظ‰',split:'ظ…ظ‚ط³ظ…'};
+    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">💳</div><p>لا توجد بيانات</p></div>'; return; }
+    const methodNames = {cash:'كاش',card:'كارت',digital:'رقمي',other:'أخرى',split:'مقسم'};
     const colors = ['#10B981','#3B82F6','#8B5CF6','#F59E0B','#EF4444'];
     let gradParts = []; let acc = 0;
     data.forEach((d,i)=>{
@@ -2309,7 +2309,7 @@ function renderPaymentAnalytics(data){
     let html = '<div style="text-align:center"><div class="donut-chart" style="background:conic-gradient('+gradParts.join(',')+')"></div></div>';
     html += '<div class="donut-legend">';
     data.forEach((d,i)=>{
-        html += '<div class="legend-item"><div class="legend-dot" style="background:'+colors[i%colors.length]+'"></div>'+(methodNames[d.method]||d.method)+' â€” '+formatMoney(d.total)+' ('+(d.percentage||0).toFixed(1)+'%)</div>';
+        html += '<div class="legend-item"><div class="legend-dot" style="background:'+colors[i%colors.length]+'"></div>'+(methodNames[d.method]||d.method)+' — '+formatMoney(d.total)+' ('+(d.percentage||0).toFixed(1)+'%)</div>';
     });
     html += '</div>';
     el.innerHTML = html;
@@ -2317,10 +2317,10 @@ function renderPaymentAnalytics(data){
 
 function renderTopProducts(data){
     const el = document.getElementById('topProductsPanel');
-    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">ًںڈ†</div><p>ظ„ط§ طھظˆط¬ط¯ ط¨ظٹط§ظ†ط§طھ</p></div>'; return; }
-    let html = '<table class="data-table"><thead><tr><th>#</th><th>ط§ظ„ظ…ظ†طھط¬</th><th>ط§ظ„ظ‚ط³ظ…</th><th>ط§ظ„ظƒظ…ظٹط©</th><th>ط§ظ„ط¥ظٹط±ط§ط¯</th></tr></thead><tbody>';
+    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">🏆</div><p>لا توجد بيانات</p></div>'; return; }
+    let html = '<table class="data-table"><thead><tr><th>#</th><th>المنتج</th><th>القسم</th><th>الكمية</th><th>الإيراد</th></tr></thead><tbody>';
     data.forEach((d,i)=>{
-        html += '<tr><td>'+(i+1)+'</td><td>'+d.name+'</td><td><span class="badge badge-info">'+(d.category||'â€”')+'</span></td><td>'+d.quantity+'</td><td>'+formatMoney(d.revenue)+'</td></tr>';
+        html += '<tr><td>'+(i+1)+'</td><td>'+d.name+'</td><td><span class="badge badge-info">'+(d.category||'—')+'</span></td><td>'+d.quantity+'</td><td>'+formatMoney(d.revenue)+'</td></tr>';
     });
     html += '</tbody></table>';
     el.innerHTML = html;
@@ -2328,13 +2328,13 @@ function renderTopProducts(data){
 
 function renderLiveOrders(data){
     const el = document.getElementById('liveOrdersPanel');
-    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">âœ…</div><p>ظ„ط§ طھظˆط¬ط¯ ط·ظ„ط¨ط§طھ ظ†ط´ط·ط©</p></div>'; return; }
-    const statusMap = {pending:'âڈ³ ظ‚ظٹط¯ ط§ظ„ط§ظ†طھط¸ط§ط±',in_preparation:'ًں”¥ ظ‚ظٹط¯ ط§ظ„طھط­ط¶ظٹط±',ready:'âœ… ط¬ط§ظ‡ط²',served:'ًںچ½ï¸ڈ طھظ… ط§ظ„طھظ‚ط¯ظٹظ…'};
-    let html = '<table class="data-table"><thead><tr><th>ط±ظ‚ظ…</th><th>ط§ظ„ط·ط§ظˆظ„ط©</th><th>ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ</th><th>ط§ظ„ط­ط§ظ„ط©</th><th>ط§ظ„طھط§ط±ظٹط®</th></tr></thead><tbody>';
+    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">✅</div><p>لا توجد طلبات نشطة</p></div>'; return; }
+    const statusMap = {pending:'⏳ قيد الانتظار',in_preparation:'🔥 قيد التحضير',ready:'✅ جاهز',served:'🍽️ تم التقديم'};
+    let html = '<table class="data-table"><thead><tr><th>رقم</th><th>الطاولة</th><th>الإجمالي</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>';
     data.forEach(d=>{
         const st = d.status||'pending';
         const cls = st==='pending'?'badge-warning':st==='in_preparation'?'badge-danger':st==='ready'?'badge-success':'badge-info';
-        html += '<tr><td>'+(d.orderNumber||d.id)+'</td><td>'+(d.tableId||'â€”')+'</td><td>'+formatMoney(d.total)+'</td><td><span class="badge '+cls+'">'+(statusMap[st]||st)+'</span></td><td>'+formatTime(d.createdAt)+'</td></tr>';
+        html += '<tr><td>'+(d.orderNumber||d.id)+'</td><td>'+(d.tableId||'—')+'</td><td>'+formatMoney(d.total)+'</td><td><span class="badge '+cls+'">'+(statusMap[st]||st)+'</span></td><td>'+formatTime(d.createdAt)+'</td></tr>';
     });
     html += '</tbody></table>';
     el.innerHTML = html;
@@ -2342,17 +2342,17 @@ function renderLiveOrders(data){
 
 function renderTablesStatus(data){
     const el = document.getElementById('tablesStatusPanel');
-    if(!data||!data.tables||data.tables.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">ًںھ‘</div><p>ظ„ط§ طھظˆط¬ط¯ ط·ط§ظˆظ„ط§طھ</p></div>'; return; }
+    if(!data||!data.tables||data.tables.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">🪑</div><p>لا توجد طاولات</p></div>'; return; }
     let html = '<div class="table-grid">';
     data.tables.forEach(t=>{
         const st = t.status||'available';
-        html += '<div class="table-cell '+st+'"><div style="font-size:1.2rem;font-weight:800">'+t.number+'</div><div style="font-size:0.7rem;opacity:0.7">'+(t.capacity||'')+' ط£ط´ط®ط§طµ</div></div>';
+        html += '<div class="table-cell '+st+'"><div style="font-size:1.2rem;font-weight:800">'+t.number+'</div><div style="font-size:0.7rem;opacity:0.7">'+(t.capacity||'')+' أشخاص</div></div>';
     });
     html += '</div>';
     if(data.summary&&data.summary.length){
         html += '<div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap">';
         data.summary.forEach(s=>{
-            const label = s.status==='available'?'ظ…طھط§ط­ط©':s.status==='occupied'?'ظ…ط´ط؛ظˆظ„ط©':s.status==='reserved'?'ظ…ط­ط¬ظˆط²ط©':s.status;
+            const label = s.status==='available'?'متاحة':s.status==='occupied'?'مشغولة':s.status==='reserved'?'محجوزة':s.status;
             const cls = s.status==='available'?'badge-success':s.status==='occupied'?'badge-danger':'badge-warning';
             html += '<span class="badge '+cls+'">'+label+': '+s.count+'</span>';
         });
@@ -2363,10 +2363,10 @@ function renderTablesStatus(data){
 
 function renderInsights(data){
     const el = document.getElementById('insightsPanel');
-    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">ًں’،</div><p>ظ„ط§ طھظˆط¬ط¯ ط±ط¤ظ‰ ط­ط§ظ„ظٹط§ظ‹</p></div>'; return; }
+    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">💡</div><p>لا توجد رؤى حالياً</p></div>'; return; }
     let html = '';
     data.forEach(d=>{
-        const icon = d.severity==='success'?'âœ…':d.severity==='warning'?'âڑ ï¸ڈ':d.severity==='danger'?'ًںڑ¨':'ًں’،';
+        const icon = d.severity==='success'?'✅':d.severity==='warning'?'⚠️':d.severity==='danger'?'🚨':'💡';
         html += '<div class="insight-card"><span>'+icon+'</span><span>'+d.message+'</span></div>';
     });
     el.innerHTML = html;
@@ -2399,23 +2399,23 @@ async function loadOrders(){
         document.getElementById('ordersKpiAvg').textContent = formatMoney(avg);
         document.getElementById('ordersKpiCancelled').textContent = cancelled;
         const tbody = document.getElementById('ordersBody');
-        if(!filtered.length){ tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-muted)">ظ„ط§ طھظˆط¬ط¯ ط·ظ„ط¨ط§طھ</td></tr>'; return; }
-        const stMap = {pending:'âڈ³ ظ‚ظٹط¯ ط§ظ„ط§ظ†طھط¸ط§ط±',in_preparation:'ًں”¥ ظ‚ظٹط¯ ط§ظ„طھط­ط¶ظٹط±',ready:'âœ… ط¬ط§ظ‡ط²',served:'ًںچ½ï¸ڈ طھظ… ط§ظ„طھظ‚ط¯ظٹظ…',closed:'ًں”’ ظ…ط؛ظ„ظ‚',cancelled:'â‌Œ ظ…ظ„ط؛ظٹ'};
+        if(!filtered.length){ tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد طلبات</td></tr>'; return; }
+        const stMap = {pending:'⏳ قيد الانتظار',in_preparation:'🔥 قيد التحضير',ready:'✅ جاهز',served:'🍽️ تم التقديم',closed:'🔒 مغلق',cancelled:'❌ ملغي'};
         tbody.innerHTML = filtered.map(o=>{
             const st = o.status||'pending';
             const cls = st==='closed'?'badge-success':st==='cancelled'?'badge-danger':st==='ready'?'badge-success':st==='in_preparation'?'badge-danger':'badge-warning';
-            return '<tr><td>'+(o.orderNumber||o.id)+'</td><td>'+(o.tableId||'â€”')+'</td><td>'+(o.customerName||'â€”')+'</td><td>'+formatMoney(o.total)+'</td><td>'+(o.paymentMethod||'â€”')+'</td><td><span class="badge '+cls+'">'+(stMap[st]||st)+'</span></td><td>'+formatDate(o.date)+'</td><td><button class="btn btn-ghost btn-sm" onclick="viewOrderDetails(\''+o.id+'\')">طھظپط§طµظٹظ„</button></td></tr>';
+            return '<tr><td>'+(o.orderNumber||o.id)+'</td><td>'+(o.tableId||'—')+'</td><td>'+(o.customerName||'—')+'</td><td>'+formatMoney(o.total)+'</td><td>'+(o.paymentMethod||'—')+'</td><td><span class="badge '+cls+'">'+(stMap[st]||st)+'</span></td><td>'+formatDate(o.date)+'</td><td><button class="btn btn-ghost btn-sm" onclick="viewOrderDetails(\''+o.id+'\')">تفاصيل</button></td></tr>';
         }).join('');
     } catch(e){ document.getElementById('ordersBody').innerHTML='<tr><td colspan="8" style="color:var(--danger)">'+e.message+'</td></tr>'; }
 }
 
 function viewOrderDetails(id){
     window.LuccaDB.db.get('orders', Number(id)||id).then(o=>{
-        if(!o){ showToast('ط§ظ„ط·ظ„ط¨ ط؛ظٹط± ظ…ظˆط¬ظˆط¯','error'); return; }
+        if(!o){ showToast('الطلب غير موجود','error'); return; }
         const items = JSON.parse(o.items||'[]');
-        let msg = 'ط·ظ„ط¨ #'+(o.orderNumber||o.id)+'\nط§ظ„ط·ط§ظˆظ„ط©: '+(o.tableId||'â€”')+'\nط§ظ„ط¹ظ…ظٹظ„: '+(o.customerName||'â€”')+'\nط§ظ„ط­ط§ظ„ط©: '+o.status+'\nط§ظ„ط¯ظپط¹: '+(o.paymentMethod||'â€”')+'\n\nط§ظ„ظ…ظ†طھط¬ط§طھ:\n';
-        items.forEach(i=>{ msg += '  â€¢ '+i.name+' أ— '+i.quantity+' = '+formatMoney(i.total||i.quantity*(i.unitPrice||i.price||0))+'\n'; });
-        msg += '\nط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ: '+formatMoney(o.total);
+        let msg = 'طلب #'+(o.orderNumber||o.id)+'\nالطاولة: '+(o.tableId||'—')+'\nالعميل: '+(o.customerName||'—')+'\nالحالة: '+o.status+'\nالدفع: '+(o.paymentMethod||'—')+'\n\nالمنتجات:\n';
+        items.forEach(i=>{ msg += '  • '+i.name+' × '+i.quantity+' = '+formatMoney(i.total||i.quantity*(i.unitPrice||i.price||0))+'\n'; });
+        msg += '\nالإجمالي: '+formatMoney(o.total);
         alert(msg);
     });
 }
@@ -2425,44 +2425,44 @@ async function loadTables(){
     try {
         const tables = await window.LuccaDB.Tables.getAll();
         const tbody = document.getElementById('tablesBody');
-        if(!tables.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">ظ„ط§ طھظˆط¬ط¯ ط·ط§ظˆظ„ط§طھ</td></tr>'; return; }
-        const stLabels = {available:'âœ… ظ…طھط§ط­ط©',occupied:'ًں”´ ظ…ط´ط؛ظˆظ„ط©',reserved:'ًںں، ظ…ط­ط¬ظˆط²ط©'};
+        if(!tables.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد طاولات</td></tr>'; return; }
+        const stLabels = {available:'✅ متاحة',occupied:'🔴 مشغولة',reserved:'🟡 محجوزة'};
         const stCls = {available:'badge-success',occupied:'badge-danger',reserved:'badge-warning'};
         tbody.innerHTML = tables.map(t=>{
             const st = t.status||'available';
-            return '<tr><td>'+t.number+'</td><td>'+(t.capacity||'â€”')+'</td><td>'+(t.zone||'â€”')+'</td><td><span class="badge '+(stCls[st]||'badge-neutral')+'">'+(stLabels[st]||st)+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editTableModal(\''+t.id+'\')">âœڈï¸ڈ</button> <button class="btn btn-ghost btn-sm" onclick="deleteTable(\''+t.id+'\')">ًں—‘ï¸ڈ</button></td></tr>';
+            return '<tr><td>'+t.number+'</td><td>'+(t.capacity||'—')+'</td><td>'+(t.zone||'—')+'</td><td><span class="badge '+(stCls[st]||'badge-neutral')+'">'+(stLabels[st]||st)+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editTableModal(\''+t.id+'\')">✏️</button> <button class="btn btn-ghost btn-sm" onclick="deleteTable(\''+t.id+'\')">🗑️</button></td></tr>';
         }).join('');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function addTable(){
     const num = document.getElementById('tableNumber').value;
     const cap = document.getElementById('tableCapacity').value;
     const zone = document.getElementById('tableZone').value.trim();
-    if(!num){ showToast('ط£ط¯ط®ظ„ ط±ظ‚ظ… ط§ظ„ط·ط§ظˆظ„ط©','error'); return; }
+    if(!num){ showToast('أدخل رقم الطاولة','error'); return; }
     try {
         await window.LuccaDB.Tables.add({ number:Number(num), capacity:Number(cap)||4, zone:zone||null, status:'available' });
         document.getElementById('tableNumber').value='';
-        loadTables(); showToast('طھظ…طھ ط§ظ„ط¥ط¶ط§ظپط©');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        loadTables(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function editTableModal(id){
     const t = await window.LuccaDB.Tables.getById(Number(id)||id);
     if(!t) return;
-    const num = prompt('ط±ظ‚ظ… ط§ظ„ط·ط§ظˆظ„ط©:', t.number);
+    const num = prompt('رقم الطاولة:', t.number);
     if(num===null) return;
-    const cap = prompt('ط§ظ„ط³ط¹ط©:', t.capacity);
-    const zone = prompt('ط§ظ„ظ…ظ†ط·ظ‚ط©:', t.zone||'');
+    const cap = prompt('السعة:', t.capacity);
+    const zone = prompt('المنطقة:', t.zone||'');
     try {
         await window.LuccaDB.Tables.update(Number(id)||id, { number:Number(num), capacity:Number(cap)||t.capacity, zone:zone||null });
-        loadTables(); showToast('طھظ… ط§ظ„طھط­ط¯ظٹط«');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        loadTables(); showToast('تم التحديث');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function deleteTable(id){
-    if(!confirm('ط­ط°ظپ ط§ظ„ط·ط§ظˆظ„ط©طں')) return;
-    try { await window.LuccaDB.Tables.delete(Number(id)||id); loadTables(); showToast('Ψظ… ط§ظ„ط­ط°ظپ'); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    if(!confirm('حذف هذا العنصر؟')) return;
+    try { await window.LuccaDB.Tables.delete(Number(id)||id); loadTables(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 // ===== CATEGORIES =====
@@ -2470,12 +2470,12 @@ async function loadCategories(){
     try {
         const cats = await window.LuccaDB.Categories.getAll();
         const tbody = document.getElementById('categoriesBody');
-        if(!cats.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">ظ„ط§ طھظˆط¬ط¯ ط£ظ‚ط³ط§ظ…</td></tr>'; return; }
+        if(!cats.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد أقسام</td></tr>'; return; }
         tbody.innerHTML = cats.map(c=>{
             const active = c.active!==0 && c.active!==false;
-            return '<tr><td>'+(c.icon||'ًں“‚')+'</td><td>'+(c.nameAr||c.name||'')+'</td><td>'+(c.nameEn||'')+'</td><td>'+(c.sortOrder||0)+'</td><td><span class="badge '+(active?'badge-success':'badge-neutral')+'">'+(active?'ظ†ط´ط·':'ظ…ط¹ط·ظ„')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editCategoryModal(\''+c.id+'\')">âœڈï¸ڈ</button> <button class="btn btn-ghost btn-sm" onclick="toggleCategory(\''+c.id+'\','+(active?0:1)+')">'+(active?'ًں”’':'ًں”“')+'</button> <button class="btn btn-ghost btn-sm" onclick="deleteCategory(\''+c.id+'\')">ًں—‘ï¸ڈ</button></td></tr>';
+            return '<tr><td>'+(c.icon||'📂')+'</td><td>'+(c.nameAr||c.name||'')+'</td><td>'+(c.nameEn||'')+'</td><td>'+(c.sortOrder||0)+'</td><td><span class="badge '+(active?'badge-success':'badge-neutral')+'">'+(active?'نشط':'معطل')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editCategoryModal(\''+c.id+'\')">✏️</button> <button class="btn btn-ghost btn-sm" onclick="toggleCategory(\''+c.id+'\','+(active?0:1)+')">'+(active?'🔒':'🔓')+'</button> <button class="btn btn-ghost btn-sm" onclick="deleteCategory(\''+c.id+'\')">🗑️</button></td></tr>';
         }).join('');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function addCategory(){
@@ -2483,35 +2483,35 @@ async function addCategory(){
     const nameEn = document.getElementById('catNameEn').value.trim();
     const icon = document.getElementById('catIcon').value.trim();
     const sort = document.getElementById('catSort').value;
-    if(!nameAr){ showToast('ط£ط¯ط®ظ„ ط§ط³ظ… ط§ظ„ظ‚ط³ظ…','error'); return; }
+    if(!nameAr){ showToast('أدخل اسم القسم','error'); return; }
     try {
-        await window.LuccaDB.Categories.add({ nameAr, nameEn, name:nameAr, icon:icon||'ًں“‚', sortOrder:Number(sort)||0, active:1 });
+        await window.LuccaDB.Categories.add({ nameAr, nameEn, name:nameAr, icon:icon||'📂', sortOrder:Number(sort)||0, active:1 });
         ['catNameAr','catNameEn','catIcon'].forEach(id=>document.getElementById(id).value='');
-        loadCategories(); showToast('طھظ…طھ ط§ظ„ط¥ط¶ط§ظپط©');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        loadCategories(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function editCategoryModal(id){
     const cats = await window.LuccaDB.Categories.getAll();
     const c = cats.find(x=>String(x.id)===String(id));
     if(!c) return;
-    const nameAr = prompt('ط§ظ„ط§ط³ظ… ط¨ط§ظ„ط¹ط±ط¨ظٹط©:', c.nameAr||c.name||'');
+    const nameAr = prompt('الاسم بالعربية:', c.nameAr||c.name||'');
     if(nameAr===null) return;
-    const nameEn = prompt('ط§ظ„ط§ط³ظ… ط¨ط§ظ„ط¥ظ†ط¬ظ„ظٹط²ظٹط©:', c.nameEn||'');
-    const icon = prompt('ط§ظ„ط£ظٹظ‚ظˆظ†ط©:', c.icon||'ًں“‚');
+    const nameEn = prompt('الاسم بالإنجليزية:', c.nameEn||'');
+    const icon = prompt('الأيقونة:', c.icon||'📂');
     try {
-        await window.LuccaDB.Categories.update(Number(id)||id, { nameAr, nameEn, name:nameAr, icon:icon||'ًں“‚' });
-        loadCategories(); showToast('طھظ… ط§ظ„طھط­ط¯ظٹط«');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        await window.LuccaDB.Categories.update(Number(id)||id, { nameAr, nameEn, name:nameAr, icon:icon||'📂' });
+        loadCategories(); showToast('تم التحديث');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function toggleCategory(id, newActive){
-    try { await window.LuccaDB.Categories.update(Number(id)||id, { active:newActive }); loadCategories(); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    try { await window.LuccaDB.Categories.update(Number(id)||id, { active:newActive }); loadCategories(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function deleteCategory(id){
-    if(!confirm('ط­ط°ظپ ط§ظ„ظ‚ط³ظ…طں')) return;
-    try { await window.LuccaDB.Categories.delete(Number(id)||id); loadCategories(); showToast('Ψظ… ط§ظ„ط­ط°ظپ'); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    if(!confirm('حذف هذا القسم؟')) return;
+    try { await window.LuccaDB.Categories.delete(Number(id)||id); loadCategories(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 // ===== PRODUCTS =====
@@ -2545,9 +2545,9 @@ async function populateProductSelects(){
         const cats = await window.LuccaDB.Categories.getActive();
         const opts = cats.map(c=>'<option value="'+c.id+'">'+(c.icon||'')+' '+(c.nameAr||c.name||'')+'</option>').join('');
         const pc = document.getElementById('prodCategory');
-        if(pc) pc.innerHTML = '<option value="">ΥάΨί Υظ„ظ‚ط³ظ…</option>' + opts;
+        if(pc) pc.innerHTML = '<option value="">ΥάΨί Υلقسم</option>' + opts;
         const fc = document.getElementById('prodFilterCat');
-        if(fc) fc.innerHTML = '<option value="">ظƒظ„ ط§ظ„ط£ظ‚ط³ط§ظ…</option>' + opts;
+        if(fc) fc.innerHTML = '<option value="">كل الأقسام</option>' + opts;
     } catch(e){}
 }
 
@@ -2789,7 +2789,7 @@ async function toggleProduct(id, newAvail){
 }
 
 async function deleteProduct(id){
-    if(!confirm('حذف المنتج نهائياً؟')) return;
+    if(!confirm('حذف هذا المنتج؟')) return;
     try { await window.LuccaDB.Products.delete(Number(id)||id); loadProducts(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
@@ -2801,13 +2801,13 @@ async function loadPaymentMethods(){
     try {
         const methods = await window.LuccaDB.PaymentMethods.getAll();
         const tbody = document.getElementById('paymethodsBody');
-        if(!methods.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">ظ„ط§ طھظˆط¬ط¯ ط·ط±ظ‚ ط¯ظپط¹</td></tr>'; return; }
-        const typeLabels = {cash:'ظƒط§ط´',card:'ظƒط§ط±طھ',digital:'ط±ظ‚ظ…ظٹ',other:'ط£ط®ط±ظ‰'};
+        if(!methods.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد طرق دفع</td></tr>'; return; }
+        const typeLabels = {cash:'كاش',card:'كارت',digital:'رقمي',other:'أخرى'};
         tbody.innerHTML = methods.map(m=>{
             const active = m.active!==0 && m.active!==false;
-            return '<tr><td>'+(m.nameAr||m.name||'')+'</td><td>'+(m.nameEn||'')+'</td><td><span class="badge badge-info">'+(typeLabels[m.type]||m.type||'â€”')+'</span></td><td>'+(m.sortOrder||0)+'</td><td><span class="badge '+(active?'badge-success':'badge-neutral')+'">'+(active?'ظ†ط´ط·':'ظ…ط¹ط·ظ„')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editPaymentMethodModal(\''+m.id+'\')">âœڈï¸ڈ</button> <button class="btn btn-ghost btn-sm" onclick="togglePaymentMethod(\''+m.id+'\','+(active?0:1)+')">'+(active?'ًں”’':'ًں”“')+'</button> <button class="btn btn-ghost btn-sm" onclick="deletePaymentMethod(\''+m.id+'\')">ًں—‘ï¸ڈ</button></td></tr>';
+            return '<tr><td>'+(m.nameAr||m.name||'')+'</td><td>'+(m.nameEn||'')+'</td><td><span class="badge badge-info">'+(typeLabels[m.type]||m.type||'—')+'</span></td><td>'+(m.sortOrder||0)+'</td><td><span class="badge '+(active?'badge-success':'badge-neutral')+'">'+(active?'نشط':'معطل')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editPaymentMethodModal(\''+m.id+'\')">✏️</button> <button class="btn btn-ghost btn-sm" onclick="togglePaymentMethod(\''+m.id+'\','+(active?0:1)+')">'+(active?'🔒':'🔓')+'</button> <button class="btn btn-ghost btn-sm" onclick="deletePaymentMethod(\''+m.id+'\')">🗑️</button></td></tr>';
         }).join('');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function addPaymentMethod(){
@@ -2815,34 +2815,34 @@ async function addPaymentMethod(){
     const nameEn = document.getElementById('pmNameEn').value.trim();
     const type = document.getElementById('pmType').value;
     const sort = document.getElementById('pmSort').value;
-    if(!nameAr){ showToast('ط£ط¯ط®ظ„ ط§ط³ظ… ط·ط±ظٹظ‚ط© ط§ظ„ط¯ظپط¹','error'); return; }
+    if(!nameAr){ showToast('أدخل اسم طريقة الدفع','error'); return; }
     try {
         await window.LuccaDB.PaymentMethods.add({ nameAr, nameEn, name:nameAr, type, sortOrder:Number(sort)||0, active:1 });
         ['pmNameAr','pmNameEn'].forEach(id=>document.getElementById(id).value='');
-        loadPaymentMethods(); showToast('طھظ…طھ ط§ظ„ط¥ط¶ط§ظپط©');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        loadPaymentMethods(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function editPaymentMethodModal(id){
     const methods = await window.LuccaDB.PaymentMethods.getAll();
     const m = methods.find(x=>String(x.id)===String(id));
     if(!m) return;
-    const name = prompt('ط§ظ„ط§ط³ظ…:', m.nameAr||m.name||'');
+    const name = prompt('الاسم:', m.nameAr||m.name||'');
     if(name===null) return;
-    const type = prompt('ط§ظ„ظ†ظˆط¹ (cash/card/digital/other):', m.type||'cash');
+    const type = prompt('النوع (cash/card/digital/other):', m.type||'cash');
     try {
         await window.LuccaDB.PaymentMethods.update(Number(id)||id, { nameAr:name, name, type:type||m.type });
-        loadPaymentMethods(); showToast('طھظ… ط§ظ„طھط­ط¯ظٹط«');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        loadPaymentMethods(); showToast('تم التحديث');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function togglePaymentMethod(id, newActive){
-    try { await window.LuccaDB.PaymentMethods.update(Number(id)||id, { active:newActive }); loadPaymentMethods(); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    try { await window.LuccaDB.PaymentMethods.update(Number(id)||id, { active:newActive }); loadPaymentMethods(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function deletePaymentMethod(id){
-    if(!confirm('ط­ط°ظپ ط·ط±ظٹظ‚ط© ط§ظ„ط¯ظپط¹طں')) return;
-    try { await window.LuccaDB.PaymentMethods.delete(Number(id)||id); loadPaymentMethods(); showToast('Ψظ… ط§ظ„ط­ط°ظپ'); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    if(!confirm('حذف طريقة الدفع؟')) return;
+    try { await window.LuccaDB.PaymentMethods.delete(Number(id)||id); loadPaymentMethods(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 // ===== EMPLOYEES =====
@@ -2850,14 +2850,14 @@ async function loadEmployees(){
     try {
         const emps = await window.LuccaDB.Employees.getAll();
         const tbody = document.getElementById('employeesBody');
-        if(!emps.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">ظ„ط§ ظٹظˆط¬ط¯ ظ…ظˆط¸ظپظˆظ†</td></tr>'; return; }
-        const roleLabels = {cashier:'ظƒط§ط´ظٹط±',waiter:'ط¬ط±ط³ظˆظ†',chef:'ط·ط¨ط§ط®',manager:'ظ…ط¯ظٹط±'};
+        if(!emps.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد موظفون</td></tr>'; return; }
+        const roleLabels = {cashier:'كاشير',waiter:'جرسون',chef:'طباخ',manager:'مدير'};
         tbody.innerHTML = emps.map(e=>{
             const active = e.active!==false && e.active!==0;
-            return '<tr><td>'+(e.name||'')+'</td><td>'+(e.phone||'â€”')+'</td><td><span class="badge badge-info">'+(roleLabels[e.role]||e.role||'â€”')+'</span></td><td>'+formatMoney(e.salary||0)+'</td><td><span class="badge '+(active?'badge-success':'badge-neutral')+'">'+(active?'ظ†ط´ط·':'ظ…ط¹ط·ظ„')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="toggleEmployee(\''+e.id+'\','+(active?0:1)+')">'+(active?'ًں”’':'ًں”“')+'</button> <button class="btn btn-ghost btn-sm" onclick="deleteEmployee(\''+e.id+'\')">ًں—‘ï¸ڈ</button></td></tr>';
+            return '<tr><td>'+(e.name||'')+'</td><td>'+(e.phone||'—')+'</td><td><span class="badge badge-info">'+(roleLabels[e.role]||e.role||'—')+'</span></td><td>'+formatMoney(e.salary||0)+'</td><td><span class="badge '+(active?'badge-success':'badge-neutral')+'">'+(active?'نشط':'معطل')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="toggleEmployee(\''+e.id+'\','+(active?0:1)+')">'+(active?'🔒':'🔓')+'</button> <button class="btn btn-ghost btn-sm" onclick="deleteEmployee(\''+e.id+'\')">🗑️</button></td></tr>';
         }).join('');
         populateEmployeeSelects();
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function addEmployee(){
@@ -2865,21 +2865,21 @@ async function addEmployee(){
     const phone = document.getElementById('empPhone').value.trim();
     const role = document.getElementById('empRole').value;
     const salary = document.getElementById('empSalary').value;
-    if(!name){ showToast('ط£ط¯ط®ظ„ ط§ط³ظ… ط§ظ„ظ…ظˆط¸ظپ','error'); return; }
+    if(!name){ showToast('أدخل اسم الموظف','error'); return; }
     try {
         await window.LuccaDB.Employees.add({ name, phone, role, salary:Number(salary)||0, active:true, createdAt:new Date().toISOString() });
         ['empName','empPhone','empSalary'].forEach(id=>document.getElementById(id).value='');
-        loadEmployees(); showToast('طھظ…طھ ط§ظ„ط¥ط¶ط§ظپط©');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        loadEmployees(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function toggleEmployee(id, newActive){
-    try { await window.LuccaDB.Employees.update(Number(id)||id, { active:!!newActive }); loadEmployees(); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    try { await window.LuccaDB.Employees.update(Number(id)||id, { active:!!newActive }); loadEmployees(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function deleteEmployee(id){
-    if(!confirm('ط­ط°ظپ ط§ظ„ظ…ظˆط¸ظپطں')) return;
-    try { await window.LuccaDB.Employees.delete(Number(id)||id); loadEmployees(); showToast('Ψظ… ط§ظ„ط­ط°ظپ'); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    if(!confirm('حذف هذا الموظف؟')) return;
+    try { await window.LuccaDB.Employees.delete(Number(id)||id); loadEmployees(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function populateEmployeeSelects(){
@@ -2888,7 +2888,7 @@ async function populateEmployeeSelects(){
         const opts = emps.map(e=>'<option value="'+e.id+'">'+e.name+'</option>').join('');
         ['attEmployee','shiftEmployee'].forEach(id=>{
             const el = document.getElementById(id);
-            if(el) el.innerHTML = '<option value="">ط§ط®طھط± ط§ظ„ظ…ظˆط¸ظپ</option>' + opts;
+            if(el) el.innerHTML = '<option value="">اختر الموظف</option>' + opts;
         });
     } catch(e){}
 }
@@ -2905,21 +2905,21 @@ async function loadAttendance(){
         const emps = await window.LuccaDB.Employees.getAll();
         const empMap = {}; emps.forEach(e=>{ empMap[e.id]=e.name; });
         const tbody = document.getElementById('attendanceBody');
-        if(!records.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">ظ„ط§ طھظˆط¬ط¯ ط³ط¬ظ„ط§طھ</td></tr>'; return; }
-        tbody.innerHTML = records.map(r=>'<tr><td>'+(empMap[r.employeeId]||r.employeeId)+'</td><td>'+(r.date||'')+'</td><td>'+(r.checkIn||'â€”')+'</td><td>'+(r.checkOut||'â€”')+'</td><td>'+(r.hoursWorked?r.hoursWorked+'h':'â€”')+'</td></tr>').join('');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        if(!records.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد سجلات</td></tr>'; return; }
+        tbody.innerHTML = records.map(r=>'<tr><td>'+(empMap[r.employeeId]||r.employeeId)+'</td><td>'+(r.date||'')+'</td><td>'+(r.checkIn||'—')+'</td><td>'+(r.checkOut||'—')+'</td><td>'+(r.hoursWorked?r.hoursWorked+'h':'—')+'</td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function checkIn(){
     const empId = document.getElementById('attEmployee').value;
-    if(!empId){ showToast('ط§ط®طھط± ط§ظ„ظ…ظˆط¸ظپ','error'); return; }
-    try { await window.LuccaDB.Attendance.checkIn(Number(empId)); loadAttendance(); showToast('طھظ… طھط³ط¬ظٹظ„ ط§ظ„ط­ط¶ظˆط±'); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    if(!empId){ showToast('اختر الموظف','error'); return; }
+    try { await window.LuccaDB.Attendance.checkIn(Number(empId)); loadAttendance(); showToast('تم تسجيل الحضور'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function checkOut(){
     const empId = document.getElementById('attEmployee').value;
-    if(!empId){ showToast('ط§ط®طھط± ط§ظ„ظ…ظˆط¸ظپ','error'); return; }
-    try { await window.LuccaDB.Attendance.checkOut(Number(empId)); loadAttendance(); showToast('طھظ… طھط³ط¬ظٹظ„ ط§ظ„ط§ظ†طµط±ط§ظپ'); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    if(!empId){ showToast('اختر الموظف','error'); return; }
+    try { await window.LuccaDB.Attendance.checkOut(Number(empId)); loadAttendance(); showToast('تم تسجيل الانصراف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 // ===== SHIFTS =====
@@ -2934,21 +2934,21 @@ async function loadShifts(){
         const emps = await window.LuccaDB.Employees.getAll();
         const empMap = {}; emps.forEach(e=>{ empMap[e.id]=e.name; });
         const tbody = document.getElementById('shiftsBody');
-        if(!shifts.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">ظ„ط§ طھظˆط¬ط¯ ظˆط¯ظٹط§طھ</td></tr>'; return; }
-        tbody.innerHTML = shifts.map(s=>'<tr><td>'+(empMap[s.employeeId]||s.employeeId)+'</td><td>'+(s.date||'')+'</td><td>'+(s.startTime||'â€”')+'</td><td>'+(s.endTime||'â€”')+'</td><td>'+(s.hoursWorked?s.hoursWorked+'h':'â€”')+'</td><td>'+formatMoney(s.totalSales||0)+'</td></tr>').join('');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        if(!shifts.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد وديات</td></tr>'; return; }
+        tbody.innerHTML = shifts.map(s=>'<tr><td>'+(empMap[s.employeeId]||s.employeeId)+'</td><td>'+(s.date||'')+'</td><td>'+(s.startTime||'—')+'</td><td>'+(s.endTime||'—')+'</td><td>'+(s.hoursWorked?s.hoursWorked+'h':'—')+'</td><td>'+formatMoney(s.totalSales||0)+'</td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function startShift(){
     const empId = document.getElementById('shiftEmployee').value;
-    if(!empId){ showToast('ط§ط®طھط± ط§ظ„ظ…ظˆط¸ظپ','error'); return; }
-    try { await window.LuccaDB.Shifts.start(Number(empId)); loadShifts(); showToast('طھظ… ط¨ط¯ط، ط§ظ„ظˆط±ط¯ظٹط©'); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    if(!empId){ showToast('اختر الموظف','error'); return; }
+    try { await window.LuccaDB.Shifts.start(Number(empId)); loadShifts(); showToast('تم بدء الوردية'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function endShift(){
     const empId = document.getElementById('shiftEmployee').value;
-    if(!empId){ showToast('ط§ط®طھط± ط§ظ„ظ…ظˆط¸ظپ','error'); return; }
-    try { await window.LuccaDB.Shifts.end(Number(empId)); loadShifts(); showToast('طھظ… ط¥ظ†ظ‡ط§ط، ط§ظ„ظˆط±ط¯ظٹط©'); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    if(!empId){ showToast('اختر الموظف','error'); return; }
+    try { await window.LuccaDB.Shifts.end(Number(empId)); loadShifts(); showToast('تم إنهاء الوردية'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 // ===== INVENTORY =====
@@ -2956,12 +2956,12 @@ async function loadInventory(){
     try {
         const items = await window.LuccaDB.Inventory.getAll();
         const tbody = document.getElementById('inventoryBody');
-        if(!items.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">ظ„ط§ ظٹظˆط¬ط¯ ظ…ط®ط²ظˆظ†</td></tr>'; return; }
+        if(!items.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد مخزون</td></tr>'; return; }
         tbody.innerHTML = items.map(i=>{
             const low = (i.quantity||0)<=(i.minStock||0);
-            return '<tr><td>'+(i.name||'')+'</td><td style="color:'+(low?'var(--danger)':'inherit')+';font-weight:'+(low?700:400)+'">'+(i.quantity||0)+'</td><td>'+(i.unit||'â€”')+'</td><td>'+formatMoney(i.cost||0)+'</td><td>'+(i.minStock||0)+'</td><td><button class="btn btn-ghost btn-sm" onclick="adjustStock(\''+i.id+'\',1)">â‍•</button> <button class="btn btn-ghost btn-sm" onclick="adjustStock(\''+i.id+'\',-1)">â‍–</button> <button class="btn btn-ghost btn-sm" onclick="deleteInventory(\''+i.id+'\')">ًں—‘ï¸ڈ</button></td></tr>';
+            return '<tr><td>'+(i.name||'')+'</td><td style="color:'+(low?'var(--danger)':'inherit')+';font-weight:'+(low?700:400)+'">'+(i.quantity||0)+'</td><td>'+(i.unit||'—')+'</td><td>'+formatMoney(i.cost||0)+'</td><td>'+(i.minStock||0)+'</td><td><button class="btn btn-ghost btn-sm" onclick="adjustStock(\''+i.id+'\',1)">➕</button> <button class="btn btn-ghost btn-sm" onclick="adjustStock(\''+i.id+'\',-1)">➖</button> <button class="btn btn-ghost btn-sm" onclick="deleteInventory(\''+i.id+'\')">🗑️</button></td></tr>';
         }).join('');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function addInventory(){
@@ -2970,21 +2970,21 @@ async function addInventory(){
     const unit = document.getElementById('invUnit').value.trim();
     const cost = document.getElementById('invCost').value;
     const min = document.getElementById('invMinStock').value;
-    if(!name){ showToast('ط£ط¯ط®ظ„ ط§ط³ظ… ط§ظ„طµظ†ظپ','error'); return; }
+    if(!name){ showToast('أدخل اسم الصنف','error'); return; }
     try {
         await window.LuccaDB.Inventory.add({ name, quantity:Number(qty)||0, unit, cost:Number(cost)||0, minStock:Number(min)||5, status:'active' });
         ['invName','invQty','invUnit','invCost'].forEach(id=>document.getElementById(id).value='');
-        loadInventory(); showToast('طھظ…طھ ط§ظ„ط¥ط¶ط§ظپط©');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        loadInventory(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function adjustStock(id, delta){
-    try { await window.LuccaDB.Inventory.adjustStock(Number(id)||id, delta); loadInventory(); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    try { await window.LuccaDB.Inventory.adjustStock(Number(id)||id, delta); loadInventory(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function deleteInventory(id){
-    if(!confirm('ط­ط°ظپ ط§ظ„طµظ†ظپطں')) return;
-    try { await window.LuccaDB.Inventory.delete(Number(id)||id); loadInventory(); showToast('Ψظ… ط§ظ„ط­ط°ظپ'); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    if(!confirm('حذف هذا العنصر؟')) return;
+    try { await window.LuccaDB.Inventory.delete(Number(id)||id); loadInventory(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 // ===== PURCHASES =====
@@ -2993,9 +2993,9 @@ async function loadPurchases(){
         let purchases = await window.LuccaDB.Purchases.getAll();
         purchases.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
         const tbody = document.getElementById('purchasesBody');
-        if(!purchases.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">ظ„ط§ طھظˆط¬ط¯ ظ…ط´طھط±ظٹط§طھ</td></tr>'; return; }
-        tbody.innerHTML = purchases.map(p=>'<tr><td>'+(p.item||p.name||'')+'</td><td>'+(p.quantity||'â€”')+'</td><td>'+formatMoney(p.costPrice||p.cost||0)+'</td><td>'+(p.supplier||'â€”')+'</td><td>'+formatDate(p.date)+'</td><td><button class="btn btn-ghost btn-sm" onclick="deletePurchase(\''+p.id+'\')">ًں—‘ï¸ڈ</button></td></tr>').join('');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        if(!purchases.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد مشتريات</td></tr>'; return; }
+        tbody.innerHTML = purchases.map(p=>'<tr><td>'+(p.item||p.name||'')+'</td><td>'+(p.quantity||'—')+'</td><td>'+formatMoney(p.costPrice||p.cost||0)+'</td><td>'+(p.supplier||'—')+'</td><td>'+formatDate(p.date)+'</td><td><button class="btn btn-ghost btn-sm" onclick="deletePurchase(\''+p.id+'\')">🗑️</button></td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function addPurchase(){
@@ -3004,17 +3004,17 @@ async function addPurchase(){
     const cost = document.getElementById('purchCost').value;
     const supplier = document.getElementById('purchSupplier').value.trim();
     const notes = document.getElementById('purchNotes').value.trim();
-    if(!item||!qty){ showToast('ط£ط¯ط®ظ„ ط§ظ„طµظ†ظپ ظˆط§ظ„ظƒظ…ظٹط©','error'); return; }
+    if(!item||!qty){ showToast('أدخل الصنف والكمية','error'); return; }
     try {
         await window.LuccaDB.Purchases.add({ item, name:item, quantity:Number(qty), costPrice:Number(cost)||0, cost:Number(cost)||0, supplier, notes, date:todayStr() });
         ['purchItem','purchQty','purchCost','purchSupplier','purchNotes'].forEach(id=>document.getElementById(id).value='');
-        loadPurchases(); showToast('طھظ…طھ ط§ظ„ط¥ط¶ط§ظپط©');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        loadPurchases(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function deletePurchase(id){
-    if(!confirm('ط­ط°ظپ ط§ظ„ظ…ط´طھط±ظٹط§طھطں')) return;
-    try { await window.LuccaDB.Purchases.delete(Number(id)||id); loadPurchases(); showToast('Ψظ… ط§ظ„ط­ط°ظپ'); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    if(!confirm('حذف هذه المشتريات؟')) return;
+    try { await window.LuccaDB.Purchases.delete(Number(id)||id); loadPurchases(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 // ===== EXPENSES =====
@@ -3027,9 +3027,9 @@ async function loadExpenses(){
         if(to) expenses = expenses.filter(e=>e.date<=to);
         expenses.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
         const tbody = document.getElementById('expensesBody');
-        if(!expenses.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">ظ„ط§ طھظˆط¬ط¯ ظ…طµط±ظˆظپط§طھ</td></tr>'; return; }
-        tbody.innerHTML = expenses.map(e=>'<tr><td>'+(e.description||'')+'</td><td>'+formatMoney(e.amount||0)+'</td><td>'+(e.category||'â€”')+'</td><td>'+formatDate(e.date)+'</td><td><button class="btn btn-ghost btn-sm" onclick="deleteExpense(\''+e.id+'\')">ًں—‘ï¸ڈ</button></td></tr>').join('');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        if(!expenses.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد مصروفات</td></tr>'; return; }
+        tbody.innerHTML = expenses.map(e=>'<tr><td>'+(e.description||'')+'</td><td>'+formatMoney(e.amount||0)+'</td><td>'+(e.category||'—')+'</td><td>'+formatDate(e.date)+'</td><td><button class="btn btn-ghost btn-sm" onclick="deleteExpense(\''+e.id+'\')">🗑️</button></td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function addExpense(){
@@ -3037,17 +3037,17 @@ async function addExpense(){
     const amount = document.getElementById('expAmount').value;
     const category = document.getElementById('expCategory').value.trim();
     const notes = document.getElementById('expNotes').value.trim();
-    if(!desc||!amount){ showToast('ط£ط¯ط®ظ„ ط§ظ„ظˆطµظپ ظˆط§ظ„ظ…ط¨ظ„ط؛','error'); return; }
+    if(!desc||!amount){ showToast('أدخل الوصف والمبلغ','error'); return; }
     try {
         await window.LuccaDB.Expenses.add({ description:desc, amount:Number(amount), category, notes, date:todayStr() });
         ['expDesc','expAmount','expCategory','expNotes'].forEach(id=>document.getElementById(id).value='');
-        loadExpenses(); showToast('طھظ…طھ ط§ظ„ط¥ط¶ط§ظپط©');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        loadExpenses(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function deleteExpense(id){
-    if(!confirm('ط­ط°ظپ ط§ظ„ظ…طµط±ظˆظپطں')) return;
-    try { await window.LuccaDB.Expenses.delete(Number(id)||id); loadExpenses(); showToast('Ψظ… ط§ظ„ط­ط°ظپ'); } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    if(!confirm('حذف هذا المصروف؟')) return;
+    try { await window.LuccaDB.Expenses.delete(Number(id)||id); loadExpenses(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 // ===== REPORTS =====
@@ -3059,85 +3059,85 @@ async function loadReport(type){
     const title = document.getElementById('reportTitle');
     output.style.display = 'block';
     content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-    const titles = {sales:'طھظ‚ط±ظٹط± ط§ظ„ظ…ط¨ظٹط¹ط§طھ',orders:'طھظ‚ط±ظٹط± ط§ظ„ط·ظ„ط¨ط§طھ',payments:'طھظ‚ط±ظٹط± ط§ظ„ظ…ط¯ظپظˆط¹ط§طھ',products:'طھظ‚ط±ظٹط± ط§ظ„ظ…ظ†طھط¬ط§طھ',categories:'طھظ‚ط±ظٹط± ط§ظ„ط£ظ‚ط³ط§ظ…',employees:'طھظ‚ط±ظٹط± ط§ظ„ظ…ظˆط¸ظپظٹظ†',discounts:'طھظ‚ط±ظٹط± ط§ظ„ط®طµظˆظ…ط§طھ',refunds:'طھظ‚ط±ظٹط± ط§ظ„ظ…ط±طھط¬ط¹ط§طھ',profit:'طھظ‚ط±ظٹط± ط§ظ„ط£ط±ط¨ط§ط­',inventory:'طھظ‚ط±ظٹط± ط§ظ„ظ…ط®ط²ظˆظ†',shifts:'طھظ‚ط±ظٹط± ط§ظ„ظˆط±ط¯ظٹط§طھ'};
-    title.textContent = titles[type]||'طھظ‚ط±ظٹط±';
+    const titles = {sales:'تقرير المبيعات',orders:'تقرير الطلبات',payments:'تقرير المدفوعات',products:'تقرير المنتجات',categories:'تقرير الأقسام',employees:'تقرير الموظفين',discounts:'تقرير الخصومات',refunds:'تقرير المرتجعات',profit:'تقرير الأرباح',inventory:'تقرير المخزون',shifts:'تقرير الورديات'};
+    title.textContent = titles[type]||'تقرير';
     try {
         let html = '';
         if(type==='sales'){
             const d = await apiFetch('/dashboard/sales-by-day?from='+from+'&to='+to);
             const k = await apiFetch('/dashboard/kpis?from='+from+'&to='+to);
-            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card green"><div class="kpi-value">'+formatMoney(k.sales?.value||0)+'</div><div class="kpi-label">طµط§ظپظٹ ط§ظ„ظ…ط¨ظٹط¹ط§طھ</div></div><div class="kpi-card blue"><div class="kpi-value">'+(k.orders?.value||0)+'</div><div class="kpi-label">ط§ظ„ط·ظ„ط¨ط§طھ</div></div><div class="kpi-card purple"><div class="kpi-value">'+formatMoney(k.avgOrder?.value||0)+'</div><div class="kpi-label">ظ…طھظˆط³ط· ط§ظ„ط·ظ„ط¨</div></div></div>';
-            html += '<table class="data-table"><thead><tr><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط§ظ„ط·ظ„ط¨ط§طھ</th><th>ط§ظ„ط¥ظٹط±ط§ط¯</th></tr></thead><tbody>';
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card green"><div class="kpi-value">'+formatMoney(k.sales?.value||0)+'</div><div class="kpi-label">صافي المبيعات</div></div><div class="kpi-card blue"><div class="kpi-value">'+(k.orders?.value||0)+'</div><div class="kpi-label">الطلبات</div></div><div class="kpi-card purple"><div class="kpi-value">'+formatMoney(k.avgOrder?.value||0)+'</div><div class="kpi-label">متوسط الطلب</div></div></div>';
+            html += '<table class="data-table"><thead><tr><th>التاريخ</th><th>الطلبات</th><th>الإيراد</th></tr></thead><tbody>';
             d.forEach(r=>{ html += '<tr><td>'+r.date+'</td><td>'+r.orders+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
             html += '</tbody></table>';
             currentReportData = d;
         } else if(type==='orders'){
             const orders = await window.LuccaDB.Orders.getByDateRange(from, to);
-            html += '<table class="data-table"><thead><tr><th>ط±ظ‚ظ…</th><th>ط§ظ„ط·ط§ظˆظ„ط©</th><th>ط§ظ„ط¹ظ…ظٹظ„</th><th>ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ</th><th>ط§ظ„ط­ط§ظ„ط©</th><th>ط§ظ„طھط§ط±ظٹط®</th></tr></thead><tbody>';
-            orders.forEach(o=>{ html += '<tr><td>'+(o.orderNumber||o.id)+'</td><td>'+(o.tableId||'â€”')+'</td><td>'+(o.customerName||'â€”')+'</td><td>'+formatMoney(o.total)+'</td><td>'+o.status+'</td><td>'+formatDate(o.date)+'</td></tr>'; });
+            html += '<table class="data-table"><thead><tr><th>رقم</th><th>الطاولة</th><th>العميل</th><th>الإجمالي</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>';
+            orders.forEach(o=>{ html += '<tr><td>'+(o.orderNumber||o.id)+'</td><td>'+(o.tableId||'—')+'</td><td>'+(o.customerName||'—')+'</td><td>'+formatMoney(o.total)+'</td><td>'+o.status+'</td><td>'+formatDate(o.date)+'</td></tr>'; });
             html += '</tbody></table>';
             currentReportData = orders;
         } else if(type==='payments'){
             const d = await apiFetch('/dashboard/payments?from='+from+'&to='+to);
-            html += '<table class="data-table"><thead><tr><th>ط§ظ„ط·ط±ظٹظ‚ط©</th><th>ط§ظ„ط¹ط¯ط¯</th><th>ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ</th><th>ط§ظ„ظ†ط³ط¨ط©</th></tr></thead><tbody>';
+            html += '<table class="data-table"><thead><tr><th>الطريقة</th><th>العدد</th><th>الإجمالي</th><th>النسبة</th></tr></thead><tbody>';
             d.forEach(r=>{ html += '<tr><td>'+r.method+'</td><td>'+r.count+'</td><td>'+formatMoney(r.total)+'</td><td>'+(r.percentage||0).toFixed(1)+'%</td></tr>'; });
             html += '</tbody></table>';
             currentReportData = d;
         } else if(type==='products'){
             const d = await apiFetch('/dashboard/products?from='+from+'&to='+to);
-            html += '<table class="data-table"><thead><tr><th>ط§ظ„ظ…ظ†طھط¬</th><th>ط§ظ„ظ‚ط³ظ…</th><th>ط§ظ„ط³ط¹ط±</th><th>ط§ظ„طھظƒظ„ظپط©</th><th>ط§ظ„ظƒظ…ظٹط©</th><th>ط§ظ„ط¥ظٹط±ط§ط¯</th></tr></thead><tbody>';
-            d.forEach(r=>{ html += '<tr><td>'+(r.name||r.nameAr||'')+'</td><td>'+(r.categoryName||r.category||'â€”')+'</td><td>'+formatMoney(r.price)+'</td><td>'+formatMoney(r.costPrice||0)+'</td><td>'+(r.qtySold||0)+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
+            html += '<table class="data-table"><thead><tr><th>المنتج</th><th>القسم</th><th>السعر</th><th>التكلفة</th><th>الكمية</th><th>الإيراد</th></tr></thead><tbody>';
+            d.forEach(r=>{ html += '<tr><td>'+(r.name||r.nameAr||'')+'</td><td>'+(r.categoryName||r.category||'—')+'</td><td>'+formatMoney(r.price)+'</td><td>'+formatMoney(r.costPrice||0)+'</td><td>'+(r.qtySold||0)+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
             html += '</tbody></table>';
             currentReportData = d;
         } else if(type==='categories'){
             const d = await apiFetch('/dashboard/categories?from='+from+'&to='+to);
-            html += '<table class="data-table"><thead><tr><th>ط§ظ„ظ‚ط³ظ…</th><th>ط§ظ„ظ…ظ†طھط¬ط§طھ</th><th>ط§ظ„ظƒظ…ظٹط©</th><th>ط§ظ„ط¥ظٹط±ط§ط¯</th></tr></thead><tbody>';
+            html += '<table class="data-table"><thead><tr><th>القسم</th><th>المنتجات</th><th>الكمية</th><th>الإيراد</th></tr></thead><tbody>';
             d.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.productCount||0)+'</td><td>'+(r.qtySold||0)+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
             html += '</tbody></table>';
             currentReportData = d;
         } else if(type==='employees'){
             const d = await apiFetch('/dashboard/employees?from='+from+'&to='+to);
-            html += '<table class="data-table"><thead><tr><th>ط§ظ„ظ…ظˆط¸ظپ</th><th>ط§ظ„ط·ظ„ط¨ط§طھ</th><th>ط§ظ„ظ…ط¨ظٹط¹ط§طھ</th><th>ط§ظ„ظ…طھظˆط³ط·</th></tr></thead><tbody>';
+            html += '<table class="data-table"><thead><tr><th>الموظف</th><th>الطلبات</th><th>المبيعات</th><th>المتوسط</th></tr></thead><tbody>';
             d.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.orders||0)+'</td><td>'+formatMoney(r.sales)+'</td><td>'+formatMoney(r.avgOrder)+'</td></tr>'; });
             html += '</tbody></table>';
             currentReportData = d;
         } else if(type==='discounts'){
             const d = await apiFetch('/dashboard/discounts?from='+from+'&to='+to);
-            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card blue"><div class="kpi-value">'+(d.totalOrders||0)+'</div><div class="kpi-label">ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط·ظ„ط¨ط§طھ</div></div><div class="kpi-card orange"><div class="kpi-value">'+(d.discountedOrders||0)+'</div><div class="kpi-label">ط·ظ„ط¨ط§طھ ط¨ط®طµظ…</div></div><div class="kpi-card red"><div class="kpi-value">'+formatMoney(d.totalDiscounts||0)+'</div><div class="kpi-label">ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط®طµظˆظ…ط§طھ</div></div></div>';
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card blue"><div class="kpi-value">'+(d.totalOrders||0)+'</div><div class="kpi-label">إجمالي الطلبات</div></div><div class="kpi-card orange"><div class="kpi-value">'+(d.discountedOrders||0)+'</div><div class="kpi-label">طلبات بخصم</div></div><div class="kpi-card red"><div class="kpi-value">'+formatMoney(d.totalDiscounts||0)+'</div><div class="kpi-label">إجمالي الخصومات</div></div></div>';
             currentReportData = [d];
         } else if(type==='refunds'){
             const d = await apiFetch('/dashboard/refunds-voids?from='+from+'&to='+to);
-            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card red"><div class="kpi-value">'+(d.refundCount||0)+'</div><div class="kpi-label">ظ…ط±طھط¬ط¹ط§طھ ('+formatMoney(d.refundTotal||0)+')</div></div><div class="kpi-card orange"><div class="kpi-value">'+(d.voidCount||0)+'</div><div class="kpi-label">ط¥ظ„ط؛ط§ط،ط§طھ ('+formatMoney(d.voidTotal||0)+')</div></div></div>';
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card red"><div class="kpi-value">'+(d.refundCount||0)+'</div><div class="kpi-label">مرتجعات ('+formatMoney(d.refundTotal||0)+')</div></div><div class="kpi-card orange"><div class="kpi-value">'+(d.voidCount||0)+'</div><div class="kpi-label">إلغاءات ('+formatMoney(d.voidTotal||0)+')</div></div></div>';
             currentReportData = [d];
         } else if(type==='profit'){
             const k = await apiFetch('/dashboard/kpis?from='+from+'&to='+to);
-            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card green"><div class="kpi-value">'+(k.grossProfit?formatMoney(k.grossProfit.value):'ط¨ظٹط§ظ†ط§طھ ط؛ظٹط± ظ…طھط§ط­ط©')+'</div><div class="kpi-label">طµط§ظپظٹ ط§ظ„ط±ط¨ط­</div></div><div class="kpi-card purple"><div class="kpi-value">'+(k.grossProfit?k.grossProfit.margin?.toFixed(1)+'%':'â€”')+'</div><div class="kpi-label">ظ‡ط§ظ…ط´ ط§ظ„ط±ط¨ط­</div></div></div>';
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card green"><div class="kpi-value">'+(k.grossProfit?formatMoney(k.grossProfit.value):'بيانات غير متاحة')+'</div><div class="kpi-label">صافي الربح</div></div><div class="kpi-card purple"><div class="kpi-value">'+(k.grossProfit?k.grossProfit.margin?.toFixed(1)+'%':'—')+'</div><div class="kpi-label">هامش الربح</div></div></div>';
             currentReportData = [k];
         } else if(type==='inventory'){
             const d = await apiFetch('/dashboard/inventory');
-            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card blue"><div class="kpi-value">'+(d.totalItems||0)+'</div><div class="kpi-label">ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط£طµظ†ط§ظپ</div></div><div class="kpi-card orange"><div class="kpi-value">'+(d.lowStock||0)+'</div><div class="kpi-label">ظ…ط®ط²ظˆظ† ظ…ظ†ط®ظپط¶</div></div><div class="kpi-card red"><div class="kpi-value">'+(d.outOfStock||0)+'</div><div class="kpi-label">ظ†ظپط° ظ…ظ† ط§ظ„ظ…ط®ط²ظˆظ†</div></div></div>';
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card blue"><div class="kpi-value">'+(d.totalItems||0)+'</div><div class="kpi-label">إجمالي الأصناف</div></div><div class="kpi-card orange"><div class="kpi-value">'+(d.lowStock||0)+'</div><div class="kpi-label">مخزون منخفض</div></div><div class="kpi-card red"><div class="kpi-value">'+(d.outOfStock||0)+'</div><div class="kpi-label">نفذ من المخزون</div></div></div>';
             if(d.items?.length){
-                html += '<table class="data-table"><thead><tr><th>ط§ظ„ظ…ظ†طھط¬</th><th>ط§ظ„ظƒظ…ظٹط©</th><th>ط§ظ„ظˆط­ط¯ط©</th><th>ط§ظ„طھظƒظ„ظپط©</th><th>ط§ظ„ط­ط¯ ط§ظ„ط£ط¯ظ†ظ‰</th><th>ط§ظ„ط­ط§ظ„ط©</th></tr></thead><tbody>';
+                html += '<table class="data-table"><thead><tr><th>المنتج</th><th>الكمية</th><th>الوحدة</th><th>التكلفة</th><th>الحد الأدنى</th><th>الحالة</th></tr></thead><tbody>';
                 d.items.forEach(i=>{
-                    const st = (i.quantity||0)<=0?'ًں”´ ظ†ظپط¯':(i.quantity||0)<=(i.minStock||0)?'ًںں، ظ…ظ†ط®ظپط¶':'ًںں¢ ظ…طھظˆظپط±';
-                    html += '<tr><td>'+(i.name||'')+'</td><td>'+(i.quantity||0)+'</td><td>'+(i.unit||'â€”')+'</td><td>'+formatMoney(i.cost||0)+'</td><td>'+(i.minStock||0)+'</td><td>'+st+'</td></tr>';
+                    const st = (i.quantity||0)<=0?'🔴 نفد':(i.quantity||0)<=(i.minStock||0)?'🟡 منخفض':'🟢 متوفر';
+                    html += '<tr><td>'+(i.name||'')+'</td><td>'+(i.quantity||0)+'</td><td>'+(i.unit||'—')+'</td><td>'+formatMoney(i.cost||0)+'</td><td>'+(i.minStock||0)+'</td><td>'+st+'</td></tr>';
                 });
                 html += '</tbody></table>';
             }
             currentReportData = d.items || [];
         } else if(type==='shifts'){
             const d = await apiFetch('/dashboard/employees?from='+from+'&to='+to);
-            html += '<table class="data-table"><thead><tr><th>ط§ظ„ظ…ظˆط¸ظپ</th><th>ط§ظ„ط·ظ„ط¨ط§طھ</th><th>ط§ظ„ظ…ط¨ظٹط¹ط§طھ</th><th>ط§ظ„ظ…طھظˆط³ط·</th></tr></thead><tbody>';
+            html += '<table class="data-table"><thead><tr><th>الموظف</th><th>الطلبات</th><th>المبيعات</th><th>المتوسط</th></tr></thead><tbody>';
             d.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.orders||0)+'</td><td>'+formatMoney(r.sales)+'</td><td>'+formatMoney(r.avgOrder)+'</td></tr>'; });
             html += '</tbody></table>';
             currentReportData = d;
         }
-        content.innerHTML = html || '<div class="empty-state"><div class="icon">ًں“ٹ</div><p>ظ„ط§ طھظˆط¬ط¯ ط¨ظٹط§ظ†ط§طھ ظ„ظ‡ط°ط§ ط§ظ„طھظ‚ط±ظٹط±</p></div>';
-    } catch(e){ content.innerHTML = '<div class="alert alert-danger">ط®ط·ط£: '+e.message+'</div>'; }
+        content.innerHTML = html || '<div class="empty-state"><div class="icon">📊</div><p>لا توجد بيانات لهذا التقرير</p></div>';
+    } catch(e){ content.innerHTML = '<div class="alert alert-danger">خطأ: '+e.message+'</div>'; }
 }
 
 function exportReportCSV(){
-    if(!currentReportData||!Array.isArray(currentReportData)||!currentReportData.length){ showToast('ظ„ط§ طھظˆط¬ط¯ ط¨ظٹط§ظ†ط§طھ ظ„ظ„طھطµط¯ظٹط±','error'); return; }
+    if(!currentReportData||!Array.isArray(currentReportData)||!currentReportData.length){ showToast('لا توجد بيانات للتصدير','error'); return; }
     const keys = Object.keys(currentReportData[0]).filter(k=>typeof currentReportData[0][k]!=='object');
     let csv = '\uFEFF' + keys.join(',') + '\n';
     currentReportData.forEach(row=>{
@@ -3155,10 +3155,10 @@ async function loadRoleUsers(){
     try {
         const users = await window.LuccaDB.Users.getAll();
         const tbody = document.getElementById('rolesBody');
-        if(!users.length){ tbody.innerHTML='<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">ظ„ط§ ظٹظˆط¬ط¯ ظ…ط³طھط®ط¯ظ…ظˆظ†</td></tr>'; return; }
-        const roleLabels = {cashier:'ظƒط§ط´ظٹط±',manager:'ظ…ط¯ظٹط±',admin:'ظ…ط¯ظٹط± ط§ظ„ظ†ط¸ط§ظ…',kitchen:'ظ…ط·ط¨ط®'};
-        tbody.innerHTML = users.map(u=>'<tr><td>'+(u.username||'')+'</td><td>'+(u.displayName||u.username||'')+'</td><td><span class="badge badge-info">'+(roleLabels[u.role]||u.role||'â€”')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editUserRole(\''+u.id+'\')">âœڈï¸ڈ</button></td></tr>').join('');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        if(!users.length){ tbody.innerHTML='<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد مستخدمون</td></tr>'; return; }
+        const roleLabels = {cashier:'كاشير',manager:'مدير',admin:'مدير النظام',kitchen:'مطبخ'};
+        tbody.innerHTML = users.map(u=>'<tr><td>'+(u.username||'')+'</td><td>'+(u.displayName||u.username||'')+'</td><td><span class="badge badge-info">'+(roleLabels[u.role]||u.role||'—')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editUserRole(\''+u.id+'\')">✏️</button></td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function addRoleUser(){
@@ -3166,26 +3166,26 @@ async function addRoleUser(){
     const displayName = document.getElementById('roleDisplayName').value.trim();
     const password = document.getElementById('rolePassword').value;
     const role = document.getElementById('roleSelect').value;
-    if(!username||!password){ showToast('ط£ط¯ط®ظ„ ط§ط³ظ… ط§ظ„ظ…ط³طھط®ط¯ظ… ظˆظƒظ„ظ…ط© ط§ظ„ظ…ط±ظˆط±','error'); return; }
+    if(!username||!password){ showToast('أدخل اسم المستخدم وكلمة المرور','error'); return; }
     try {
         await window.LuccaDB.Users.add({ username, displayName:displayName||username, password, role });
         ['roleUsername','roleDisplayName','rolePassword'].forEach(id=>document.getElementById(id).value='');
-        loadRoleUsers(); showToast('طھظ…طھ ط§ظ„ط¥ط¶ط§ظپط©');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        loadRoleUsers(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function editUserRole(userId){
     const roles = ['cashier','manager','admin','kitchen'];
-    const roleLabels = {cashier:'ظƒط§ط´ظٹط±',manager:'ظ…ط¯ظٹط±',admin:'ظ…ط¯ظٹط± ط§ظ„ظ†ط¸ط§ظ…',kitchen:'ظ…ط·ط¨ط®'};
-    const newRole = prompt('ط§ظ„ط¯ظˆط± ط§ظ„ط¬ط¯ظٹط¯ (cashier/manager/admin/kitchen):');
+    const roleLabels = {cashier:'كاشير',manager:'مدير',admin:'مدير النظام',kitchen:'مطبخ'};
+    const newRole = prompt('الدور الجديد (cashier/manager/admin/kitchen):');
     if(!newRole||!roles.includes(newRole)) return;
     try {
         await window.LuccaDB.Users.getAll().then(async users=>{
             const u = users.find(x=>String(x.id)===String(userId));
             if(u){ await window.LuccaDB.db.put('users', {...u, role:newRole}); }
         });
-        loadRoleUsers(); showToast('طھظ… ط§ظ„طھط­ط¯ظٹط«');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        loadRoleUsers(); showToast('تم التحديث');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 // ===== AUDIT LOG =====
@@ -3199,10 +3199,10 @@ async function loadAuditLogs(){
         logs.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
         logs = logs.slice(0,100);
         const tbody = document.getElementById('auditBody');
-        if(!logs.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">ظ„ط§ طھظˆط¬ط¯ ط³ط¬ظ„ط§طھ</td></tr>'; return; }
-        const actionLabels = {create:'ط¥ظ†ط´ط§ط،',update:'طھط¹ط¯ظٹظ„',delete:'ط­ط°ظپ'};
-        tbody.innerHTML = logs.map(l=>'<tr><td>'+formatDate(l.createdAt||l.date)+'</td><td>'+(l.userName||l.userId||'â€”')+'</td><td>'+(actionLabels[l.action]||l.action||'â€”')+'</td><td>'+(l.objectType||'â€”')+'</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(l.objectId||'â€”')+'</td></tr>').join('');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        if(!logs.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد سجلات</td></tr>'; return; }
+        const actionLabels = {create:'إنشاء',update:'تعديل',delete:'حذف'};
+        tbody.innerHTML = logs.map(l=>'<tr><td>'+formatDate(l.createdAt||l.date)+'</td><td>'+(l.userName||l.userId||'—')+'</td><td>'+(actionLabels[l.action]||l.action||'—')+'</td><td>'+(l.objectType||'—')+'</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(l.objectId||'—')+'</td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 // ===== BACKUP =====
@@ -3214,8 +3214,8 @@ async function exportBackup(){
         const a = document.createElement('a');
         a.href = url; a.download = 'lucca-backup-'+todayStr()+'.json';
         a.click(); URL.revokeObjectURL(url);
-        showToast('طھظ… ط§ظ„طھطµط¯ظٹط± ط¨ظ†ط¬ط§ط­');
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+        showToast('تم التصدير بنجاح');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function handleImport(event){
@@ -3224,19 +3224,19 @@ async function handleImport(event){
     try {
         const text = await file.text();
         await window.LuccaDB.DataSync.importAll(text);
-        showToast('طھظ… ط§ظ„ط§ط³طھظٹط±ط§ط¯ ط¨ظ†ط¬ط§ط­');
+        showToast('تم الاستيراد بنجاح');
         refreshDashboard();
-    } catch(e){ showToast('ط®ط·ط£: '+e.message,'error'); }
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 // ===== SERVER =====
 function saveServer(){
     const url = document.getElementById('serverUrl').value.trim();
-    if(!url){ showToast('ط£ط¯ط®ظ„ ط±ط§ط¨ط· ط§ظ„ط®ط§ط¯ظ…','error'); return; }
+    if(!url){ showToast('أدخل رابط الخادم','error'); return; }
     localStorage.setItem('luccaServerUrl', url);
     window.LuccaDB.ServerSync.setServerUrl(url);
-    document.getElementById('serverStatus').innerHTML = '<span style="color:var(--success)">âœ… طھظ… ط§ظ„ط­ظپط¸</span>';
-    showToast('طھظ… ط­ظپط¸ ط±ط§ط¨ط· ط§ظ„ط®ط§ط¯ظ…');
+    document.getElementById('serverStatus').innerHTML = '<span style="color:var(--success)">✅ تم الحفظ</span>';
+    showToast('تم حفظ رابط الخادم');
 }
 
 function loadServerSettings(){
@@ -3248,32 +3248,32 @@ loadServerSettings();
 async function testServer(){
     try {
         await window.LuccaDB.ServerSync.testConnection();
-        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--success)">âœ… ط§ظ„ط§طھطµط§ظ„ ظ†ط§ط¬ط­</span>';
+        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--success)">✅ الاتصال ناجح</span>';
     } catch(e){
-        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--danger)">â‌Œ ظپط´ظ„ ط§ظ„ط§طھطµط§ظ„: '+e.message+'</span>';
+        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--danger)">❌ فشل الاتصال: '+e.message+'</span>';
     }
 }
 
 async function syncPush(){
-    document.getElementById('serverStatus').innerHTML = '<span style="color:var(--primary)">â¬†ï¸ڈ ط¬ط§ط±ظٹ ط§ظ„ط±ظپط¹...</span>';
+    document.getElementById('serverStatus').innerHTML = '<span style="color:var(--primary)">⬆️ جاري الرفع...</span>';
     try {
         await window.LuccaDB.ServerSync.pushAll();
-        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--success)">âœ… طھظ… ط±ظپط¹ ط§ظ„ط¨ظٹط§ظ†ط§طھ ط¨ظ†ط¬ط§ط­</span>';
-        showToast('طھظ… ط±ظپط¹ ط§ظ„ط¨ظٹط§ظ†ط§طھ');
+        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--success)">✅ تم رفع البيانات بنجاح</span>';
+        showToast('تم رفع البيانات');
     } catch(e){
-        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--danger)">â‌Œ ط®ط·ط£: '+e.message+'</span>';
+        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--danger)">❌ خطأ: '+e.message+'</span>';
     }
 }
 
 async function syncPull(){
-    document.getElementById('serverStatus').innerHTML = '<span style="color:var(--primary)">â¬‡ï¸ڈ ط¬ط§ط±ظٹ ط§ظ„ط³ط­ط¨...</span>';
+    document.getElementById('serverStatus').innerHTML = '<span style="color:var(--primary)">⬇️ جاري السحب...</span>';
     try {
         await window.LuccaDB.ServerSync.pullAll();
-        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--success)">âœ… طھظ… ط³ط­ط¨ ط§ظ„ط¨ظٹط§ظ†ط§طھ ط¨ظ†ط¬ط§ط­</span>';
-        showToast('طھظ… ط³ط­ط¨ ط§ظ„ط¨ظٹط§ظ†ط§طھ');
+        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--success)">✅ تم سحب البيانات بنجاح</span>';
+        showToast('تم سحب البيانات');
         refreshDashboard();
     } catch(e){
-        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--danger)">â‌Œ ط®ط·ط£: '+e.message+'</span>';
+        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--danger)">❌ خطأ: '+e.message+'</span>';
     }
 }
 
@@ -3282,12 +3282,12 @@ const AdminPrinter = {
     device: null, port: null, writer: null, connected: false, connType: null,
     init(){
         const saved = localStorage.getItem('luccaPrinterSettings');
-        if(saved) document.getElementById('printerStatus').textContent = 'طھظ… ط­ظپط¸ ط¥ط¹ط¯ط§ط¯ط§طھ ط§ظ„ط·ط§ط¨ط¹ط© ط³ط§ط¨ظ‚ط§ظ‹';
+        if(saved) document.getElementById('printerStatus').textContent = 'تم حفظ إعدادات الطابعة سابقاً';
     },
     updateUI(){
         const st = document.getElementById('printerStatus');
-        if(this.connected) st.innerHTML = '<span style="color:var(--success)">âœ… ظ…طھطµظ„ط© ('+this.connType+')</span>';
-        else st.textContent = 'ط؛ظٹط± ظ…طھطµظ„ط©';
+        if(this.connected) st.innerHTML = '<span style="color:var(--success)">✅ متصلة ('+this.connType+')</span>';
+        else st.textContent = 'غير متصلة';
     }
 };
 
@@ -3303,8 +3303,8 @@ async function connectAdminPrinter(){
             AdminPrinter.connected = true;
             AdminPrinter.connType = 'USB';
             AdminPrinter.updateUI();
-            showToast('طھظ… طھظˆطµظٹظ„ ط§ظ„ط·ط§ط¨ط¹ط© ط¹ط¨ط± USB');
-        } catch(e){ showToast('ظپط´ظ„ ط§ظ„طھظˆطµظٹظ„: '+e.message,'error'); }
+            showToast('تم توصيل الطابعة عبر USB');
+        } catch(e){ showToast('فشل التوصيل: '+e.message,'error'); }
     } else if('serial' in navigator){
         try {
             const port = await navigator.serial.requestPort();
@@ -3314,15 +3314,15 @@ async function connectAdminPrinter(){
             AdminPrinter.connected = true;
             AdminPrinter.connType = 'Serial';
             AdminPrinter.updateUI();
-            showToast('طھظ… طھظˆطµظٹظ„ ط§ظ„ط·ط§ط¨ط¹ط© ط¹ط¨ط± Serial');
-        } catch(e){ showToast('ظپط´ظ„ ط§ظ„طھظˆطµظٹظ„: '+e.message,'error'); }
+            showToast('تم توصيل الطابعة عبر Serial');
+        } catch(e){ showToast('فشل التوصيل: '+e.message,'error'); }
     } else {
-        showToast('ط§ظ„ظ…طھطµظپط­ ظ„ط§ ظٹط¯ط¹ظ… طھظˆطµظٹظ„ ط§ظ„ط·ط§ط¨ط¹ط©','error');
+        showToast('المتصفح لا يدعم توصيل الطابعة','error');
     }
 }
 
 async function testAdminPrinter(){
-    if(!AdminPrinter.connected){ showToast('ط§ظ„ط·ط§ط¨ط¹ط© ط؛ظٹط± ظ…طھطµظ„ط©','error'); return; }
+    if(!AdminPrinter.connected){ showToast('الطابعة غير متصلة','error'); return; }
     try {
         const cmd = [0x1B, 0x40, 0x1B, 0x61, 0x01, 0x1D, 0x21, 0x11, 0x0A, 0x4C, 0x55, 0x43, 0x43, 0x41, 0x0A, 0x1D, 0x21, 0x00, 0x0A, 0x54, 0x65, 0x73, 0x74, 0x20, 0x50, 0x72, 0x69, 0x6E, 0x74, 0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41];
         if(AdminPrinter.connType==='USB'){
@@ -3332,15 +3332,15 @@ async function testAdminPrinter(){
         } else {
             await AdminPrinter.writer.write(new Uint8Array(cmd));
         }
-        showToast('طھظ… ط¥ط±ط³ط§ظ„ ط£ظ…ط± ط§ظ„ط·ط¨ط§ط¹ط© ط§ظ„طھط¬ط±ظٹط¨ظٹط©');
-    } catch(e){ showToast('ط®ط·ط£ ظپظٹ ط§ظ„ط·ط¨ط§ط¹ط©: '+e.message,'error'); }
+        showToast('تم إرسال أمر الطباعة التجريبية');
+    } catch(e){ showToast('خطأ في الطباعة: '+e.message,'error'); }
 }
 
 function savePrinterSettings(){
     const paper = document.getElementById('printerPaper').value;
     const copies = document.getElementById('printerCopies').value;
     localStorage.setItem('luccaPrinterSettings', JSON.stringify({paper, copies}));
-    showToast('طھظ… ط­ظپط¸ ط¥ط¹ط¯ط§ط¯ط§طھ ط§ظ„ط·ط§ط¨ط¹ط©');
+    showToast('تم حفظ إعدادات الطابعة');
 }
 
 // ===== BOOT =====
@@ -3655,7 +3655,7 @@ async function processAdminBot(text){
         try{const orders=await window.LuccaDB.Orders.getAll();const today=new Date().toISOString().slice(0,10);const tO=orders.filter(o=>(o.createdAt||o.date||'').slice(0,10)===today);const total=tO.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);let h='<table class="ai-table"><tr><th>رقم</th><th>المبلغ</th></tr>';tO.slice(-5).reverse().forEach(o=>{h+='<tr><td>'+(o.orderNumber||o.id)+'</td><td>'+(o.total||0).toLocaleString()+' ل.س</td></tr>';});h+='</table>';return aiBotReply('🧾 **فواتير اليوم ('+tO.length+')**: '+h+'<div style="font-weight:700">الإجمالي: '+total.toLocaleString()+' ل.س</div>');}catch(e){return aiBotReply('❌ '+e.message);}
     }
     if(matchAny(t,['تথ'])){
-        return aiBotReply('✅ أنت في لوحة التحكم. كيف أساعدك؟',[{text:'تقرير يومي',cmd:'report'},{text:'الموظفين',cmd:'employees'}]);
+        return aiBotReply('✅ أنت في لوحة التحكم. كيف أستطيع المساعدة؟',[{text:'تقرير يومي',cmd:'report'},{text:'الموظفين',cmd:'employees'}]);
     }
     return aiBotReply('🤔 ما فهمت. جرب:\n• "مبيعات اليوم"\n• "تقرير يومي"\n• "الموظفين"\n• "المنتجات"\n• "المصروفات"\n• "الفواتير"\n• "حضور موظف"',[{text:'تقرير',cmd:'report'},{text:'المبيعات',cmd:'sales'},{text:'الموظفين',cmd:'employees'}]);
 }
