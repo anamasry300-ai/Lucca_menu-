@@ -144,6 +144,7 @@ const menuData = [
         id: 'desserts',
         items: [
             { name: 'وافل كلاسيك', price: 80, description: 'وافل مع صوص', badge: 'popular' },
+            { name: 'نصف وافل كلاسيك', price: 40, description: 'نصف وافل مع صوص' },
             { name: 'وافل شوكليت', price: 140, description: 'وافل مع شوكولاتة', badge: 'specialty' },
             { name: 'سان سيباستيان', price: 70, description: 'تشيز كيك فطري', badge: 'new' },
             { name: 'مولتن', price: 80, description: 'كيك الشوكولاتة الذائبة', badge: 'popular' },
@@ -154,7 +155,8 @@ const menuData = [
             { name: 'وافل بابل', price: 85, description: 'وافل بابل' },
             { name: 'وافل فواكه', price: 110, description: 'وافل بالفواكه الطازجة' },
             { name: 'تشيز كيك', price: 90, description: 'تشيز كيك كلاسيك', badge: 'popular' },
-            { name: 'موس جالاكسي', price: 100, description: 'موس جالاكسي بالشوكولاتة', badge: 'specialty' }
+            { name: 'موس جالاكسي', price: 100, description: 'موس جالاكسي بالشوكولاتة', badge: 'specialty' },
+            { name: 'ريد فالفيت', price: 95, description: 'كيك ريد فالفيت المخملي', badge: 'new' }
         ]
     },
     {
@@ -173,7 +175,25 @@ const menuData = [
             { name: 'توست كفيار (نصف)', price: 50, description: 'توست محمص بالكفيار', badge: 'specialty' },
             { name: 'توست كفيار (كامل)', price: 100, description: 'توست محمص بالكفيار', badge: 'specialty' },
             { name: 'ساندويتش ميكس جبن', price: 25, description: 'ساندويتش بميكس الجبنة' },
-            { name: 'ساندويتش بسطرمة', price: 30, description: 'ساندويتش بالبسطرمة' }
+            { name: 'ساندويتش بسطرمة', price: 30, description: 'ساندويتش بالبسطرمة' },
+            { name: 'كرواسون', price: 65, description: 'كرواسون طازج محشو', badge: 'new', origins: [
+                { name: 'سادة', price: 65 },
+                { name: 'تركي', price: 85 },
+                { name: 'روزبيف', price: 85 },
+                { name: 'جبنة حلومي بصوص البيستو', price: 95 }
+            ] },
+            { name: 'شباتا', price: 65, description: 'خبز شباتا طازج محشو', badge: 'new', origins: [
+                { name: 'سادة', price: 65 },
+                { name: 'تركي', price: 85 },
+                { name: 'روزبيف', price: 85 },
+                { name: 'جبنة حلومي بصوص البيستو', price: 95 }
+            ] },
+            { name: 'باجيت', price: 65, description: 'خبز باجيت طازج محشو', badge: 'new', origins: [
+                { name: 'سادة', price: 65 },
+                { name: 'تركي', price: 85 },
+                { name: 'روزبيف', price: 85 },
+                { name: 'جبنة حلومي بصوص البيستو', price: 95 }
+            ] }
         ]
     },
     {

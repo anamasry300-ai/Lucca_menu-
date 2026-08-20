@@ -1,0 +1,344 @@
+/**
+ * LUCCA POS — Supabase Database Adapter
+ * Drop-in replacement for admin/database.js (IndexedDB)
+ * Only activates when Supabase SDK is loaded (online)
+ * Falls back to IndexedDB when offline
+ */
+(function() {
+  if (!window.supabase) {
+    return;
+  }
+
+  const SUPABASE_URL = 'https://uudimvcdkaacqaxgajbk.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZGltdmNka2FhY3FheGdhamJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMzQ4MTYsImV4cCI6MjEwMjgxMDgxNn0.WrwCUlqWW2ib7D8T41DNzUbybo4FHnNQ1AIBTZr2ZlM';
+
+  const _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const _db = {
+    async getAll(table) {
+      const { data, error } = await _supabase.from(table).select('*');
+      if (error) throw error;
+      return data || [];
+    },
+    async get(table, id) {
+      const { data, error } = await _supabase.from(table).select('*').eq('id', id).single();
+      if (error) throw error;
+      return data;
+    },
+    async add(table, row) {
+      const { data, error } = await _supabase.from(table).insert(row).select().single();
+      if (error) throw error;
+      return data.id;
+    },
+    async put(table, row) {
+      const id = row.id;
+      const { error } = await _supabase.from(table).update(row).eq('id', id);
+      if (error) throw error;
+      return row;
+    },
+    async delete(table, id) {
+      const { error } = await _supabase.from(table).delete().eq('id', id);
+      if (error) throw error;
+    },
+    async query(sql, params) {
+      return [];
+    }
+  };
+
+  const Users = {
+    async login(username, password) {
+      const { data, error } = await _supabase.from('users').select('*').eq('username', username).eq('password', password).single();
+      if (error || !data) throw new Error('بيانات الدخول غير صحيحة');
+      if (!data.active) throw new Error('الحساب معطل');
+      localStorage.setItem('currentUser', JSON.stringify(data));
+      return data;
+    },
+    logout() { localStorage.removeItem('currentUser'); },
+    getCurrentUser() {
+      const u = localStorage.getItem('currentUser');
+      return u ? JSON.parse(u) : null;
+    },
+    async getAll() { return _db.getAll('users'); },
+    async add(user) { return _db.add('users', user); },
+    async update(id, data) { return _db.put('users', { ...data, id }); },
+    async delete(id) { return _db.delete('users', id); },
+    async createDefaultAdmin() {
+      const users = await this.getAll();
+      if (users.length === 0) {
+        await this.add({ username: 'admin', password: '123456', name: 'مدير النظام', role: 'admin' });
+      }
+    }
+  };
+
+  const Tables = {
+    async init() {
+      const tables = await this.getAll();
+      if (tables.length === 0) {
+        const zoneMap = [null, 'صالة','صالة','صالة','صالة','صالة','صالة','صالة','VIP','VIP','VIP','VIP','خارجي','خارجي','أرجيلة'];
+        for (let i = 1; i <= 14; i++) {
+          await _db.add('tables_store', { id: i, number: i, status: 'available', capacity: i <= 7 ? 4 : 6, zone: zoneMap[i] || 'صالة' });
+        }
+      }
+    },
+    async getAll() { return _db.getAll('tables_store'); },
+    async getById(id) { return _db.get('tables_store', id); },
+    async add(t) { return _db.add('tables_store', { status: 'available', capacity: 4, zone: 'صالة', ...t }); },
+    async update(id, data) { return _db.put('tables_store', { ...data, id }); },
+    async remove(id) { return _db.delete('tables_store', id); }
+  };
+
+  const Categories = {
+    async getAll() { return _db.getAll('categories'); },
+    async getActive() {
+      const all = await this.getAll();
+      return all.filter(c => c.active !== 0).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    },
+    async add(cat) { return _db.add('categories', { active: 1, sort_order: 0, ...cat }); },
+    async update(id, data) { return _db.put('categories', { ...data, id }); },
+    async delete(id) { return _db.delete('categories', id); }
+  };
+
+  const Products = {
+    async getAll() { return _db.getAll('products'); },
+    async getActive() {
+      const all = await this.getAll();
+      return all.filter(p => p.available !== 0).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    },
+    async getByCategory(categoryId) {
+      const all = await this.getAll();
+      return all.filter(p => p.category_id === categoryId && p.available !== 0);
+    },
+    async add(product) {
+      product.available = product.available !== undefined ? product.available : 1;
+      product.sort_order = product.sort_order || 0;
+      product.product_type = product.product_type || 'standard';
+      product.components = product.components || '[]';
+      product.badge = product.badge || '';
+      return _db.add('products', product);
+    },
+    async update(id, data) { return _db.put('products', { ...data, id }); },
+    async delete(id) { return _db.delete('products', id); },
+    async search(query) {
+      const all = await this.getAll();
+      const q = query.toLowerCase();
+      return all.filter(p =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.name_ar || '').toLowerCase().includes(q) ||
+        (p.name_en || '').toLowerCase().includes(q) ||
+        (p.sku || '').toLowerCase().includes(q)
+      );
+    },
+    getFoodCost(price, cost) { return price > 0 ? ((cost || 0) / price) * 100 : 0; }
+  };
+
+  const Orders = {
+    async getAll() { return _db.getAll('orders'); },
+    async getById(id) { return _db.get('orders', id); },
+    async getByTable(tableId) {
+      const { data, error } = await _supabase.from('orders').select('*').eq('table_id', String(tableId)).eq('status', 'pending');
+      if (error) throw error;
+      return data || [];
+    },
+    async add(order) { return _db.add('orders', order); },
+    async update(id, data) { return _db.put('orders', { ...data, id }); },
+    async delete(id) { return _db.delete('orders', id); },
+    async getByDateRange(from, to) {
+      const { data, error } = await _supabase.from('orders').select('*').gte('created_at', from).lte('created_at', to);
+      if (error) throw error;
+      return data || [];
+    },
+    async updateStatus(orderId, status) { return this.update(orderId, { status }); }
+  };
+
+  const PaymentMethods = {
+    async getAll() { return _db.getAll('payment_methods'); },
+    async getActive() {
+      const all = await this.getAll();
+      return all.filter(m => m.active !== 0).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    },
+    async add(m) { return _db.add('payment_methods', { active: 1, sort_order: 0, ...m }); },
+    async update(id, data) { return _db.put('payment_methods', { ...data, id }); },
+    async delete(id) { return _db.delete('payment_methods', id); }
+  };
+
+  const Employees = {
+    async getAll() { return _db.getAll('employees'); },
+    async getActive() {
+      const all = await this.getAll();
+      return all.filter(e => e.active);
+    },
+    async add(emp) { return _db.add('employees', { active: true, ...emp }); },
+    async update(id, data) { return _db.put('employees', { ...data, id }); },
+    async delete(id) { return _db.delete('employees', id); }
+  };
+
+  const Attendance = {
+    async getAll() { return _db.getAll('attendance'); },
+    async checkIn(employeeId) {
+      return _db.add('attendance', {
+        employee_id: employeeId,
+        date: new Date().toISOString().slice(0, 10),
+        check_in: new Date().toISOString()
+      });
+    },
+    async checkOut(employeeId) {
+      const all = await this.getAll();
+      const today = new Date().toISOString().slice(0, 10);
+      const record = all.find(a => a.employee_id == employeeId && a.date === today && !a.check_out);
+      if (record) {
+        const checkOut = new Date().toISOString();
+        const hours = Math.round((new Date(checkOut) - new Date(record.check_in)) / 3600000 * 10) / 10;
+        return _db.put('attendance', { ...record, check_out: checkOut, hours_worked: hours });
+      }
+    }
+  };
+
+  const Expenses = {
+    async getAll() { return _db.getAll('expenses'); },
+    async add(exp) { return _db.add('expenses', { created_by: 'admin', ...exp }); },
+    async delete(id) { return _db.delete('expenses', id); }
+  };
+
+  const Shifts = {
+    async getAll() { return _db.getAll('shifts'); },
+    async start(employeeId, notes = '') {
+      return _db.add('shifts', {
+        employee_id: employeeId,
+        date: new Date().toISOString().split('T')[0],
+        start_time: new Date().toISOString(),
+        status: 'active',
+        notes
+      });
+    },
+    async end(employeeId) {
+      const all = await this.getAll();
+      const today = new Date().toISOString().split('T')[0];
+      const shift = all.find(s => s.employee_id == employeeId && s.date === today && s.status === 'active');
+      if (shift) {
+        const endTime = new Date().toISOString();
+        const hours = Math.round((new Date(endTime) - new Date(shift.start_time)) / 3600000 * 10) / 10;
+        return _db.put('shifts', { ...shift, end_time: endTime, hours_worked: hours, status: 'completed' });
+      }
+    }
+  };
+
+  const Inventory = {
+    async getAll() { return _db.getAll('inventory'); },
+    async add(item) { return _db.add('inventory', { last_updated: new Date().toISOString(), ...item }); },
+    async adjustStock(id, delta) {
+      const item = await _db.get('inventory', id);
+      if (item) {
+        return _db.put('inventory', { ...item, quantity: (item.quantity || 0) + delta, last_updated: new Date().toISOString() });
+      }
+    },
+    async delete(id) { return _db.delete('inventory', id); }
+  };
+
+  const Purchases = {
+    async getAll() { return _db.getAll('purchases'); },
+    async add(p) { return _db.add('purchases', { created_by: 'admin', ...p }); },
+    async delete(id) { return _db.delete('purchases', id); }
+  };
+
+  const Settings = {
+    async get(key) {
+      const { data } = await _supabase.from('settings').select('value').eq('key', key).single();
+      return data?.value || null;
+    },
+    async set(key, value) {
+      const { error } = await _supabase.from('settings').upsert({ key, value });
+      if (error) throw error;
+    }
+  };
+
+  const BotMemory = {
+    async add(entry) { return _db.add('bot_memory', entry); },
+    async getAll(type) {
+      const all = await _db.getAll('bot_memory');
+      return type ? all.filter(m => m.type === type) : all;
+    },
+    async search(query) {
+      const all = await this.getAll();
+      const q = query.toLowerCase();
+      return all.filter(m =>
+        (m.question || '').toLowerCase().includes(q) ||
+        (m.answer || '').toLowerCase().includes(q) ||
+        (m.keywords || '').toLowerCase().includes(q)
+      );
+    },
+    async update(id, data) { return _db.put('bot_memory', { ...data, id }); },
+    async incrementUsage(id) {
+      const item = await _db.get('bot_memory', id);
+      if (item) return _db.put('bot_memory', { ...item, usage_count: (item.usage_count || 0) + 1 });
+    },
+    async remove(id) { return _db.delete('bot_memory', id); },
+    async getMostUsed(limit = 10) {
+      const all = await this.getAll();
+      return all.sort((a, b) => (b.usage_count || 0) - (a.usage_count || 0)).slice(0, limit);
+    },
+    async logInteraction(text, type, response) {
+      return this.add({ type: 'interaction', question: text, answer: response, keywords: type });
+    }
+  };
+
+  const AuditLogs = {
+    async getAll() { return _db.getAll('audit_logs'); },
+    async add(log) { return _db.add('audit_logs', { created_at: new Date().toISOString(), ...log }); }
+  };
+
+  const MenuSync = {
+    buildFromProducts(products, categories) {
+      const cats = categories || [];
+      const grouped = {};
+      products.forEach(p => {
+        const catId = p.category_id || p.categoryId || 0;
+        if (!grouped[catId]) grouped[catId] = [];
+        grouped[catId].push(p);
+      });
+      return { categories: cats, products: grouped };
+    }
+  };
+
+  const DataSync = {
+    async exportAll() {
+      const tables = ['users','categories','products','orders','payments','expenses','employees','attendance','shifts','inventory','purchases','settings','payment_methods','bot_memory','audit_logs','tables_store','discounts','customers','daily_shifts'];
+      const data = {};
+      for (const t of tables) { data[t] = await _db.getAll(t); }
+      return JSON.stringify(data);
+    },
+    async importAll(jsonString) {
+      const data = JSON.parse(jsonString);
+      for (const [table, rows] of Object.entries(data)) {
+        for (const row of rows) { await _db.put(table, row); }
+      }
+    }
+  };
+
+  const ServerSync = {
+    serverUrl: '',
+    setServerUrl(url) { this.serverUrl = url; },
+    async testConnection() {
+      const { error } = await _supabase.from('users').select('id').limit(1);
+      return !error;
+    },
+    async pushAll() {},
+    async pullAll() {}
+  };
+
+  async function initSystem() {
+    await Users.createDefaultAdmin();
+    await Tables.init();
+  }
+
+  window.LuccaDB = {
+    db: _db, Users, Tables, Categories, Products, Orders,
+    Customers: { async getAll() { return _db.getAll('customers'); }, async add(phone, name, opts) { return _db.add('customers', { phone, name, ...opts }); } },
+    Settings, Inventory, Purchases, Employees, Attendance,
+    Expenses, Shifts, MenuSync, DataSync, ServerSync,
+    PaymentMethods, Categories, Products, ProductModifiers: { async getAll() { return _db.getAll('product_modifiers'); } },
+    ProductVariations: { async getAll() { return _db.getAll('product_variations'); } },
+    Taxes: { async getAll() { return _db.getAll('taxes'); } },
+    AuditLogs, OrderStatusHistory: { async getAll() { return _db.getAll('order_status_history'); } },
+    BotMemory, initSystem
+  };
+})();

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, globalShortcut, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, globalShortcut, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 
 let mainWindow;
@@ -16,6 +16,15 @@ function createWindow() {
             nodeIntegration: false,
             contextIsolation: true
         }
+    });
+
+    // Open external http(s) links (WhatsApp, phone, maps...) in the default browser
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (url.startsWith('http:') || url.startsWith('https:')) {
+            shell.openExternal(url);
+            return { action: 'deny' };
+        }
+        return { action: 'allow' };
     });
 
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
@@ -82,8 +91,21 @@ app.whenReady().then(() => {
                 contextIsolation: true
             }
         });
+        adminWin.webContents.setWindowOpenHandler(({ url }) => {
+            if (url.startsWith('http:') || url.startsWith('https:')) {
+                shell.openExternal(url);
+                return { action: 'deny' };
+            }
+            return { action: 'allow' };
+        });
         adminWin.loadFile(path.join(__dirname, 'admin', 'index.html'));
         adminWin.on('page-title-updated', (e) => e.preventDefault());
+    });
+
+    ipcMain.on('open-external', (event, url) => {
+        if (typeof url === 'string' && (url.startsWith('http:') || url.startsWith('https:'))) {
+            shell.openExternal(url);
+        }
     });
 });
 

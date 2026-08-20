@@ -7,7 +7,7 @@
 
 // ==================== قاعدة البيانات المحلية ====================
 const DB_NAME = 'lucca_caffe_db';
-const DB_VERSION = 4;
+const DB_VERSION = 7;
 
 class LuccaDatabase {
     constructor() {
@@ -35,6 +35,21 @@ class LuccaDatabase {
                 // جدول الطابيزات
                 if (!db.objectStoreNames.contains('tables')) {
                     db.createObjectStore('tables', { keyPath: 'id' });
+                } else if (event.oldVersion < 5) {
+                    const tx = event.target.transaction;
+                    const store = tx.objectStore('tables');
+                    store.openCursor().onsuccess = (e) => {
+                        const cursor = e.target.result;
+                        if (cursor) {
+                            const t = cursor.value;
+                            if (!t.zone) {
+                                t.zone = 'صالة';
+                                if (t.number >= 11) t.zone = 'VIP';
+                                cursor.update(t);
+                            }
+                            cursor.continue();
+                        }
+                    };
                 }
                 
                 // جدول الطلبات
@@ -107,6 +122,83 @@ class LuccaDatabase {
                     const payStore = db.createObjectStore('payments', { keyPath: 'id', autoIncrement: true });
                     payStore.createIndex('invoiceId', 'invoiceId', { unique: false });
                     payStore.createIndex('date', 'date', { unique: false });
+                    payStore.createIndex('orderId', 'orderId', { unique: false });
+                }
+
+                // جدول طرق الدفع
+                if (!db.objectStoreNames.contains('payment_methods')) {
+                    const pmStore = db.createObjectStore('payment_methods', { keyPath: 'id', autoIncrement: true });
+                    pmStore.createIndex('active', 'active', { unique: false });
+                }
+
+                // جدول الأقسام
+                if (!db.objectStoreNames.contains('categories')) {
+                    const catStore = db.createObjectStore('categories', { keyPath: 'id', autoIncrement: true });
+                    catStore.createIndex('sortOrder', 'sortOrder', { unique: false });
+                    catStore.createIndex('active', 'active', { unique: false });
+                }
+
+                // جدول المنتجات
+                if (!db.objectStoreNames.contains('products')) {
+                    const prodStore = db.createObjectStore('products', { keyPath: 'id', autoIncrement: true });
+                    prodStore.createIndex('categoryId', 'categoryId', { unique: false });
+                    prodStore.createIndex('sku', 'sku', { unique: false });
+                    prodStore.createIndex('available', 'available', { unique: false });
+                }
+
+                // جدول تعديلات المنتجات
+                if (!db.objectStoreNames.contains('product_modifiers')) {
+                    const modStore = db.createObjectStore('product_modifiers', { keyPath: 'id', autoIncrement: true });
+                    modStore.createIndex('productId', 'productId', { unique: false });
+                }
+
+                // جدول تنويعات المنتجات
+                if (!db.objectStoreNames.contains('product_variations')) {
+                    const varStore = db.createObjectStore('product_variations', { keyPath: 'id', autoIncrement: true });
+                    varStore.createIndex('productId', 'productId', { unique: false });
+                }
+
+                // جدول الضرائب
+                if (!db.objectStoreNames.contains('taxes')) {
+                    const taxStore = db.createObjectStore('taxes', { keyPath: 'id', autoIncrement: true });
+                    taxStore.createIndex('active', 'active', { unique: false });
+                }
+
+                // جدول سجلات المراجعة
+                if (!db.objectStoreNames.contains('audit_logs')) {
+                    const auditStore = db.createObjectStore('audit_logs', { keyPath: 'id', autoIncrement: true });
+                    auditStore.createIndex('userId', 'userId', { unique: false });
+                    auditStore.createIndex('action', 'action', { unique: false });
+                    auditStore.createIndex('createdAt', 'createdAt', { unique: false });
+                }
+
+                // جدول سجل حالات الطلب
+                if (!db.objectStoreNames.contains('order_status_history')) {
+                    const oshStore = db.createObjectStore('order_status_history', { keyPath: 'id', autoIncrement: true });
+                    oshStore.createIndex('orderId', 'orderId', { unique: false });
+                }
+
+                // جدول الاسترداد
+                if (!db.objectStoreNames.contains('refunds')) {
+                    const refStore = db.createObjectStore('refunds', { keyPath: 'id', autoIncrement: true });
+                    refStore.createIndex('orderId', 'orderId', { unique: false });
+                }
+
+                // جدول أصناف الطلب
+                if (!db.objectStoreNames.contains('order_items')) {
+                    const oiStore = db.createObjectStore('order_items', { keyPath: 'id', autoIncrement: true });
+                    oiStore.createIndex('orderId', 'orderId', { unique: false });
+                }
+
+                // جدول الخصومات
+                if (!db.objectStoreNames.contains('discounts')) {
+                    const discStore = db.createObjectStore('discounts', { keyPath: 'id', autoIncrement: true });
+                    discStore.createIndex('active', 'active', { unique: false });
+                }
+                if (!db.objectStoreNames.contains('botMemory')) {
+                    const bmStore = db.createObjectStore('botMemory', { keyPath: 'id', autoIncrement: true });
+                    bmStore.createIndex('type', 'type', { unique: false });
+                    bmStore.createIndex('keywords', 'keywords', { unique: false });
                 }
             };
         });
@@ -346,6 +438,27 @@ const Users = {
         return { ...userData, id };
     },
 
+    async add(userData) {
+        const users = await this.getAll();
+        const maxId = users.reduce((max, u) => Math.max(max, Number(u.id) || 0), 0);
+        const id = maxId + 1;
+        const salt = crypto.randomUUID();
+        const hashed = await this.pbkdf2Hash(userData.password, salt);
+        const user = {
+            id,
+            username: userData.username,
+            name: userData.name || '',
+            password: hashed || userData.password,
+            role: userData.role || 'cashier',
+            active: userData.active !== undefined ? userData.active : true,
+            createdAt: new Date().toISOString()
+        };
+        await db.add('users', { ...user, password: hashed || userData.password });
+        const { password, ...safe } = user;
+        ServerAPI.add('users', { ...safe }).catch(() => {});
+        return safe;
+    },
+
     async logout() {
         localStorage.removeItem('currentUser');
     },
@@ -379,8 +492,10 @@ const Tables = {
     async init() {
         const tables = await db.getAll('tables');
         if (tables.length === 0) {
+            const zones = ['صالة', 'VIP', 'خارجي', 'أرجيلة'];
+            const zoneMap = [null, 'صالة','صالة','صالة','صالة','صالة','صالة','صالة','VIP','VIP','VIP','VIP','خارجي','خارجي','أرجيلة'];
             for (let i = 1; i <= 14; i++) {
-                const t = { id: i, number: i, status: 'available', capacity: 4, currentOrder: null };
+                const t = { id: i, number: i, status: 'available', capacity: i <= 7 ? 4 : 6, currentOrder: null, zone: zoneMap[i] || 'صالة' };
                 await db.put('tables', t);
             }
         }
@@ -388,6 +503,24 @@ const Tables = {
 
     async getAll() {
         return db.getAll('tables');
+    },
+
+    async add(tableData) {
+        const all = await db.getAll('tables');
+        const maxId = all.reduce((m, t) => Math.max(m, t.id || 0), 0);
+        const table = { id: maxId + 1, number: tableData.number, status: 'available', capacity: tableData.capacity || 4, currentOrder: null, zone: tableData.zone || 'صالة' };
+        await db.put('tables', table);
+        ServerAPI.put('tables', table.id, table).catch(() => {});
+        return table;
+    },
+
+    async remove(id) {
+        await db.delete('tables', id);
+        ServerAPI.delete('tables', id).catch(() => {});
+    },
+
+    async delete(id) {
+        return this.remove(id);
     },
 
     async update(id, data) {
@@ -402,6 +535,11 @@ const Tables = {
 
     async getById(id) {
         return db.get('tables', id);
+    },
+
+    async getZones() {
+        const all = await db.getAll('tables');
+        return [...new Set(all.map(t => t.zone || 'صالة'))].sort();
     }
 };
 
@@ -461,6 +599,15 @@ const Orders = {
         return { ...order, id };
     },
 
+    async generateOrderNumber() {
+        const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const prefix = 'ORD-' + today + '-';
+        const allOrders = await db.getAll('orders');
+        const todayOrders = allOrders.filter(o => (o.orderNumber || '').startsWith(prefix));
+        const seq = todayOrders.length + 1;
+        return prefix + String(seq).padStart(3, '0');
+    },
+
     async create(tableId, items, customerName = '', customerPhone = '', options = {}) {
         // Check for existing pending order on this table before creating
         if (tableId && !isNaN(tableId)) {
@@ -475,6 +622,8 @@ const Orders = {
             }
         }
 
+        const orderNumber = options.orderNumber || await this.generateOrderNumber();
+
         const order = {
             tableId,
             items,
@@ -486,6 +635,11 @@ const Orders = {
             marketingOptIn: Boolean(options.marketingOptIn),
             wantsWhatsappInvoice: options.invoiceDelivery === 'whatsapp',
             status: options.status || 'pending',
+            orderNumber,
+            orderType: options.orderType || 'dine_in',
+            paymentStatus: 'unpaid',
+            totalPaid: 0,
+            changeAmount: 0,
             subtotal: 0,
             tax: 0,
             total: 0,
@@ -531,6 +685,14 @@ const Orders = {
             id = await db.add('orders', order);
         }
 
+        try {
+            if (db.db.objectStoreNames.contains('order_items')) {
+                for (const item of (order.items || [])) {
+                    await db.add('order_items', { orderId: id, ...item });
+                }
+            }
+        } catch(e) {}
+
         if (tableId && !isNaN(tableId)) {
             await Tables.update(parseInt(tableId), { status: 'occupied', currentOrder: id });
         }
@@ -575,8 +737,10 @@ const Orders = {
         const orders = await db.getAll('orders');
         const localOrder = orders.find(o => o.id === orderId);
         if (!localOrder) throw new Error('الطلب غير موجود');
+        const oldStatus = localOrder.status;
         localOrder.status = status;
         await db.put('orders', localOrder);
+        try { await OrderStatusHistory.add(orderId, status, null, 'status changed from ' + oldStatus); } catch(e) {}
         if (['cancelled', 'closed'].includes(status) && localOrder.tableId && !isNaN(parseInt(localOrder.tableId))) {
             await Tables.update(parseInt(localOrder.tableId), { status: 'available', currentOrder: null });
         }
@@ -643,7 +807,19 @@ const Orders = {
         // 4. Close the order
         localOrder.status = 'closed';
         localOrder.paymentMethod = paymentMethod || 'cash';
+        localOrder.paymentStatus = 'paid';
+        localOrder.totalPaid = total;
+        localOrder.changeAmount = 0;
         await db.put('orders', localOrder);
+
+        // 4b. Save order_items individually
+        try {
+            if (db.db.objectStoreNames.contains('order_items')) {
+                for (const item of (localOrder.items || [])) {
+                    await db.add('order_items', { orderId: localOrder.id, ...item });
+                }
+            }
+        } catch(e) {}
 
         // 5. Free the table
         if (localOrder.tableId && !isNaN(parseInt(localOrder.tableId))) {
@@ -658,7 +834,9 @@ const Orders = {
 
     async updateOrder(orderId, updates) {
         const item = await db.get('orders', orderId);
-        if (!item) return null;
+        if (!item) {
+            return null;
+        }
         Object.assign(item, updates);
         if (updates.items && !updates.subtotal) {
             item.subtotal = updates.items.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
@@ -670,6 +848,16 @@ const Orders = {
             item.total = afterDiscount + item.tax;
         }
         await db.put('orders', item);
+
+        if (updates.items && db.db.objectStoreNames.contains('order_items')) {
+            try {
+                const allOI = await db.getAll('order_items');
+                const existing = allOI.filter(r => r.orderId === orderId);
+                for (const r of existing) { await db.delete('order_items', r.id); }
+                for (const oi of (updates.items || [])) { await db.add('order_items', { orderId, ...oi }); }
+            } catch(e) {}
+        }
+
         ServerAPI.put('orders', orderId, item).catch(() => {});
         return item;
     },
@@ -681,6 +869,7 @@ const Orders = {
             await Tables.update(order.tableId, { status: 'available', currentOrder: null });
             await db.delete('orders', orderId);
             ServerAPI.remove('orders', orderId).catch(() => {});
+        } else {
         }
     },
 
@@ -696,6 +885,12 @@ const Orders = {
             const d = o.date.split('T')[0];
             return d >= startDate && d <= endDate;
         });
+    },
+
+    async getStatusHistory(orderId) {
+        try {
+            return await OrderStatusHistory.getByOrder(orderId);
+        } catch(e) { return []; }
     }
 };
 
@@ -1090,7 +1285,12 @@ const MenuSync = {
                 price: typeof item.price === 'string' ? parseFloat(item.price) : item.price,
                 prices: Array.isArray(item.prices)
                     ? item.prices.map(value => (typeof value === 'string' ? parseFloat(value) : value))
-                    : undefined
+                    : undefined,
+                origins: Array.isArray(item.origins)
+                    ? item.origins.map(o => typeof o === 'object' && o !== null
+                        ? { name: String(o.name || ''), price: o.price === undefined ? undefined : (typeof o.price === 'string' ? parseFloat(o.price) : o.price) }
+                        : o)
+                    : item.origins
             }))
         };
     },
@@ -1109,12 +1309,410 @@ const MenuSync = {
         return (await Settings.get(this.settingsKey)) || [];
     },
 
+    fingerprint(menuDataSource = []) {
+        try {
+            return JSON.stringify(menuDataSource.map(category => ({
+                title: category.title || '',
+                items: (category.items || []).map(item => item.name || '')
+            })));
+        } catch (e) {
+            return '';
+        }
+    },
+
+    mergeCatalogs(stored = [], bundled = []) {
+        const result = stored.map(category => ({ ...category, items: [...(category.items || [])] }));
+        for (const bc of bundled) {
+            const sc = result.find(category => (category.title || '').trim() === (bc.title || '').trim());
+            if (!sc) {
+                result.push(JSON.parse(JSON.stringify(bc)));
+                continue;
+            }
+            for (const bi of (bc.items || [])) {
+                const name = (bi.name || '').trim();
+                if (!name) continue;
+                const exists = (sc.items || []).some(item => (item.name || '').trim() === name);
+                if (!exists) sc.items.push(JSON.parse(JSON.stringify(bi)));
+            }
+        }
+        return result;
+    },
+
     async syncFromMenuData(menuDataSource = []) {
         const existing = await this.getCatalog();
-        if (!existing.length && menuDataSource.length) {
+        if (!menuDataSource.length) return existing;
+        if (!existing.length) {
+            await Settings.set(this.settingsKey + 'Fingerprint', this.fingerprint(menuDataSource));
             return this.saveCatalog(menuDataSource);
         }
-        return existing;
+        const fingerprint = this.fingerprint(menuDataSource);
+        const storedFingerprint = await Settings.get(this.settingsKey + 'Fingerprint');
+        if (fingerprint === storedFingerprint) return existing;
+        const merged = this.mergeCatalogs(existing, menuDataSource);
+        await Settings.set(this.settingsKey + 'Fingerprint', fingerprint);
+        return this.saveCatalog(merged);
+    },
+
+    async resetFromData(menuDataSource = []) {
+        await Settings.set(this.settingsKey + 'Fingerprint', this.fingerprint(menuDataSource));
+        return this.saveCatalog(menuDataSource);
+    },
+
+    async buildFromProducts() {
+        const categories = await Categories.getActive();
+        if (!categories.length) return null;
+        const products = await Products.getActive();
+        if (!products.length) return null;
+        const iconMap = { coffee: '☕', drinks: '🥤', food: '🍽️', desserts: '🍰', hot: '🔥', cold: '🧊', juice: '🧃', milkshake: '🥤', soda: '🥤', pizza: '🍕', breakfast: '🥞', addons: '➕', winter: '❄️', specialty: '⭐' };
+        return categories.map(cat => {
+            const catProducts = products.filter(p => p.categoryId === cat.id || p.category === cat.name);
+            return {
+                id: cat.id || `cat-${cat.sortOrder || 0}`,
+                icon: cat.icon || iconMap[cat.nameEn || ''] || '📂',
+                title: cat.nameAr || cat.name || 'قسم',
+                items: catProducts.map(p => ({
+                    name: p.name,
+                    price: parseFloat(p.price) || 0,
+                    description: p.description || '',
+                    badge: p.badge || null,
+                    origins: (Array.isArray(p.origins) ? p.origins : []).map(o => typeof o === 'object' ? { name: o.name, price: o.price } : o),
+                    _productId: p.id
+                }))
+            };
+        });
+    }
+};
+
+// ==================== إدارة طرق الدفع ====================
+const PaymentMethods = {
+    async getAll() {
+        return db.getAll('payment_methods');
+    },
+
+    async getActive() {
+        const all = await this.getAll();
+        return all.filter(m => m.active !== 0).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    },
+
+    async add(method) {
+        method.active = method.active !== undefined ? method.active : 1;
+        method.sortOrder = method.sortOrder || 0;
+        method.createdAt = new Date().toISOString();
+        method.updatedAt = new Date().toISOString();
+        const serverResult = await ServerAPI.add('payment_methods', method);
+        if (serverResult && serverResult.id) {
+            await db.put('payment_methods', { ...method, id: serverResult.id });
+            return serverResult.id;
+        }
+        return db.add('payment_methods', method);
+    },
+
+    async update(id, data) {
+        const item = await db.get('payment_methods', id);
+        if (item) {
+            Object.assign(item, data);
+            item.updatedAt = new Date().toISOString();
+            await db.put('payment_methods', item);
+            ServerAPI.put('payment_methods', id, item).catch(() => {});
+        }
+        return item;
+    },
+
+    async delete(id) {
+        await db.delete('payment_methods', id);
+        ServerAPI.remove('payment_methods', id).catch(() => {});
+    }
+};
+
+// ==================== إدارة الأقسام ====================
+const Categories = {
+    async getAll() {
+        return db.getAll('categories');
+    },
+
+    async getActive() {
+        const all = await this.getAll();
+        return all.filter(c => c.active !== 0).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    },
+
+    async add(category) {
+        category.active = category.active !== undefined ? category.active : 1;
+        category.sortOrder = category.sortOrder || 0;
+        category.createdAt = new Date().toISOString();
+        category.updatedAt = new Date().toISOString();
+        const serverResult = await ServerAPI.add('categories', category);
+        if (serverResult && serverResult.id) {
+            await db.put('categories', { ...category, id: serverResult.id });
+            return serverResult.id;
+        }
+        return db.add('categories', category);
+    },
+
+    async update(id, data) {
+        const item = await db.get('categories', id);
+        if (item) {
+            Object.assign(item, data);
+            item.updatedAt = new Date().toISOString();
+            await db.put('categories', item);
+            ServerAPI.put('categories', id, item).catch(() => {});
+        }
+        return item;
+    },
+
+    async delete(id) {
+        await db.delete('categories', id);
+        ServerAPI.remove('categories', id).catch(() => {});
+    },
+
+    async reorder(orderedIds) {
+        for (let i = 0; i < orderedIds.length; i++) {
+            await this.update(orderedIds[i], { sortOrder: i + 1 });
+        }
+    }
+};
+
+// ==================== إدارة المنتجات ====================
+const Products = {
+    async getAll() {
+        return db.getAll('products');
+    },
+
+    async getActive() {
+        const all = await this.getAll();
+        return all.filter(p => p.available !== 0).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    },
+
+    async getByCategory(categoryId) {
+        const all = await this.getAll();
+        return all.filter(p => p.categoryId === categoryId && p.available !== 0)
+                   .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    },
+
+    async add(product) {
+        product.available = product.available !== undefined ? product.available : 1;
+        product.sortOrder = product.sortOrder || 0;
+        product.productType = product.productType || 'standard';
+        product.components = product.components || [];
+        product.badge = product.badge || '';
+        product.createdAt = new Date().toISOString();
+        product.updatedAt = new Date().toISOString();
+        const serverPayload = { ...product, components: JSON.stringify(product.components || []) };
+        const serverResult = await ServerAPI.add('products', serverPayload);
+        if (serverResult && serverResult.id) {
+            await db.put('products', { ...product, id: serverResult.id });
+            return serverResult.id;
+        }
+        return db.add('products', product);
+    },
+
+    async update(id, data) {
+        const item = await db.get('products', id);
+        if (item) {
+            Object.assign(item, data);
+            item.updatedAt = new Date().toISOString();
+            if (Array.isArray(item.components)) {
+                await db.put('products', item);
+                const serverData = { ...item, components: JSON.stringify(item.components) };
+                ServerAPI.put('products', id, serverData).catch(() => {});
+            } else {
+                await db.put('products', item);
+                ServerAPI.put('products', id, item).catch(() => {});
+            }
+        }
+        return item;
+    },
+
+    async delete(id) {
+        await db.delete('products', id);
+        ServerAPI.remove('products', id).catch(() => {});
+    },
+
+    async search(query) {
+        const all = await this.getAll();
+        const q = query.toLowerCase();
+        return all.filter(p =>
+            (p.name || '').toLowerCase().includes(q) ||
+            (p.name_ar || '').toLowerCase().includes(q) ||
+            (p.name_en || '').toLowerCase().includes(q) ||
+            (p.sku || '').toLowerCase().includes(q) ||
+            (p.description || '').toLowerCase().includes(q)
+        );
+    },
+
+    getFoodCost(price, cost) {
+        if (!price || price === 0) return 0;
+        return ((cost || 0) / price) * 100;
+    },
+
+    getGrossProfit(price, cost) {
+        return (price || 0) - (cost || 0);
+    }
+};
+
+// ==================== إدارة تعديلات المنتجات ====================
+const ProductModifiers = {
+    async getByProduct(productId) {
+        const all = await db.getAll('product_modifiers');
+        return all.filter(m => m.productId === productId).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    },
+
+    async add(modifier) {
+        modifier.sortOrder = modifier.sortOrder || 0;
+        const serverResult = await ServerAPI.add('product_modifiers', modifier);
+        if (serverResult && serverResult.id) {
+            await db.put('product_modifiers', { ...modifier, id: serverResult.id });
+            return serverResult.id;
+        }
+        return db.add('product_modifiers', modifier);
+    },
+
+    async delete(id) {
+        await db.delete('product_modifiers', id);
+        ServerAPI.remove('product_modifiers', id).catch(() => {});
+    }
+};
+
+// ==================== إدارة تنويعات المنتجات ====================
+const ProductVariations = {
+    async getByProduct(productId) {
+        const all = await db.getAll('product_variations');
+        return all.filter(v => v.productId === productId).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    },
+
+    async add(variation) {
+        variation.sortOrder = variation.sortOrder || 0;
+        const serverResult = await ServerAPI.add('product_variations', variation);
+        if (serverResult && serverResult.id) {
+            await db.put('product_variations', { ...variation, id: serverResult.id });
+            return serverResult.id;
+        }
+        return db.add('product_variations', variation);
+    },
+
+    async delete(id) {
+        await db.delete('product_variations', id);
+        ServerAPI.remove('product_variations', id).catch(() => {});
+    }
+};
+
+// ==================== إدارة الضرائب ====================
+const Taxes = {
+    async getAll() {
+        return db.getAll('taxes');
+    },
+
+    async getActive() {
+        const all = await this.getAll();
+        return all.filter(t => t.active !== 0);
+    },
+
+    async add(tax) {
+        tax.active = tax.active !== undefined ? tax.active : 1;
+        tax.appliesTo = tax.appliesTo || 'all';
+        tax.createdAt = new Date().toISOString();
+        tax.updatedAt = new Date().toISOString();
+        const serverResult = await ServerAPI.add('taxes', tax);
+        if (serverResult && serverResult.id) {
+            await db.put('taxes', { ...tax, id: serverResult.id });
+            return serverResult.id;
+        }
+        return db.add('taxes', tax);
+    },
+
+    async update(id, data) {
+        const item = await db.get('taxes', id);
+        if (item) {
+            Object.assign(item, data);
+            item.updatedAt = new Date().toISOString();
+            await db.put('taxes', item);
+            ServerAPI.put('taxes', id, item).catch(() => {});
+        }
+        return item;
+    },
+
+    async delete(id) {
+        await db.delete('taxes', id);
+        ServerAPI.remove('taxes', id).catch(() => {});
+    },
+
+    async calculateTotal(subtotal, discountAmount) {
+        const activeTaxes = await this.getActive();
+        let totalTax = 0;
+        const afterDiscount = subtotal - discountAmount;
+        for (const tax of activeTaxes) {
+            totalTax += afterDiscount * ((tax.rate || 0) / 100);
+        }
+        return totalTax;
+    }
+};
+
+// ==================== سجلات المراجعة ====================
+const AuditLogs = {
+    async getAll() {
+        return db.getAll('audit_logs');
+    },
+
+    async log(action, objectType, objectId, oldValue, newValue, userName) {
+        const currentUser = Users.getCurrentUser();
+        const logEntry = {
+            userId: currentUser?.id || null,
+            userName: userName || currentUser?.name || 'system',
+            action,
+            objectType: objectType || '',
+            objectId: objectId || null,
+            oldValue: oldValue ? JSON.stringify(oldValue) : '',
+            newValue: newValue ? JSON.stringify(newValue) : '',
+            ipAddress: '',
+            createdAt: new Date().toISOString()
+        };
+        const serverResult = await ServerAPI.add('audit_logs', logEntry);
+        if (serverResult && serverResult.id) {
+            await db.put('audit_logs', { ...logEntry, id: serverResult.id });
+            return serverResult.id;
+        }
+        return db.add('audit_logs', logEntry);
+    },
+
+    async getByDateRange(startDate, endDate) {
+        const all = await this.getAll();
+        return all.filter(l => {
+            const d = (l.createdAt || '').split('T')[0];
+            return d >= startDate && d <= endDate;
+        });
+    },
+
+    async getByAction(action) {
+        const all = await this.getAll();
+        return all.filter(l => l.action === action);
+    },
+
+    async getByUser(userId) {
+        const all = await this.getAll();
+        return all.filter(l => l.userId === userId);
+    }
+};
+
+// ==================== سجل حالات الطلب ====================
+const OrderStatusHistory = {
+    async getByOrder(orderId) {
+        const all = await db.getAll('order_status_history');
+        return all.filter(h => h.orderId === orderId).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    },
+
+    async add(orderId, status, changedBy, notes) {
+        const entry = {
+            orderId,
+            status,
+            changedBy: changedBy || Users.getCurrentUser()?.name || 'system',
+            notes: notes || '',
+            createdAt: new Date().toISOString()
+        };
+        const serverResult = await ServerAPI.add('order_status_history', entry);
+        if (serverResult && serverResult.id) {
+            await db.put('order_status_history', { ...entry, id: serverResult.id });
+            return serverResult.id;
+        }
+        return db.add('order_status_history', entry);
     }
 };
 
@@ -1133,6 +1731,17 @@ const DataSync = {
             attendance: await db.getAll('attendance'),
             expenses: await db.getAll('expenses'),
             shifts: await db.getAll('shifts'),
+            categories: await db.getAll('categories'),
+            products: await db.getAll('products'),
+            product_modifiers: await db.getAll('product_modifiers'),
+            product_variations: await db.getAll('product_variations'),
+            payment_methods: await db.getAll('payment_methods'),
+            taxes: await db.getAll('taxes'),
+            payments: await db.getAll('payments'),
+            refunds: await db.getAll('refunds'),
+            audit_logs: await db.getAll('audit_logs'),
+            order_status_history: await db.getAll('order_status_history'),
+            discounts: await db.getAll('discounts'),
             exportDate: new Date().toISOString()
         };
         return JSON.stringify(data, null, 2);
@@ -1140,7 +1749,7 @@ const DataSync = {
 
     async importAll(jsonString) {
         const data = JSON.parse(jsonString);
-        const stores = ['users', 'tables', 'customers', 'orders', 'inventory', 'purchases', 'employees', 'attendance', 'expenses', 'shifts'];
+        const stores = ['users', 'tables', 'customers', 'orders', 'inventory', 'purchases', 'employees', 'attendance', 'expenses', 'shifts', 'categories', 'products', 'product_modifiers', 'product_variations', 'payment_methods', 'taxes', 'payments', 'refunds', 'audit_logs', 'order_status_history', 'discounts'];
         for (const store of stores) {
             if (data[store]) {
                 await db.clear(store);
@@ -1191,7 +1800,19 @@ const ServerSync = {
                 employees: await db.getAll('employees'),
                 attendance: await db.getAll('attendance'),
                 expenses: await db.getAll('expenses'),
-                shifts: await db.getAll('shifts')
+                shifts: await db.getAll('shifts'),
+                categories: await db.getAll('categories'),
+                products: await db.getAll('products'),
+                payment_methods: await db.getAll('payment_methods'),
+                taxes: await db.getAll('taxes'),
+                payments: await db.getAll('payments'),
+                refunds: await db.getAll('refunds'),
+                audit_logs: await db.getAll('audit_logs'),
+                discounts: await db.getAll('discounts'),
+                order_status_history: await db.getAll('order_status_history'),
+                product_modifiers: await db.getAll('product_modifiers'),
+                product_variations: await db.getAll('product_variations'),
+                order_items: await db.getAll('order_items')
             };
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), 3000);
@@ -1213,7 +1834,7 @@ const ServerSync = {
         const url = this.getServerUrl();
         const apiKey = localStorage.getItem('luccaApiKey') || 'lucca-secret-key';
         try {
-            const collections = ['users', 'tables', 'orders', 'customers', 'settings', 'inventory', 'purchases', 'employees', 'attendance', 'expenses', 'shifts'];
+            const collections = ['users', 'tables', 'orders', 'customers', 'settings', 'inventory', 'purchases', 'employees', 'attendance', 'expenses', 'shifts', 'categories', 'products', 'payment_methods', 'taxes', 'payments', 'refunds', 'audit_logs', 'discounts', 'order_status_history', 'product_modifiers', 'product_variations', 'order_items'];
             for (const col of collections) {
                 const controller = new AbortController();
                 const timer = setTimeout(() => controller.abort(), 3000);
@@ -1272,8 +1893,103 @@ async function initSystem() {
         } catch(e) {}
     }, 500);
 
-    console.log('✅ تم تهيئة نظام Lucca Caffè');
 }
 
+// ===== Bot Memory (نظام تعلم البوت) =====
+const BotMemory = {
+    async add(type, data) {
+        const entry = {
+            type,
+            keywords: data.keywords || '',
+            question: data.question || '',
+            answer: data.answer || '',
+            action: data.action || '',
+            context: data.context || '',
+            usageCount: 0,
+            createdAt: new Date().toISOString(),
+            lastUsed: null
+        };
+        return db.add('botMemory', entry);
+    },
+
+    async getAll(type) {
+        const all = await db.getAll('botMemory');
+        if (type) return all.filter(e => e.type === type);
+        return all;
+    },
+
+    async search(query) {
+        const all = await db.getAll('botMemory');
+        const q = query.toLowerCase();
+        return all.filter(e =>
+            (e.keywords || '').toLowerCase().includes(q) ||
+            (e.question || '').toLowerCase().includes(q) ||
+            (e.answer || '').toLowerCase().includes(q)
+        );
+    },
+
+    async update(id, data) {
+        const item = await db.get('botMemory', id);
+        if (item) {
+            Object.assign(item, data);
+            item.lastUsed = new Date().toISOString();
+            item.usageCount = (item.usageCount || 0) + 1;
+            await db.put('botMemory', item);
+        }
+        return item;
+    },
+
+    async incrementUsage(id) {
+        const item = await db.get('botMemory', id);
+        if (item) {
+            item.usageCount = (item.usageCount || 0) + 1;
+            item.lastUsed = new Date().toISOString();
+            await db.put('botMemory', item);
+        }
+    },
+
+    async getMostUsed(limit) {
+        const all = await db.getAll('botMemory');
+        return all.sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0)).slice(0, limit || 10);
+    },
+
+    async getRecent(limit) {
+        const all = await db.getAll('botMemory');
+        return all.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, limit || 10);
+    },
+
+    async remove(id) {
+        await db.delete('botMemory', id);
+    },
+
+    async logInteraction(userMsg, botReply, commandExecuted) {
+        return db.add('botMemory', {
+            type: 'interaction',
+            keywords: userMsg,
+            question: userMsg,
+            answer: botReply,
+            action: commandExecuted || '',
+            context: 'chat',
+            usageCount: 0,
+            createdAt: new Date().toISOString(),
+            lastUsed: null
+        });
+    },
+
+    async getStats() {
+        const all = await db.getAll('botMemory');
+        const learned = all.filter(e => e.type === 'learned');
+        const interactions = all.filter(e => e.type === 'interaction');
+        const corrections = all.filter(e => e.type === 'correction');
+        return {
+            totalEntries: all.length,
+            learned: learned.length,
+            interactions: interactions.length,
+            corrections: corrections.length,
+            mostUsed: learned.sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0)).slice(0, 5)
+        };
+    }
+};
+
 // تصدير للاستخدام
-window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, initSystem };
+window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, initSystem };

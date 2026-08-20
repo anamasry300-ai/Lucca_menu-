@@ -1,0 +1,565 @@
+<body>
+
+<!-- Login Screen -->
+<div class="login-screen" id="loginScreen">
+    <div class="login-card">
+        <h1>LUCCA</h1>
+        <p>لوحة التحكم - إدارة المطعم</p>
+        <div class="form-row">
+            <label>اسم المستخدم</label>
+            <input type="text" id="loginUser" placeholder="اسم المستخدم" autocomplete="username">
+        </div>
+        <div class="form-row">
+            <label>كلمة المرور</label>
+            <input type="password" id="loginPass" placeholder="كلمة المرور" autocomplete="current-password">
+        </div>
+        <button class="btn btn-primary" onclick="doLogin()">تسجيل الدخول</button>
+        <div id="loginError" style="color:var(--danger);font-size:0.85rem;margin-top:12px;text-align:center"></div>
+    </div>
+</div>
+
+<!-- App -->
+<div class="app" id="app" style="display:none">
+
+    <!-- Sidebar Toggle (mobile) -->
+    <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">☰</button>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <div class="sidebar-brand-icon">L</div>
+            <div class="sidebar-brand-text">LUCCA<span>لوحة التحكم</span></div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">الرئيسية</div>
+                <a class="sidebar-link active" data-page="dashboard"><span class="icon">📊</span>لوحة التحكم</a>
+                <a class="sidebar-link" data-page="orders-page"><span class="icon">📋</span>الطلبات</a>
+                <a class="sidebar-link" data-page="tables-page"><span class="icon">🪑</span>الطاولات</a>
+            </div>
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">الإدارة</div>
+                <a class="sidebar-link" data-page="categories-page"><span class="icon">📂</span>الأقسام</a>
+                <a class="sidebar-link" data-page="products-page"><span class="icon">🍽️</span>المنتجات</a>
+                <a class="sidebar-link" data-page="paymethods-page"><span class="icon">💳</span>طرق الدفع</a>
+                <a class="sidebar-link" data-page="employees-page"><span class="icon">👥</span>الموظفون</a>
+            </div>
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">العمليات</div>
+                <a class="sidebar-link" data-page="attendance-page"><span class="icon">⏰</span>الحضور والانصراف</a>
+                <a class="sidebar-link" data-page="shifts-page"><span class="icon">📅</span>الورديات</a>
+                <a class="sidebar-link" data-page="inventory-page"><span class="icon">📦</span>المخزون</a>
+                <a class="sidebar-link" data-page="purchases-page"><span class="icon">🛒</span>المشتريات</a>
+                <a class="sidebar-link" data-page="expenses-page"><span class="icon">💰</span>المصروفات</a>
+            </div>
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">التقارير</div>
+                <a class="sidebar-link" data-page="reports-page"><span class="icon">📈</span>مركز التقارير</a>
+            </div>
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">النظام</div>
+                <a class="sidebar-link" data-page="roles-page"><span class="icon">🔑</span>الأدوار والصلاحيات</a>
+                <a class="sidebar-link" data-page="audit-page"><span class="icon">📝</span>سجل التدقيق</a>
+                <a class="sidebar-link" data-page="backup-page"><span class="icon">💾</span>النسخ الاحتياطي</a>
+                <a class="sidebar-link" data-page="server-page"><span class="icon">🌐</span>الخادم</a>
+                <a class="sidebar-link" data-page="printer-page"><span class="icon">🖨️</span>الطابعة</a>
+            </div>
+        </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="main-content" id="mainContent">
+
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-right">
+                <div class="header-search">
+                    <input type="text" id="globalSearch" placeholder="بحث عن منتج..." onkeyup="handleGlobalSearch(this.value)">
+                </div>
+                <div class="date-filter">
+                    <input type="date" id="dateFrom" onchange="onDateFilterChange()">
+                    <span style="color:var(--text-muted);font-size:0.8125rem">إلى</span>
+                    <input type="date" id="dateTo" onchange="onDateFilterChange()">
+                    <div class="date-presets" id="datePresets">
+                        <button class="date-preset active" data-range="today">اليوم</button>
+                        <button class="date-preset" data-range="yesterday">أمس</button>
+                        <button class="date-preset" data-range="7d">7 أيام</button>
+                        <button class="date-preset" data-range="30d">30 يوم</button>
+                        <button class="date-preset" data-range="month">هذا الشهر</button>
+                    </div>
+                </div>
+            </div>
+            <div class="header-left">
+                <div class="header-actions">
+                    <button class="header-btn" onclick="toggleDarkMode()" title="الوضع الليلي">🌙</button>
+                    <button class="header-btn" onclick="refreshDashboard()" title="تحديث">🔄</button>
+                </div>
+                <div class="header-user" id="headerUser">
+                    <div class="header-user-avatar" id="userAvatar">A</div>
+                    <div class="header-user-info">
+                        <div class="name" id="userDisplayName">المدير</div>
+                        <div class="role" id="userRoleDisplay">مدير</div>
+                    </div>
+                </div>
+                <button class="btn btn-ghost btn-sm" onclick="doLogout()">خروج</button>
+            </div>
+        </header>
+
+        <!-- Content Area -->
+        <div class="content-area">
+
+            <!-- ===== DASHBOARD ===== -->
+            <div class="page active" id="page-dashboard">
+                <div class="kpi-grid" id="kpiGrid">
+                    <div class="kpi-card green">
+                        <div class="kpi-header">
+                            <div class="kpi-icon">💰</div>
+                            <div class="kpi-trend neutral" id="kpiSalesTrend">—</div>
+                        </div>
+                        <div class="kpi-value" id="kpiSales">0</div>
+                        <div class="kpi-label">صافي المبيعات</div>
+                    </div>
+                    <div class="kpi-card blue">
+                        <div class="kpi-header">
+                            <div class="kpi-icon">📋</div>
+                            <div class="kpi-trend neutral" id="kpiOrdersTrend">—</div>
+                        </div>
+                        <div class="kpi-value" id="kpiOrders">0</div>
+                        <div class="kpi-label">إجمالي الطلبات</div>
+                    </div>
+                    <div class="kpi-card purple">
+                        <div class="kpi-header">
+                            <div class="kpi-icon">📊</div>
+                            <div class="kpi-trend neutral" id="kpiAvgTrend">—</div>
+                        </div>
+                        <div class="kpi-value" id="kpiAvgOrder">0</div>
+                        <div class="kpi-label">متوسط الطلب</div>
+                    </div>
+                    <div class="kpi-card orange">
+                        <div class="kpi-header">
+                            <div class="kpi-icon">🏷️</div>
+                        </div>
+                        <div class="kpi-value" id="kpiDiscounts">0</div>
+                        <div class="kpi-label">الخصومات</div>
+                    </div>
+                    <div class="kpi-card red">
+                        <div class="kpi-header">
+                            <div class="kpi-icon">↩️</div>
+                        </div>
+                        <div class="kpi-value" id="kpiRefunds">0</div>
+                        <div class="kpi-label">المرتجعات</div>
+                    </div>
+                    <div class="kpi-card green" id="kpiProfitCard">
+                        <div class="kpi-header">
+                            <div class="kpi-icon">📈</div>
+                        </div>
+                        <div class="kpi-value" id="kpiProfit">—</div>
+                        <div class="kpi-label">صافي الربح</div>
+                    </div>
+                </div>
+
+                <div class="chart-container" style="margin-bottom:24px">
+                    <div class="chart-header">
+                        <div class="chart-title">📈 نظرة على المبيعات</div>
+                        <div class="chart-tabs">
+                            <button class="chart-tab active" onclick="setChartView('daily',this)">يومي</button>
+                            <button class="chart-tab" onclick="setChartView('weekly',this)">أسبوعي</button>
+                            <button class="chart-tab" onclick="setChartView('monthly',this)">شهري</button>
+                        </div>
+                    </div>
+                    <div class="chart-body" id="salesChartBody">
+                        <div class="loading"><div class="spinner"></div></div>
+                    </div>
+                </div>
+
+                <div class="grid-2" style="margin-bottom:24px">
+                    <div class="panel">
+                        <div class="panel-header"><div class="panel-title">📂 المبيعات حسب القسم</div></div>
+                        <div class="panel-body" id="categoryAnalytics"><div class="loading"><div class="spinner"></div></div></div>
+                    </div>
+                    <div class="panel">
+                        <div class="panel-header"><div class="panel-title">💳 طرق الدفع</div></div>
+                        <div class="panel-body" id="paymentAnalytics"><div class="loading"><div class="spinner"></div></div></div>
+                    </div>
+                </div>
+
+                <div class="grid-2" style="margin-bottom:24px">
+                    <div class="panel">
+                        <div class="panel-header"><div class="panel-title">🏆 أفضل المنتجات</div></div>
+                        <div class="panel-body no-pad" id="topProductsPanel"><div class="loading"><div class="spinner"></div></div></div>
+                    </div>
+                    <div class="panel">
+                        <div class="panel-header"><div class="panel-title">🔔 الطلبات النشطة</div></div>
+                        <div class="panel-body no-pad" id="liveOrdersPanel"><div class="loading"><div class="spinner"></div></div></div>
+                    </div>
+                </div>
+
+                <div class="grid-2" style="margin-bottom:24px">
+                    <div class="panel">
+                        <div class="panel-header"><div class="panel-title">🪑 حالة الطاولات</div></div>
+                        <div class="panel-body" id="tablesStatusPanel"><div class="loading"><div class="spinner"></div></div></div>
+                    </div>
+                    <div class="panel">
+                        <div class="panel-header"><div class="panel-title">💡 رؤى עסקية</div></div>
+                        <div class="panel-body" id="insightsPanel"><div class="loading"><div class="spinner"></div></div></div>
+                    </div>
+                </div>
+
+                <div id="alertsPanel"></div>
+            </div>
+
+            <!-- ===== ORDERS ===== -->
+            <div class="page" id="page-orders-page">
+                <div class="section-title">📋 إدارة الطلبات</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:1;min-width:140px"><label>من تاريخ</label><input type="date" id="ordersDateFrom"></div>
+                        <div style="flex:1;min-width:140px"><label>إلى تاريخ</label><input type="date" id="ordersDateTo"></div>
+                        <div style="flex:1;min-width:140px"><label>الحالة</label>
+                            <select id="ordersStatusFilter"><option value="">الكل</option><option value="pending">قيد الانتظار</option><option value="in_preparation">قيد التحضير</option><option value="ready">جاهز</option><option value="served">تم التقديم</option><option value="closed">مغلق</option><option value="cancelled">ملغي</option></select>
+                        </div>
+                        <button class="btn btn-primary" onclick="loadOrders()">بحث</button>
+                    </div>
+                </div></div>
+                <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+                    <div class="kpi-card blue"><div class="kpi-value" id="ordersKpiCount">0</div><div class="kpi-label">الطلبات</div></div>
+                    <div class="kpi-card green"><div class="kpi-value" id="ordersKpiTotal">0</div><div class="kpi-label">الإجمالي</div></div>
+                    <div class="kpi-card purple"><div class="kpi-value" id="ordersKpiAvg">0</div><div class="kpi-label">المتوسط</div></div>
+                    <div class="kpi-card red"><div class="kpi-value" id="ordersKpiCancelled">0</div><div class="kpi-label">ملغية</div></div>
+                </div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>رقم</th><th>الطاولة</th><th>العميل</th><th>الإجمالي</th><th>الدفع</th><th>الحالة</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
+                    <tbody id="ordersBody"></tbody></table>
+                </div></div>
+            </div>
+
+            <!-- ===== TABLES ===== -->
+            <div class="page" id="page-tables-page">
+                <div class="section-title">🪑 إدارة الطاولات</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:1;min-width:120px"><label>رقم الطاولة</label><input type="number" id="tableNumber" min="1"></div>
+                        <div style="flex:1;min-width:120px"><label>السعة</label><input type="number" id="tableCapacity" min="1" value="4"></div>
+                        <div style="flex:2;min-width:160px"><label>المنطقة</label><input type="text" id="tableZone" placeholder="صالة / VIP / تراس"></div>
+                        <button class="btn btn-primary" onclick="addTable()">إضافة</button>
+                    </div>
+                </div></div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>رقم</th><th>السعة</th><th>المنطقة</th><th>الحالة</th><th>إجراءات</th></tr></thead>
+                    <tbody id="tablesBody"></tbody></table>
+                </div></div>
+            </div>
+
+            <!-- ===== CATEGORIES ===== -->
+            <div class="page" id="page-categories-page">
+                <div class="section-title">📂 إدارة الأقسام</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:2;min-width:160px"><label>الاسم بالعربية</label><input type="text" id="catNameAr"></div>
+                        <div style="flex:2;min-width:160px"><label>الاسم بالإنجليزية</label><input type="text" id="catNameEn"></div>
+                        <div style="flex:1;min-width:80px"><label>الأيقونة</label><input type="text" id="catIcon" placeholder="☕"></div>
+                        <div style="flex:1;min-width:80px"><label>الترتيب</label><input type="number" id="catSort" min="0" value="0"></div>
+                        <button class="btn btn-primary" onclick="addCategory()">إضافة</button>
+                    </div>
+                </div></div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>الأيقونة</th><th>الاسم</th><th>English</th><th>الترتيب</th><th>الحالة</th><th>إجراءات</th></tr></thead>
+                    <tbody id="categoriesBody"></tbody></table>
+                </div></div>
+            </div>
+
+            <!-- ===== PRODUCTS ===== -->
+            <div class="page" id="page-products-page">
+                <div class="section-title">🍽️ إدارة المنتجات</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:2;min-width:160px"><label>الاسم بالعربية</label><input type="text" id="prodNameAr"></div>
+                        <div style="flex:2;min-width:160px"><label>الاسم بالإنجليزية</label><input type="text" id="prodNameEn"></div>
+                        <div style="flex:2;min-width:160px"><label>القسم</label><select id="prodCategory"></select></div>
+                    </div>
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
+                        <div style="flex:1;min-width:100px"><label>السعر</label><input type="number" id="prodPrice" min="0" step="0.01"></div>
+                        <div style="flex:1;min-width:100px"><label>التكلفة</label><input type="number" id="prodCost" min="0" step="0.01"></div>
+                        <div style="flex:1;min-width:120px"><label>النوع</label><select id="prodType"><option value="standard">عادي</option><option value="variant">له أحجام</option></select></div>
+                        <div style="flex:1;min-width:120px"><label>الشارة</label><select id="prodBadge"><option value="">بدون</option><option value="new">جديد</option><option value="popular">رائج</option><option value="sale">تخفيض</option></select></div>
+                        <button class="btn btn-primary" onclick="addProduct()">إضافة</button>
+                    </div>
+                </div></div>
+                <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+                    <input type="text" id="prodSearch" placeholder="بحث عن منتج..." onkeyup="searchProducts()" style="flex:2;min-width:200px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);background:var(--surface);color:var(--text)">
+                    <select id="prodFilterCat" onchange="filterProducts()" style="flex:1;min-width:160px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);background:var(--surface);color:var(--text)"><option value="">كل الأقسام</option></select>
+                </div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>المنتج</th><th>القسم</th><th>السعر</th><th>التكلفة</th><th>الربح</th><th>الشارة</th><th>الحالة</th><th>إجراءات</th></tr></thead>
+                    <tbody id="productsBody"></tbody></table>
+                </div></div>
+            </div>
+
+            <!-- ===== PAYMENT METHODS ===== -->
+            <div class="page" id="page-paymethods-page">
+                <div class="section-title">💳 إدارة طرق الدفع</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:2;min-width:160px"><label>الاسم بالعربية</label><input type="text" id="pmNameAr"></div>
+                        <div style="flex:2;min-width:160px"><label>الاسم بالإنجليزية</label><input type="text" id="pmNameEn"></div>
+                        <div style="flex:1;min-width:120px"><label>النوع</label><select id="pmType"><option value="cash">كاش</option><option value="card">كارت</option><option value="digital">رقمي</option><option value="other">أخرى</option></select></div>
+                        <div style="flex:1;min-width:80px"><label>الترتيب</label><input type="number" id="pmSort" min="0" value="0"></div>
+                        <button class="btn btn-primary" onclick="addPaymentMethod()">إضافة</button>
+                    </div>
+                </div></div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>الاسم</th><th>English</th><th>النوع</th><th>الترتيب</th><th>الحالة</th><th>إجراءات</th></tr></thead>
+                    <tbody id="paymethodsBody"></tbody></table>
+                </div></div>
+            </div>
+
+            <!-- ===== EMPLOYEES ===== -->
+            <div class="page" id="page-employees-page">
+                <div class="section-title">👥 إدارة الموظفين</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:2;min-width:160px"><label>الاسم</label><input type="text" id="empName"></div>
+                        <div style="flex:1;min-width:120px"><label>الهاتف</label><input type="text" id="empPhone"></div>
+                        <div style="flex:1;min-width:120px"><label>الوظيفة</label><select id="empRole"><option value="cashier">كاشير</option><option value="waiter">جرسون</option><option value="chef">طباخ</option><option value="manager">مدير</option></select></div>
+                        <div style="flex:1;min-width:100px"><label>الراتب</label><input type="number" id="empSalary" min="0"></div>
+                        <button class="btn btn-primary" onclick="addEmployee()">إضافة</button>
+                    </div>
+                </div></div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>الاسم</th><th>الهاتف</th><th>الوظيفة</th><th>الراتب</th><th>الحالة</th><th>إجراءات</th></tr></thead>
+                    <tbody id="employeesBody"></tbody></table>
+                </div></div>
+            </div>
+
+            <!-- ===== ATTENDANCE ===== -->
+            <div class="page" id="page-attendance-page">
+                <div class="section-title">⏰ الحضور والانصراف</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:2;min-width:160px"><label>الموظف</label><select id="attEmployee"></select></div>
+                        <button class="btn btn-success" onclick="checkIn()">حضور ✓</button>
+                        <button class="btn btn-warning" onclick="checkOut()">انصراف ✗</button>
+                    </div>
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
+                        <div style="flex:1;min-width:140px"><label>من</label><input type="date" id="attDateFrom"></div>
+                        <div style="flex:1;min-width:140px"><label>إلى</label><input type="date" id="attDateTo"></div>
+                        <button class="btn btn-secondary" onclick="loadAttendance()">بحث</button>
+                    </div>
+                </div></div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>الموظف</th><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الساعات</th></tr></thead>
+                    <tbody id="attendanceBody"></tbody></table>
+                </div></div>
+            </div>
+
+            <!-- ===== SHIFTS ===== -->
+            <div class="page" id="page-shifts-page">
+                <div class="section-title">📅 إدارة الورديات</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:2;min-width:160px"><label>الموظف</label><select id="shiftEmployee"></select></div>
+                        <button class="btn btn-success" onclick="startShift()">بدء وردية ▶</button>
+                        <button class="btn btn-warning" onclick="endShift()">إنهاء وردية ⏹</button>
+                    </div>
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
+                        <div style="flex:1;min-width:140px"><label>من</label><input type="date" id="shiftDateFrom"></div>
+                        <div style="flex:1;min-width:140px"><label>إلى</label><input type="date" id="shiftDateTo"></div>
+                        <button class="btn btn-secondary" onclick="loadShifts()">بحث</button>
+                    </div>
+                </div></div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>الموظف</th><th>التاريخ</th><th>البداية</th><th>النهاية</th><th>الساعات</th><th>المبيعات</th></tr></thead>
+                    <tbody id="shiftsBody"></tbody></table>
+                </div></div>
+            </div>
+
+            <!-- ===== INVENTORY ===== -->
+            <div class="page" id="page-inventory-page">
+                <div class="section-title">📦 إدارة المخزون</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:2;min-width:160px"><label>المنتج</label><input type="text" id="invName"></div>
+                        <div style="flex:1;min-width:80px"><label>الكمية</label><input type="number" id="invQty" min="0"></div>
+                        <div style="flex:1;min-width:100px"><label>الوحدة</label><input type="text" id="invUnit" placeholder="كجم/لتر/قطعة"></div>
+                        <div style="flex:1;min-width:100px"><label>التكلفة</label><input type="number" id="invCost" min="0" step="0.01"></div>
+                        <div style="flex:1;min-width:80px"><label>حد أدنى</label><input type="number" id="invMinStock" min="0" value="5"></div>
+                        <button class="btn btn-primary" onclick="addInventory()">إضافة</button>
+                    </div>
+                </div></div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>المنتج</th><th>الكمية</th><th>الوحدة</th><th>التكلفة</th><th>الحد الأدنى</th><th>إجراءات</th></tr></thead>
+                    <tbody id="inventoryBody"></tbody></table>
+                </div></div>
+            </div>
+
+            <!-- ===== PURCHASES ===== -->
+            <div class="page" id="page-purchases-page">
+                <div class="section-title">🛒 المشتريات</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:2;min-width:160px"><label>الصنف</label><input type="text" id="purchItem"></div>
+                        <div style="flex:1;min-width:80px"><label>الكمية</label><input type="number" id="purchQty" min="1"></div>
+                        <div style="flex:1;min-width:100px"><label>التكلفة</label><input type="number" id="purchCost" min="0" step="0.01"></div>
+                        <div style="flex:1;min-width:120px"><label>المورد</label><input type="text" id="purchSupplier"></div>
+                        <div style="flex:1;min-width:120px"><label>ملاحظات</label><input type="text" id="purchNotes"></div>
+                        <button class="btn btn-primary" onclick="addPurchase()">إضافة</button>
+                    </div>
+                </div></div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>الصنف</th><th>الكمية</th><th>التكلفة</th><th>المورد</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
+                    <tbody id="purchasesBody"></tbody></table>
+                </div></div>
+            </div>
+
+            <!-- ===== EXPENSES ===== -->
+            <div class="page" id="page-expenses-page">
+                <div class="section-title">💰 المصروفات</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:2;min-width:160px"><label>الوصف</label><input type="text" id="expDesc"></div>
+                        <div style="flex:1;min-width:100px"><label>المبلغ</label><input type="number" id="expAmount" min="0" step="0.01"></div>
+                        <div style="flex:1;min-width:120px"><label>الفئة</label><input type="text" id="expCategory" placeholder="إيجار/رواتب/عام"></div>
+                        <div style="flex:1;min-width:120px"><label>ملاحظات</label><input type="text" id="expNotes"></div>
+                        <button class="btn btn-primary" onclick="addExpense()">إضافة</button>
+                    </div>
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
+                        <div style="flex:1;min-width:140px"><label>من</label><input type="date" id="expDateFrom"></div>
+                        <div style="flex:1;min-width:140px"><label>إلى</label><input type="date" id="expDateTo"></div>
+                        <button class="btn btn-secondary" onclick="loadExpenses()">بحث</button>
+                    </div>
+                </div></div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>الوصف</th><th>المبلغ</th><th>الفئة</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
+                    <tbody id="expensesBody"></tbody></table>
+                </div></div>
+            </div>
+
+            <!-- ===== REPORTS ===== -->
+            <div class="page" id="page-reports-page">
+                <div class="section-title">📈 مركز التقارير</div>
+                <div class="report-grid" style="margin-bottom:24px">
+                    <div class="report-card" onclick="loadReport('sales')"><h3>💰 المبيعات</h3><p>تفاصيل المبيعات اليومية والأسبوعية</p></div>
+                    <div class="report-card" onclick="loadReport('orders')"><h3>📋 الطلبات</h3><p>جميع الطلبات مع حالاتها</p></div>
+                    <div class="report-card" onclick="loadReport('payments')"><h3>💳 المدفوعات</h3><p>تحليل طرق الدفع</p></div>
+                    <div class="report-card" onclick="loadReport('products')"><h3>🍽️ المنتجات</h3><p>أداء كل منتج</p></div>
+                    <div class="report-card" onclick="loadReport('categories')"><h3>📂 الأقسام</h3><p>مبيعات كل قسم</p></div>
+                    <div class="report-card" onclick="loadReport('employees')"><h3>👥 الموظفين</h3><p>أداء كل موظف</p></div>
+                    <div class="report-card" onclick="loadReport('discounts')"><h3>🏷️ الخصومات</h3><p>تحليل الخصومات المطبقة</p></div>
+                    <div class="report-card" onclick="loadReport('refunds')"><h3>↩️ المرتجعات</h3><p>المرتجعات والإلغاءات</p></div>
+                    <div class="report-card" onclick="loadReport('profit')"><h3>📈 الأرباح</h3><p>صافي الربح وهامش الربح</p></div>
+                    <div class="report-card" onclick="loadReport('inventory')"><h3>📦 المخزون</h3><p>حالة المخزون والتنبيهات</p></div>
+                    <div class="report-card" onclick="loadReport('shifts')"><h3>📅 الورديات</h3><p>ملخص الورديات والمبيعات</p></div>
+                </div>
+                <div class="panel" id="reportOutput" style="display:none">
+                    <div class="panel-header">
+                        <div class="panel-title" id="reportTitle">تقرير</div>
+                        <div style="display:flex;gap:8px">
+                            <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()">📥 تصدير CSV</button>
+                            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('reportOutput').style.display='none'">✕ إغلاق</button>
+                        </div>
+                    </div>
+                    <div class="panel-body" id="reportContent"></div>
+                </div>
+            </div>
+
+            <!-- ===== ROLES ===== -->
+            <div class="page" id="page-roles-page">
+                <div class="section-title">🔑 الأدوار والصلاحيات</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:1;min-width:120px"><label>اسم المستخدم</label><input type="text" id="roleUsername"></div>
+                        <div style="flex:1;min-width:120px"><label>الاسم المعروض</label><input type="text" id="roleDisplayName"></div>
+                        <div style="flex:1;min-width:120px"><label>كلمة المرور</label><input type="password" id="rolePassword"></div>
+                        <div style="flex:1;min-width:120px"><label>الدور</label><select id="roleSelect"><option value="cashier">كاشير</option><option value="manager">مدير</option><option value="admin">مدير النظام</option><option value="kitchen">مطبخ</option></select></div>
+                        <button class="btn btn-primary" onclick="addRoleUser()">إضافة</button>
+                    </div>
+                </div></div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>المستخدم</th><th>الاسم</th><th>الدور</th><th>إجراءات</th></tr></thead>
+                    <tbody id="rolesBody"></tbody></table>
+                </div></div>
+                <div class="panel">
+                    <div class="panel-header"><div class="panel-title">matrix الصلاحيات</div></div>
+                    <div class="panel-body no-pad">
+                        <table class="data-table"><thead><tr><th>الصلاحية</th><th>كاشير</th><th>مدير</th><th>مدير النظام</th><th>مطبخ</th></tr></thead>
+                        <tbody>
+                            <tr><td>عرض لوحة التحكم</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+                            <tr><td>إدارة المنتجات</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+                            <tr><td>إدارة الموظفين</td><td>❌</td><td>❌</td><td>✅</td><td>❌</td></tr>
+                            <tr><td>عرض التقارير</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+                            <tr><td>إدارة الطلبات</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+                            <tr><td>الخصومات</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+                            <tr><td>المرتجعات</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+                            <tr><td>إدارة النظام</td><td>❌</td><td>❌</td><td>✅</td><td>❌</td></tr>
+                        </tbody></table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== AUDIT LOG ===== -->
+            <div class="page" id="page-audit-page">
+                <div class="section-title">📝 سجل التدقيق</div>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:20px">
+                    <div style="flex:1;min-width:140px"><label>من</label><input type="date" id="auditDateFrom"></div>
+                    <div style="flex:1;min-width:140px"><label>إلى</label><input type="date" id="auditDateTo"></div>
+                    <div style="flex:1;min-width:140px"><label>نوع العملية</label><select id="auditAction"><option value="">الكل</option><option value="create">إنشاء</option><option value="update">تعديل</option><option value="delete">حذف</option></select></div>
+                    <button class="btn btn-primary" onclick="loadAuditLogs()">بحث</button>
+                </div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>التاريخ</th><th>المستخدم</th><th>العملية</th><th>النوع</th><th>التفاصيل</th></tr></thead>
+                    <tbody id="auditBody"></tbody></table>
+                </div></div>
+            </div>
+
+            <!-- ===== BACKUP ===== -->
+            <div class="page" id="page-backup-page">
+                <div class="section-title">💾 النسخ الاحتياطي</div>
+                <div class="panel"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+                        <button class="btn btn-primary" onclick="exportBackup()">📥 تصدير نسخة احتياطية</button>
+                        <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()">📤 استيراد نسخة</button>
+                        <input type="file" id="importFile" accept=".json" style="display:none" onchange="handleImport(event)">
+                    </div>
+                    <div id="backupInfo" style="color:var(--text-muted);font-size:0.85rem"></div>
+                </div></div>
+            </div>
+
+            <!-- ===== SERVER ===== -->
+            <div class="page" id="page-server-page">
+                <div class="section-title">🌐 إعدادات الخادم</div>
+                <div class="panel"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:3;min-width:200px"><label>رابط الخادم</label><input type="text" id="serverUrl" placeholder="http://localhost:3000"></div>
+                        <button class="btn btn-primary" onclick="saveServer()">حفظ</button>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+                        <button class="btn btn-secondary" onclick="testServer()">🔍 اختبار الاتصال</button>
+                        <button class="btn btn-success" onclick="syncPush()">⬆️ رفع البيانات</button>
+                        <button class="btn btn-primary" onclick="syncPull()">⬇️ سحب البيانات</button>
+                    </div>
+                    <div id="serverStatus" style="margin-top:12px;font-size:0.85rem"></div>
+                </div></div>
+            </div>
+
+            <!-- ===== PRINTER ===== -->
+            <div class="page" id="page-printer-page">
+                <div class="section-title">🖨️ الطابعة الحرارية</div>
+                <div class="panel"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:1;min-width:120px"><label>حجم الورق</label><select id="printerPaper"><option value="58">58 مم</option><option value="80" selected>80 مم</option></select></div>
+                        <div style="flex:1;min-width:80px"><label>عدد النسخ</label><input type="number" id="printerCopies" min="1" max="5" value="1"></div>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+                        <button class="btn btn-primary" onclick="connectAdminPrinter()">🔌 توصيل طابعة</button>
+                        <button class="btn btn-secondary" onclick="testAdminPrinter()">🖨️ طباعة تجريبية</button>
+                        <button class="btn btn-ghost" onclick="savePrinterSettings()">💾 حفظ الإعدادات</button>
+                    </div>
+                    <div id="printerStatus" style="margin-top:12px;font-size:0.85rem;color:var(--text-muted)"></div>
+                </div></div>
+            </div>
+
+        </div><!-- content-area -->
+    </div><!-- main-content -->
+</div><!-- app -->
+
+<div class="toast" id="toast"></div>
