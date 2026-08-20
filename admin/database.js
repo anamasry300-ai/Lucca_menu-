@@ -210,6 +210,30 @@ class LuccaDatabase {
                     const kcStore = db.createObjectStore('knowledge_chunks', { keyPath: 'id', autoIncrement: true });
                     kcStore.createIndex('documentId', 'documentId', { unique: false });
                 }
+                // الموردين
+                if (!db.objectStoreNames.contains('suppliers')) {
+                    const supStore = db.createObjectStore('suppliers', { keyPath: 'id', autoIncrement: true });
+                    supStore.createIndex('name', 'name', { unique: false });
+                }
+                // حركات المخزون
+                if (!db.objectStoreNames.contains('stock_movements')) {
+                    const smStore = db.createObjectStore('stock_movements', { keyPath: 'id', autoIncrement: true });
+                    smStore.createIndex('ingredientId', 'ingredientId', { unique: false });
+                    smStore.createIndex('type', 'type', { unique: false });
+                    smStore.createIndex('date', 'date', { unique: false });
+                }
+                // وصفات المنتجات
+                if (!db.objectStoreNames.contains('product_recipes')) {
+                    const prStore = db.createObjectStore('product_recipes', { keyPath: 'id', autoIncrement: true });
+                    prStore.createIndex('productId', 'productId', { unique: false });
+                    prStore.createIndex('ingredientId', 'ingredientId', { unique: false });
+                }
+                // سجل الهالك
+                if (!db.objectStoreNames.contains('waste_log')) {
+                    const wlStore = db.createObjectStore('waste_log', { keyPath: 'id', autoIncrement: true });
+                    wlStore.createIndex('ingredientId', 'ingredientId', { unique: false });
+                    wlStore.createIndex('date', 'date', { unique: false });
+                }
             };
         });
     }
@@ -969,93 +993,166 @@ const Settings = {
 
 // ==================== إدارة المخزون ====================
 const Inventory = {
-    async getAll() {
-        return db.getAll('inventory');
-    },
-
+    async getAll() { return db.getAll('inventory'); },
+    async get(id) { return db.get('inventory', id); },
     async add(item) {
         item.createdAt = new Date().toISOString();
-        const serverResult = await ServerAPI.add('inventory', item);
-        if (serverResult && serverResult.id) {
-            await db.put('inventory', { ...item, id: serverResult.id });
-            return serverResult.id;
-        }
+        item.lastUpdated = new Date().toISOString();
         return db.add('inventory', item);
     },
-
     async update(id, data) {
         const item = await db.get('inventory', id);
-        if (item) {
-            Object.assign(item, data);
-            await db.put('inventory', item);
-            ServerAPI.put('inventory', id, item).catch(() => {});
-        }
+        if (item) { Object.assign(item, data, { lastUpdated: new Date().toISOString() }); await db.put('inventory', item); }
         return item;
     },
-
-    async delete(id) {
-        await db.delete('inventory', id);
-        ServerAPI.remove('inventory', id).catch(() => {});
-    },
-
-    async adjustStock(id, quantity) {
+    async delete(id) { await db.delete('inventory', id); },
+    async adjustStock(id, qty, type, notes) {
         const item = await db.get('inventory', id);
-        if (item) {
-            item.quantity = (item.quantity || 0) + quantity;
-            item.lastUpdated = new Date().toISOString();
-            await db.put('inventory', item);
-            ServerAPI.put('inventory', id, item).catch(() => {});
-        }
+        if (!item) return null;
+        const oldQty = item.quantity || 0;
+        item.quantity = Math.max(0, oldQty + qty);
+        item.lastUpdated = new Date().toISOString();
+        await db.put('inventory', item);
+        // Record movement
+        await StockMovements.add({ ingredientId: id, type: type || 'adjustment', quantity: qty, notes: notes || '' });
         return item;
     },
-
-    // Deduct inventory for all items in a checkout order
-    async deductForCheckout(items) {
-        if (!items || !items.length) return;
-        const allInventory = await this.getAll();
-        if (!allInventory.length) return;
-
-        for (const orderItem of items) {
-            const name = (orderItem.name || '').trim();
+    async getLowStock() {
+        const all = await this.getAll();
+        return all.filter(i => (i.quantity || 0) <= (i.minStock || i.minQuantity || 0) && (i.active || 1) === 1);
+    },
+    async search(query) {
+        const all = await this.getAll();
+        const q = (query || '').toLowerCase();
+        return all.filter(i => (i.name || '').toLowerCase().includes(q) || (i.nameAr || '').toLowerCase().includes(q));
+    },
+    async deductForCheckout(orderItems) {
+        if (!orderItems || !orderItems.length) return;
+        // Try recipe-based deduction first
+        for (const oi of orderItems) {
+            const productId = oi.productId || oi.product_id;
+            if (productId) {
+                const recipes = await ProductRecipes.getByProduct(productId);
+                if (recipes.length > 0) {
+                    for (const r of recipes) {
+                        const deductQty = (r.quantityNeeded || 1) * (oi.quantity || 1);
+                        await this.adjustStock(r.ingredientId, -deductQty, 'recipe_deduct', 'طلب #' + (oi.orderId || ''));
+                    }
+                    continue;
+                }
+            }
+            // Fallback: name matching
+            const name = (oi.name || '').trim().toLowerCase();
             if (!name) continue;
-            const invItem = allInventory.find(i =>
-                (i.name || '').trim().toLowerCase() === name.toLowerCase()
-            );
-            if (invItem && invItem.quantity > 0) {
-                const qty = orderItem.quantity || 1;
-                invItem.quantity = Math.max(0, (invItem.quantity || 0) - qty);
-                invItem.lastUpdated = new Date().toISOString();
-                await db.put('inventory', invItem);
-                ServerAPI.put('inventory', invItem.id, invItem).catch(() => {});
+            const all = await this.getAll();
+            const inv = all.find(i => (i.name || '').trim().toLowerCase() === name);
+            if (inv && inv.quantity > 0) {
+                await this.adjustStock(inv.id, -(oi.quantity || 1), 'sale', 'بيع مباشر');
             }
         }
     }
 };
 
-// ==================== إدارة المشتريات ====================
+// ==================== المشتريات ====================
 const Purchases = {
-    async getAll() {
-        return db.getAll('purchases');
-    },
-
-    async add(purchase) {
-        purchase.date = purchase.date || new Date().toISOString();
-        const serverResult = await ServerAPI.add('purchases', purchase);
-        if (serverResult && serverResult.id) {
-            await db.put('purchases', { ...purchase, id: serverResult.id });
-            return serverResult.id;
+    async getAll() { return db.getAll('purchases'); },
+    async add(p) {
+        p.date = p.date || new Date().toISOString();
+        p.createdAt = new Date().toISOString();
+        const id = await db.add('purchases', p);
+        // Auto-add to inventory
+        if (p.inventoryItemId) {
+            await Inventory.adjustStock(p.inventoryItemId, p.quantity || 1, 'purchase', 'مشتريات: ' + (p.item || p.name || ''));
         }
-        return db.add('purchases', purchase);
+        return id;
     },
-
-    async delete(id) {
-        await db.delete('purchases', id);
-        ServerAPI.remove('purchases', id).catch(() => {});
-    },
-
+    async delete(id) { await db.delete('purchases', id); },
     async getTotalCost() {
-        const purchases = await this.getAll();
-        return purchases.reduce((sum, p) => sum + ((p.costPrice || 0) * (p.quantity || 1)), 0);
+        const p = await this.getAll();
+        return p.reduce((s, x) => s + ((x.costPrice || x.cost || 0) * (x.quantity || 1)), 0);
+    }
+};
+
+// ==================== الموردين ====================
+const Suppliers = {
+    async getAll() { return db.getAll('suppliers'); },
+    async get(id) { return db.get('suppliers', id); },
+    async add(s) { s.createdAt = new Date().toISOString(); return db.add('suppliers', s); },
+    async update(id, d) { const s = await db.get('suppliers', id); if (s) { Object.assign(s, d); await db.put('suppliers', s); } return s; },
+    async delete(id) { await db.delete('suppliers', id); },
+    async getActive() { const all = await this.getAll(); return all.filter(s => s.active !== 0); }
+};
+
+// ==================== حركات المخزون ====================
+const StockMovements = {
+    async getAll() { return db.getAll('stock_movements'); },
+    async getByIngredient(id) { const all = await this.getAll(); return all.filter(m => m.ingredientId === id); },
+    async getByType(type) { const all = await this.getAll(); return all.filter(m => m.type === type); },
+    async getByDateRange(from, to) {
+        const all = await this.getAll();
+        return all.filter(m => {
+            const d = (m.date || m.createdAt || '').slice(0, 10);
+            return d >= from && d <= to;
+        });
+    },
+    async add(m) {
+        m.date = m.date || new Date().toISOString();
+        m.createdAt = new Date().toISOString();
+        return db.add('stock_movements', m);
+    },
+    async getStats() {
+        const all = await this.getAll();
+        const purchases = all.filter(m => m.type === 'purchase').reduce((s, m) => s + Math.abs(m.quantity || 0), 0);
+        const sales = all.filter(m => m.type === 'sale' || m.type === 'recipe_deduct').reduce((s, m) => s + Math.abs(m.quantity || 0), 0);
+        const waste = all.filter(m => m.type === 'waste').reduce((s, m) => s + Math.abs(m.quantity || 0), 0);
+        return { total: all.length, purchases, sales, waste };
+    }
+};
+
+// ==================== وصفات المنتجات ====================
+const ProductRecipes = {
+    async getAll() { return db.getAll('product_recipes'); },
+    async getByProduct(productId) { const all = await this.getAll(); return all.filter(r => r.productId == productId); },
+    async getByIngredient(ingredientId) { const all = await this.getAll(); return all.filter(r => r.ingredientId == ingredientId); },
+    async add(r) { r.createdAt = new Date().toISOString(); return db.add('product_recipes', r); },
+    async update(id, d) { const r = await db.get('product_recipes', id); if (r) { Object.assign(r, d); await db.put('product_recipes', r); } return r; },
+    async delete(id) { await db.delete('product_recipes', id); },
+    async deleteByProduct(productId) {
+        const all = await this.getByProduct(productId);
+        for (const r of all) await db.delete('product_recipes', r.id);
+    },
+    async getRecipeCost(productId) {
+        const recipes = await this.getByProduct(productId);
+        let totalCost = 0;
+        for (const r of recipes) {
+            const ing = await db.get('inventory', r.ingredientId);
+            if (ing) totalCost += (ing.cost || ing.costPerUnit || 0) * (r.quantityNeeded || 1);
+        }
+        return totalCost;
+    }
+};
+
+// ==================== سجل الهالك ====================
+const WasteLog = {
+    async getAll() { return db.getAll('waste_log'); },
+    async add(w) {
+        w.date = w.date || new Date().toISOString();
+        w.createdAt = new Date().toISOString();
+        const id = await db.add('waste_log', w);
+        if (w.ingredientId) {
+            await Inventory.adjustStock(w.ingredientId, -(w.quantity || 0), 'waste', 'هالك: ' + (w.reason || ''));
+        }
+        return id;
+    },
+    async getByDateRange(from, to) {
+        const all = await this.getAll();
+        return all.filter(w => { const d = (w.date || w.createdAt || '').slice(0, 10); return d >= from && d <= to; });
+    },
+    async getStats() {
+        const all = await this.getAll();
+        const totalCost = all.reduce((s, w) => s + (w.cost || 0), 0);
+        const totalQty = all.reduce((s, w) => s + (w.quantity || 0), 0);
+        return { count: all.length, totalCost, totalQty };
     }
 };
 
@@ -2150,4 +2247,4 @@ const KnowledgeBase = {
 };
 
 // تصدير للاستخدام
-window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, KnowledgeBase, initSystem };
+window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, initSystem };
