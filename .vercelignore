@@ -1,0 +1,11 @@
+node_modules
+backend
+dist
+.git
+*.md
+*.ico
+*.png
+*.svg
+scripts
+*.bat
+test-bot.js
