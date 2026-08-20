@@ -2017,6 +2017,7 @@
                     <div class="report-card" onclick="loadReport('profit')"><h3>📈 الأرباح</h3><p>صافي الربح وهامش الربح</p></div>
                     <div class="report-card" onclick="loadReport('inventory')"><h3>📦 المخزون</h3><p>حالة المخزون والتنبيهات</p></div>
                     <div class="report-card" onclick="loadReport('shifts')"><h3>📅 الورديات</h3><p>ملخص الورديات والمبيعات</p></div>
+                    <div class="report-card" onclick="loadReport('cost')"><h3>🧮 مراقبة التكاليف</h3><p>نسبة تكلفة الطعام والأرباح</p></div>
                 </div>
                 <div class="panel" id="reportOutput" style="display:none">
                     <div class="panel-header">
@@ -3369,6 +3370,58 @@ async function loadReport(type){
             d.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.orders||0)+'</td><td>'+formatMoney(r.sales)+'</td><td>'+formatMoney(r.avgOrder)+'</td></tr>'; });
             html += '</tbody></table>';
             currentReportData = d;
+        } else if(type==='cost'){
+            const products = await window.LuccaDB.Products.getAll();
+            const categories = await window.LuccaDB.Categories.getAll();
+            const orders = await window.LuccaDB.Orders.getAll();
+            const orderItems = await window.LuccaDB.db.getAll('order_items');
+            const catMap = {}; categories.forEach(c=>{ catMap[c.id]=c.nameAr||c.name; });
+            // Calculate product stats
+            const prodStats = {};
+            orderItems.forEach(oi => {
+                const pid = oi.productId || oi.product_id;
+                if (!pid) return;
+                if (!prodStats[pid]) prodStats[pid] = { sold: 0, revenue: 0 };
+                prodStats[pid].sold += oi.quantity || 1;
+                prodStats[pid].revenue += (oi.price || 0) * (oi.quantity || 1);
+            });
+            // Build cost analysis
+            let totalRevenue = 0, totalCost = 0;
+            const rows = products.filter(p => p.available !== 0).map(p => {
+                const st = prodStats[p.id] || { sold: 0, revenue: 0 };
+                const foodCost = (p.cost || 0) * st.sold;
+                const foodCostPct = st.revenue > 0 ? ((foodCost / st.revenue) * 100) : 0;
+                const profit = st.revenue - foodCost;
+                const profitMargin = st.revenue > 0 ? ((profit / st.revenue) * 100) : 0;
+                totalRevenue += st.revenue;
+                totalCost += foodCost;
+                // Menu engineering: high profit & high volume = star
+                let classification = '—';
+                if (st.sold > 0 && profitMargin > 0) {
+                    const avgProfit = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
+                    classification = profitMargin > 65 && st.sold > 5 ? '⭐ نجم' : profitMargin > 65 ? '❓ اللغز' : st.sold > 5 ? '🐴 الحصان' : '🐕 الكلب';
+                }
+                return { name: p.nameAr || p.name, cat: catMap[p.categoryId] || '—', price: p.price || 0, cost: p.cost || 0, foodCostPct, profitMargin, sold: st.sold, revenue: st.revenue, classification };
+            });
+            rows.sort((a, b) => b.revenue - a.revenue);
+            const avgFoodCost = totalRevenue > 0 ? ((totalCost / totalRevenue) * 100) : 0;
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">';
+            html += '<div class="kpi-card green"><div class="kpi-value">' + formatMoney(totalRevenue) + '</div><div class="kpi-label">إجمالي الإيراد</div></div>';
+            html += '<div class="kpi-card orange"><div class="kpi-value">' + formatMoney(totalCost) + '</div><div class="kpi-label">تكلفة الطعام</div></div>';
+            html += '<div class="kpi-card blue"><div class="kpi-value">' + avgFoodCost.toFixed(1) + '%</div><div class="kpi-label">متوسط نسبة التكلفة</div></div>';
+            html += '<div class="kpi-card purple"><div class="kpi-value">' + formatMoney(totalRevenue - totalCost) + '</div><div class="kpi-label">صافي الربح</div></div>';
+            html += '</div>';
+            // Cost alert
+            if (avgFoodCost > 35) {
+                html += '<div style="padding:12px;background:rgba(255,107,107,.1);border:1px solid var(--danger);border-radius:8px;margin-bottom:12px;color:var(--danger)">⚠️ نسبة تكلفة الطعام مرتفعة (' + avgFoodCost.toFixed(1) + '%). النسبة المثالية تحت 30%. حاول تخفيف التكاليف أو رفع الأسعار.</div>';
+            }
+            html += '<table class="data-table"><thead><tr><th>المنتج</th><th>القسم</th><th>السعر</th><th>التكلفة</th><th>% التكلفة</th><th>% الربح</th><th>الكمية</th><th>الإيراد</th><th>التصنيف</th></tr></thead><tbody>';
+            rows.forEach(r => {
+                const costColor = r.foodCostPct > 35 ? 'var(--danger)' : r.foodCostPct > 30 ? 'var(--warning)' : 'var(--success)';
+                html += '<tr><td><b>' + r.name + '</b></td><td>' + r.cat + '</td><td>' + formatMoney(r.price) + '</td><td>' + formatMoney(r.cost) + '</td><td style="color:' + costColor + ';font-weight:700">' + r.foodCostPct.toFixed(1) + '%</td><td>' + r.profitMargin.toFixed(1) + '%</td><td>' + r.sold + '</td><td>' + formatMoney(r.revenue) + '</td><td>' + r.classification + '</td></tr>';
+            });
+            html += '</tbody></table>';
+            currentReportData = rows;
         }
         content.innerHTML = html || '<div class="empty-state"><div class="icon">📊</div><p>لا توجد بيانات لهذا التقرير</p></div>';
     } catch(e){ content.innerHTML = '<div class="alert alert-danger">خطأ: '+e.message+'</div>'; }

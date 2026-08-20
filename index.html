@@ -5007,6 +5007,39 @@ async function processAiCommand(text){
         }
     } catch(e){}
 
+    // ===== COST CONTROL =====
+    if(matchAny(t,['تكلفة','cost','نسبة التكلفة','food cost','هامش الربح','profit margin','الأرباح'])){
+        try{
+            const products = await window.LuccaDB.Products.getActive();
+            const orderItems = await window.LuccaDB.db.getAll('order_items');
+            const prodStats = {};
+            orderItems.forEach(oi=>{
+                const pid = oi.productId||oi.product_id;
+                if(!pid) return;
+                if(!prodStats[pid]) prodStats[pid]={sold:0,revenue:0};
+                prodStats[pid].sold+=oi.quantity||1;
+                prodStats[pid].revenue+=(oi.price||0)*(oi.quantity||1);
+            });
+            let totalRev=0,totalCost=0;
+            const rows=products.map(p=>{
+                const st=prodStats[p.id]||{sold:0,revenue:0};
+                const fc=(p.cost||0)*st.sold;
+                const fcp=st.revenue>0?((fc/st.revenue)*100):0;
+                totalRev+=st.revenue; totalCost+=fc;
+                return {name:p.nameAr||p.name,price:p.price||0,cost:p.cost||0,fcp,sold:st.sold,revenue:st.revenue};
+            }).filter(r=>r.sold>0).sort((a,b)=>b.revenue-a.revenue).slice(0,8);
+            const avgFC=totalRev>0?((totalCost/totalRev)*100):0;
+            let h='<div style="margin-bottom:8px"><b>نسبة التكلفة المتوسطة: </b><span style="color:'+(avgFC>35?'#ff6b6b':avgFC>30?'#ffd43b':'#51cf66')+'">'+avgFC.toFixed(1)+'%</span></div>';
+            h+='<table class="ai-table"><tr><th>المنتج</th><th>السعر</th><th>التكلفة</th><th>% التكلفة</th><th>الكمية</th></tr>';
+            rows.forEach(r=>{h+='<tr><td>'+r.name+'</td><td>'+r.price.toLocaleString()+'</td><td>'+r.cost.toLocaleString()+'</td><td style="color:'+(r.fcp>35?'#ff6b6b':r.fcp>30?'#ffd43b':'#51cf66')+'">'+r.fcp.toFixed(1)+'%</td><td>'+r.sold+'</td></tr>';});
+            h+='</table>';
+            if(avgFC>35) h+='\n⚠️ نسبة التكلفة مرتفعة! حاول تخفيف التكاليف.';
+            return aiBotReply('🧮 **تحليل التكاليف:** '+h,[
+                {text:'تقرير تفصيلي',cmd:'cost_report'},{text:'الأرباح',cmd:'profit'}
+            ]);
+        } catch(e){ return aiBotReply('❌ '+e.message); }
+    }
+
     // ===== SEARCH KNOWLEDGE BASE (RAG) =====
     try{
         if(window.LuccaDB.KnowledgeBase){
