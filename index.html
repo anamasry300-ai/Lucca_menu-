@@ -12,6 +12,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-db.js"></script>
     <script src="ai-pos-engine.js"></script>
+    <script src="forecasting.js"></script>
     <script src="menu-data.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -5036,6 +5037,85 @@ async function processAiCommand(text){
             if(avgFC>35) h+='\n⚠️ نسبة التكلفة مرتفعة! حاول تخفيف التكاليف.';
             return aiBotReply('🧮 **تحليل التكاليف:** '+h,[
                 {text:'تقرير تفصيلي',cmd:'cost_report'},{text:'الأرباح',cmd:'profit'}
+            ]);
+        } catch(e){ return aiBotReply('❌ '+e.message); }
+    }
+
+    // ===== FORECASTING =====
+    if(matchAny(t,['توقع','forecast','تنبؤ','predict','المبيعات القادمة','未来的','الطلب المتوقع','demand forecast','isons','ترشيحات','reorder','إعادة طلب','اليوم الأفضل','best day','worst day','اليوم الأسوأ'])){
+        try{
+            if(!window.Forecasting) return aiBotReply('⚠️ محرك التوقعات غير متاح');
+            const summary = await window.Forecasting.getSummary();
+            let h = '<div style="margin-bottom:8px"><b>📈 توقعات المبيعات</b></div>';
+            h += '<table class="ai-table"><tr><th>المقياس</th><th>القيمة</th></tr>';
+            h += '<tr><td>توقع المبيعات اليومية</td><td><b>'+summary.salesForecast.forecast.toLocaleString()+' ل.س</b></td></tr>';
+            h += '<tr><td>المتوسط</td><td>'+(summary.salesForecast.avg||0).toLocaleString()+' ل.س</td></tr>';
+            h += '<tr><td>الاتجاه</td><td>'+(summary.salesForecast.trend==='increasing'?'📈 يزيد':summary.salesForecast.trend==='decreasing'?'📉 ينقص':'➡️ ثابت')+'</td></tr>';
+            h += '<tr><td>اليوم الأفضل</td><td>'+summary.bestDay+'</td></tr>';
+            h += '<tr><td>اليوم الأضعف</td><td>'+summary.worstDay+'</td></tr>';
+            h += '</table>';
+            if(summary.topProducts.length){
+                h += '<div style="margin-top:8px"><b>🔥 أعلى المنتجات توقعأ:</b></div>';
+                h += '<table class="ai-table"><tr><th>المنتج</th><th>متوسط/يوم</th><th>توقع 7 أيام</th><th>تكلفة 7 أيام</th></tr>';
+                summary.topProducts.slice(0,5).forEach(p=>{
+                    h += '<tr><td>'+p.product+'</td><td>'+p.avgDailyDemand+'</td><td>'+p.forecast7days+'</td><td>'+p.cost7days.toLocaleString()+' ل.س</td></tr>';
+                });
+                h += '</table>';
+            }
+            if(summary.reorderRecommendations.length){
+                h += '<div style="margin-top:8px;color:#ff6b6b"><b>⚠️ توصيات إعادة الطلب ('+summary.reorderRecommendations.length+'): </b></div>';
+                summary.reorderRecommendations.slice(0,3).forEach(r=>{
+                    h += '\n• '+r.name+': '+r.currentStock+' '+r.unit+' (الحد الأدنى: '+r.minStock+') - اطلب '+r.reorderQty+' '+r.unit;
+                });
+            }
+            return aiBotReply('📈 **التوقعات:** '+h,[
+                {text:'تفاصيل الطلب',cmd:'demand'},{text:'إعادة طلب',cmd:'reorder'},{text:'اليوم الأفضل',cmd:'best_day'}
+            ]);
+        } catch(e){ return aiBotReply('❌ '+e.message); }
+    }
+
+    // ===== ACCOUNTING AI AGENT =====
+    if(matchAny(t,['حسابات','accounting','P&L','خطة الحسابات','الميزانية','balance sheet','cash flow','تدفق النقد','الموردين','suppliers payable','المدينون','receivables','الإيرادات','revenue','النفقات','expenses summary','تقرير مالي','financial report','الربح والخسارة','profit loss'])){
+        try{
+            const orders = await window.LuccaDB.Orders.getAll();
+            const expenses = await window.LuccaDB.Expenses.getAll();
+            const purchases = await window.LuccaDB.Purchases.getAll();
+            const today = new Date().toISOString().slice(0,10);
+            const month = today.slice(0,7);
+            // Today
+            const todayOrders = orders.filter(o=>(o.createdAt||o.date||'').slice(0,10)===today);
+            const todaySales = todayOrders.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);
+            const todayExpenses = expenses.filter(e=>(e.createdAt||e.date||'').slice(0,10)===today);
+            const todayExpTotal = todayExpenses.reduce((s,e)=>s+Number(e.amount||0),0);
+            // This month
+            const monthOrders = orders.filter(o=>(o.createdAt||o.date||'').slice(0,7)===month);
+            const monthSales = monthOrders.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);
+            const monthExpenses = expenses.filter(e=>(e.createdAt||e.date||'').slice(0,7)===month);
+            const monthExpTotal = monthExpenses.reduce((s,e)=>s+Number(e.amount||0),0);
+            const monthPurchases = purchases.filter(p=>(p.date||p.createdAt||'').slice(0,7)===month);
+            const monthPurchTotal = monthPurchases.reduce((s,p)=>s+((p.costPrice||p.cost||0)*(p.quantity||1)),0);
+            // Food cost
+            const products = await window.LuccaDB.Products.getActive();
+            const orderItems = await window.LuccaDB.db.getAll('order_items');
+            let totalFoodCost = 0;
+            orderItems.forEach(oi=>{const p=products.find(x=>x.id==(oi.productId||oi.product_id));if(p)totalFoodCost+=(p.cost||0)*(oi.quantity||1);});
+            // P&L
+            const grossProfit = monthSales - totalFoodCost;
+            const netProfit = monthSales - totalFoodCost - monthExpTotal - monthPurchTotal;
+            const profitMargin = monthSales > 0 ? ((netProfit/monthSales)*100) : 0;
+            let h = '<div style="margin-bottom:8px"><b>📊 قائمة الدخل - '+month+'</b></div>';
+            h += '<table class="ai-table"><tr><th>البند</th><th>المبلغ</th></tr>';
+            h += '<tr><td><b>إيرادات المبيعات</b></td><td style="color:#51cf66"><b>'+monthSales.toLocaleString()+' ل.س</b></td></tr>';
+            h += '<tr><td>تكلفة المبيعات (FOOD)</td><td style="color:#ff6b6b">-'+totalFoodCost.toLocaleString()+' ل.س</td></tr>';
+            h += '<tr><td><b>إجمالي الربح</b></td><td><b>'+grossProfit.toLocaleString()+' ل.س</b></td></tr>';
+            h += '<tr><td>المصروفات التشغيلية</td><td style="color:#ff6b6b">-'+monthExpTotal.toLocaleString()+' ل.س</td></tr>';
+            h += '<tr><td>المشتريات</td><td style="color:#ff6b6b">-'+monthPurchTotal.toLocaleString()+' ل.س</td></tr>';
+            h += '<tr><td><b>صافي الربح</b></td><td style="color:'+(netProfit>=0?'#51cf66':'#ff6b6b')+'"><b>'+netProfit.toLocaleString()+' ل.س ('+profitMargin.toFixed(1)+'%)</b></td></tr>';
+            h += '</table>';
+            if(netProfit<0) h+='\n⚠️ الخسارة الشهر الحالي! راجع المصروفات.';
+            if(profitMargin>20) h+='\n✅ هامش صحي! الربحية ممتازة.';
+            return aiBotReply('📊 **التقرير المالي:** '+h,[
+                {text:'تفاصيل المصروفات',cmd:'expenses'},{text:'المشتريات',cmd:'purchases'},{text:'الأرباح',cmd:'profit'}
             ]);
         } catch(e){ return aiBotReply('❌ '+e.message); }
     }
