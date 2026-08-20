@@ -1867,20 +1867,97 @@
             <!-- ===== INVENTORY ===== -->
             <div class="page" id="page-inventory-page">
                 <div class="section-title">📦 إدارة المخزون</div>
-                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
-                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                        <div style="flex:2;min-width:160px"><label>المنتج</label><input type="text" id="invName"></div>
-                        <div style="flex:1;min-width:80px"><label>الكمية</label><input type="number" id="invQty" min="0"></div>
-                        <div style="flex:1;min-width:100px"><label>الوحدة</label><input type="text" id="invUnit" placeholder="كجم/لتر/قطعة"></div>
-                        <div style="flex:1;min-width:100px"><label>التكلفة</label><input type="number" id="invCost" min="0" step="0.01"></div>
-                        <div style="flex:1;min-width:80px"><label>حد أدنى</label><input type="number" id="invMinStock" min="0" value="5"></div>
-                        <button class="btn btn-primary" onclick="addInventory()">إضافة</button>
-                    </div>
-                </div></div>
-                <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>المنتج</th><th>الكمية</th><th>الوحدة</th><th>التكلفة</th><th>الحد الأدنى</th><th>إجراءات</th></tr></thead>
-                    <tbody id="inventoryBody"></tbody></table>
-                </div></div>
+                <!-- Tabs -->
+                <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+                    <button class="btn btn-sm btn-primary" onclick="switchInvTab('items')" id="invTabItems">📦 الأصناف</button>
+                    <button class="btn btn-sm btn-ghost" onclick="switchInvTab('suppliers')" id="invTabSuppliers">🏭 الموردين</button>
+                    <button class="btn btn-sm btn-ghost" onclick="switchInvTab('recipes')" id="invTabRecipes">🍽️ الوصفات</button>
+                    <button class="btn btn-sm btn-ghost" onclick="switchInvTab('movements')" id="invTabMovements">📊 الحركات</button>
+                    <button class="btn btn-sm btn-ghost" onclick="switchInvTab('waste')" id="invTabWaste">🗑️ الهالك</button>
+                </div>
+
+                <!-- Items Tab -->
+                <div id="invPanel-items">
+                    <div class="panel" style="margin-bottom:16px"><div class="panel-body">
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                            <div style="flex:2;min-width:160px"><label>الصنف</label><input type="text" id="invName"></div>
+                            <div style="flex:1;min-width:80px"><label>الكمية</label><input type="number" id="invQty" min="0"></div>
+                            <div style="flex:1;min-width:100px"><label>الوحدة</label><select id="invUnit"><option>كجم</option><option>لتر</option><option>قطعة</option><option>عبوة</option><option>كيس</option><option>علبة</option></select></div>
+                            <div style="flex:1;min-width:100px"><label>التكلفة للوحدة</label><input type="number" id="invCost" min="0" step="0.01"></div>
+                            <div style="flex:1;min-width:80px"><label>حد أدنى</label><input type="number" id="invMinStock" min="0" value="5"></div>
+                            <button class="btn btn-primary" onclick="addInventory()">➕ إضافة</button>
+                        </div>
+                    </div></div>
+                    <div id="lowStockAlert" style="display:none;margin-bottom:12px;padding:12px;background:rgba(255,107,107,.1);border:1px solid var(--danger);border-radius:8px;color:var(--danger);font-size:0.9rem"></div>
+                    <div class="panel"><div class="panel-body no-pad">
+                        <table class="data-table"><thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>التكلفة</th><th>الحد الأدنى</th><th>الحالة</th><th>إجراءات</th></tr></thead>
+                        <tbody id="inventoryBody"></tbody></table>
+                    </div></div>
+                </div>
+
+                <!-- Suppliers Tab -->
+                <div id="invPanel-suppliers" style="display:none">
+                    <div class="panel" style="margin-bottom:16px"><div class="panel-body">
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                            <div style="flex:2;min-width:160px"><label>اسم المورد</label><input type="text" id="supName"></div>
+                            <div style="flex:1;min-width:120px"><label>الهاتف</label><input type="text" id="supPhone"></div>
+                            <div style="flex:1;min-width:120px"><label>العنوان</label><input type="text" id="supAddress"></div>
+                            <button class="btn btn-primary" onclick="addSupplier()">➕ إضافة</button>
+                        </div>
+                    </div></div>
+                    <div class="panel"><div class="panel-body no-pad">
+                        <table class="data-table"><thead><tr><th>الاسم</th><th>الهاتف</th><th>العنوان</th><th>إجراءات</th></tr></thead>
+                        <tbody id="suppliersBody"></tbody></table>
+                    </div></div>
+                </div>
+
+                <!-- Recipes Tab -->
+                <div id="invPanel-recipes" style="display:none">
+                    <div class="panel" style="margin-bottom:16px"><div class="panel-body">
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                            <div style="flex:2;min-width:160px"><label>المنتج</label><select id="recipeProduct"></select></div>
+                            <div style="flex:2;min-width:160px"><label>المكون</label><select id="recipeIngredient"></select></div>
+                            <div style="flex:1;min-width:80px"><label>الكمية المطلوبة</label><input type="number" id="recipeQty" min="0" step="0.1" value="1"></div>
+                            <button class="btn btn-primary" onclick="addRecipe()">➕ إضافة</button>
+                        </div>
+                    </div></div>
+                    <div class="panel"><div class="panel-body no-pad">
+                        <table class="data-table"><thead><tr><th>المنتج</th><th>المكون</th><th>الكمية</th><th>التكلفة</th><th>إجراءات</th></tr></thead>
+                        <tbody id="recipesBody"></tbody></table>
+                    </div></div>
+                </div>
+
+                <!-- Stock Movements Tab -->
+                <div id="invPanel-movements" style="display:none">
+                    <div class="panel" style="margin-bottom:16px"><div class="panel-body">
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                            <div style="flex:1;min-width:120px"><label>من</label><input type="date" id="movFrom"></div>
+                            <div style="flex:1;min-width:120px"><label>إلى</label><input type="date" id="movTo"></div>
+                            <div style="flex:1;min-width:120px"><label>النوع</label><select id="movType"><option value="">الكل</option><option value="purchase">شراء</option><option value="sale">بيع</option><option value="recipe_deduct">استهلاك</option><option value="waste">هالك</option><option value="adjustment">تعديل</option></select></div>
+                            <button class="btn btn-primary" onclick="loadStockMovements()">🔍 بحث</button>
+                        </div>
+                    </div></div>
+                    <div class="panel"><div class="panel-body no-pad">
+                        <table class="data-table"><thead><tr><th>التاريخ</th><th>الصنف</th><th>النوع</th><th>الكمية</th><th>ملاحظات</th></tr></thead>
+                        <tbody id="movementsBody"></tbody></table>
+                    </div></div>
+                </div>
+
+                <!-- Waste Tab -->
+                <div id="invPanel-waste" style="display:none">
+                    <div class="panel" style="margin-bottom:16px"><div class="panel-body">
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                            <div style="flex:2;min-width:160px"><label>الصنف</label><select id="wasteIngredient"></select></div>
+                            <div style="flex:1;min-width:80px"><label>الكمية</label><input type="number" id="wasteQty" min="0.1" step="0.1"></div>
+                            <div style="flex:2;min-width:160px"><label>السبب</label><select id="wasteReason"><option>فساد</option><option>انتهاء الصلاحية</option><option>تلف</option><option>خطأ في الطلبة</option><option>أخرى</option></select></div>
+                            <button class="btn btn-primary" onclick="addWaste()">🗑️ تسجيل هالك</button>
+                        </div>
+                    </div></div>
+                    <div class="panel"><div class="panel-body no-pad">
+                        <table class="data-table"><thead><tr><th>التاريخ</th><th>الصنف</th><th>الكمية</th><th>السبب</th><th>التكلفة</th></tr></thead>
+                        <tbody id="wasteBody"></tbody></table>
+                    </div></div>
+                </div>
             </div>
 
             <!-- ===== PURCHASES ===== -->
@@ -2987,14 +3064,38 @@ async function endShift(){
 }
 
 // ===== INVENTORY =====
+let currentInvTab = 'items';
+function switchInvTab(tab){
+    currentInvTab = tab;
+    ['items','suppliers','recipes','movements','waste'].forEach(t=>{
+        const panel = document.getElementById('invPanel-'+t);
+        const btn = document.getElementById('invTab'+t.charAt(0).toUpperCase()+t.slice(1));
+        if(panel) panel.style.display = t===tab?'':'none';
+        if(btn){ btn.className = t===tab?'btn btn-sm btn-primary':'btn btn-sm btn-ghost'; }
+    });
+    if(tab==='items') loadInventory();
+    if(tab==='suppliers') loadSuppliers();
+    if(tab==='recipes') loadRecipes();
+    if(tab==='movements') loadStockMovements();
+    if(tab==='waste') loadWaste();
+}
+
 async function loadInventory(){
     try {
         const items = await window.LuccaDB.Inventory.getAll();
         const tbody = document.getElementById('inventoryBody');
-        if(!items.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد مخزون</td></tr>'; return; }
+        // Low stock alert
+        const lowStock = items.filter(i=>(i.quantity||0)<=(i.minStock||i.minQuantity||0)&&(i.active||1)===1);
+        const alertDiv = document.getElementById('lowStockAlert');
+        if(lowStock.length){
+            alertDiv.style.display='block';
+            alertDiv.innerHTML='⚠️ <b>تنبيه مخزون منخفض:</b> '+lowStock.map(i=>i.name+' ('+i.quantity+' '+i.unit+')').join(', ');
+        } else { alertDiv.style.display='none'; }
+        if(!items.length){ tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد مخزون</td></tr>'; return; }
         tbody.innerHTML = items.map(i=>{
-            const low = (i.quantity||0)<=(i.minStock||0);
-            return '<tr><td>'+(i.name||'')+'</td><td style="color:'+(low?'var(--danger)':'inherit')+';font-weight:'+(low?700:400)+'">'+(i.quantity||0)+'</td><td>'+(i.unit||'—')+'</td><td>'+formatMoney(i.cost||0)+'</td><td>'+(i.minStock||0)+'</td><td><button class="btn btn-ghost btn-sm" onclick="adjustStock(\''+i.id+'\',1)">➕</button> <button class="btn btn-ghost btn-sm" onclick="adjustStock(\''+i.id+'\',-1)">➖</button> <button class="btn btn-ghost btn-sm" onclick="deleteInventory(\''+i.id+'\')">🗑️</button></td></tr>';
+            const low = (i.quantity||0)<=(i.minStock||i.minQuantity||0);
+            const status = low?'⚠️ منخفض':((i.quantity||0)<=0?'❌ نفد':'✅ متوفر');
+            return '<tr><td><b>'+(i.name||'')+'</b>'+(i.nameAr?'<br><small style="color:var(--text-muted)">'+i.nameAr+'</small>':'')+'</td><td style="color:'+(low?'var(--danger)':'inherit')+';font-weight:'+(low?700:400)+'">'+(i.quantity||0)+'</td><td>'+(i.unit||'—')+'</td><td>'+formatMoney(i.cost||i.costPerUnit||0)+'</td><td>'+(i.minStock||i.minQuantity||0)+'</td><td>'+status+'</td><td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" onclick="adjustInvStock(\''+i.id+'\',5)">+5</button> <button class="btn btn-ghost btn-sm" onclick="adjustInvStock(\''+i.id+'\',1)">➕</button> <button class="btn btn-ghost btn-sm" onclick="adjustInvStock(\''+i.id+'\',-1)">➖</button> <button class="btn btn-ghost btn-sm" onclick="deleteInventory(\''+i.id+'\')">🗑️</button></td></tr>';
         }).join('');
     } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
@@ -3002,24 +3103,126 @@ async function loadInventory(){
 async function addInventory(){
     const name = document.getElementById('invName').value.trim();
     const qty = document.getElementById('invQty').value;
-    const unit = document.getElementById('invUnit').value.trim();
+    const unit = document.getElementById('invUnit').value;
     const cost = document.getElementById('invCost').value;
     const min = document.getElementById('invMinStock').value;
     if(!name){ showToast('أدخل اسم الصنف','error'); return; }
     try {
-        await window.LuccaDB.Inventory.add({ name, quantity:Number(qty)||0, unit, cost:Number(cost)||0, minStock:Number(min)||5, status:'active' });
-        ['invName','invQty','invUnit','invCost'].forEach(id=>document.getElementById(id).value='');
+        await window.LuccaDB.Inventory.add({ name, quantity:Number(qty)||0, unit, cost:Number(cost)||0, costPerUnit:Number(cost)||0, minStock:Number(min)||5, minQuantity:Number(min)||5, active:1 });
+        ['invName','invQty','invCost'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
         loadInventory(); showToast('تمت الإضافة');
     } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
-async function adjustStock(id, delta){
-    try { await window.LuccaDB.Inventory.adjustStock(Number(id)||id, delta); loadInventory(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+async function adjustInvStock(id, delta){
+    try { await window.LuccaDB.Inventory.adjustStock(id, delta, 'adjustment', 'تعديل يدوي'); loadInventory(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 async function deleteInventory(id){
     if(!confirm('حذف هذا العنصر؟')) return;
     try { await window.LuccaDB.Inventory.delete(Number(id)||id); loadInventory(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== SUPPLIERS =====
+async function loadSuppliers(){
+    try {
+        const sups = await window.LuccaDB.Suppliers.getAll();
+        const tbody = document.getElementById('suppliersBody');
+        if(!sups.length){ tbody.innerHTML='<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد موردين</td></tr>'; return; }
+        tbody.innerHTML = sups.map(s=>'<tr><td>'+(s.name||'')+'</td><td>'+(s.phone||'—')+'</td><td>'+(s.address||'—')+'</td><td><button class="btn btn-ghost btn-sm" onclick="deleteSupplier(\''+s.id+'\')">🗑️</button></td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+async function addSupplier(){
+    const name = document.getElementById('supName').value.trim();
+    const phone = document.getElementById('supPhone').value.trim();
+    const address = document.getElementById('supAddress').value.trim();
+    if(!name){ showToast('أدخل اسم المورد','error'); return; }
+    try { await window.LuccaDB.Suppliers.add({name,phone,address,active:1}); document.getElementById('supName').value=''; document.getElementById('supPhone').value=''; document.getElementById('supAddress').value=''; loadSuppliers(); showToast('تمت الإضافة'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+async function deleteSupplier(id){
+    if(!confirm('حذف هذا المورد؟')) return;
+    try { await window.LuccaDB.Suppliers.delete(Number(id)||id); loadSuppliers(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== RECIPES =====
+async function loadRecipes(){
+    try {
+        const recipes = await window.LuccaDB.ProductRecipes.getAll();
+        const products = await window.LuccaDB.Products.getAll();
+        const ingredients = await window.LuccaDB.Inventory.getAll();
+        // Populate selects
+        const prodSel = document.getElementById('recipeProduct');
+        const ingSel = document.getElementById('recipeIngredient');
+        prodSel.innerHTML = '<option value="">اختر منتج</option>' + products.map(p=>'<option value="'+p.id+'">'+(p.nameAr||p.name||'')+'</option>').join('');
+        ingSel.innerHTML = '<option value="">اختر مكون</option>' + ingredients.map(i=>'<option value="'+i.id+'">'+i.name+' ('+i.unit+')</option>').join('');
+        // Display table
+        const tbody = document.getElementById('recipesBody');
+        if(!recipes.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد وصفات بعد. اربط المنتجات بالمكونات!</td></tr>'; return; }
+        const prodMap = {}; products.forEach(p=>{ prodMap[p.id]=p.nameAr||p.name; });
+        const ingMap = {}; ingredients.forEach(i=>{ ingMap[i.id]=i.name+' ('+(i.cost||i.costPerUnit||0)+'/'+i.unit+')'; });
+        tbody.innerHTML = recipes.map(r=>{
+            const cost = (r.quantityNeeded||1) * ((ingredients.find(i=>i.id==r.ingredientId)||{}).cost||0);
+            return '<tr><td>'+(prodMap[r.productId]||r.productId)+'</td><td>'+(ingMap[r.ingredientId]||r.ingredientId)+'</td><td>'+(r.quantityNeeded||1)+'</td><td>'+formatMoney(cost)+'</td><td><button class="btn btn-ghost btn-sm" onclick="deleteRecipe(\''+r.id+'\')">🗑️</button></td></tr>';
+        }).join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+async function addRecipe(){
+    const productId = document.getElementById('recipeProduct').value;
+    const ingredientId = document.getElementById('recipeIngredient').value;
+    const qty = document.getElementById('recipeQty').value;
+    if(!productId||!ingredientId){ showToast('اختر المنتج والمكون','error'); return; }
+    try { await window.LuccaDB.ProductRecipes.add({productId:Number(productId),ingredientId,quantityNeeded:Number(qty)||1}); loadRecipes(); showToast('تمت الإضافة'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+async function deleteRecipe(id){
+    if(!confirm('حذف هذا الوصفة؟')) return;
+    try { await window.LuccaDB.ProductRecipes.delete(Number(id)||id); loadRecipes(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== STOCK MOVEMENTS =====
+async function loadStockMovements(){
+    try {
+        let movements = await window.LuccaDB.StockMovements.getAll();
+        const from = document.getElementById('movFrom').value;
+        const to = document.getElementById('movTo').value;
+        const type = document.getElementById('movType').value;
+        if(from) movements = movements.filter(m=>(m.date||m.createdAt||'').slice(0,10)>=from);
+        if(to) movements = movements.filter(m=>(m.date||m.createdAt||'').slice(0,10)<=to);
+        if(type) movements = movements.filter(m=>m.type===type);
+        movements.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+        const ingredients = await window.LuccaDB.Inventory.getAll();
+        const ingMap = {}; ingredients.forEach(i=>{ ingMap[i.id]=i.name; });
+        const typeLabels = {purchase:'شراء',sale:'بيع',recipe_deduct:'استهلاك',waste:'هالك',adjustment:'تعديل',count:'جرد'};
+        const tbody = document.getElementById('movementsBody');
+        if(!movements.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد حركات</td></tr>'; return; }
+        tbody.innerHTML = movements.slice(0,100).map(m=>'<tr><td>'+formatDate(m.date||m.createdAt)+'</td><td>'+(ingMap[m.ingredientId]||m.ingredientId||'—')+'</td><td>'+(typeLabels[m.type]||m.type)+'</td><td style="color:'+(m.quantity<0?'var(--danger)':'var(--success)')+'">'+(m.quantity>0?'+':'')+m.quantity+'</td><td>'+(m.notes||'—')+'</td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== WASTE =====
+async function loadWaste(){
+    try {
+        const waste = await window.LuccaDB.WasteLog.getAll();
+        const ingredients = await window.LuccaDB.Inventory.getAll();
+        const ingSel = document.getElementById('wasteIngredient');
+        ingSel.innerHTML = '<option value="">اختر صنف</option>' + ingredients.map(i=>'<option value="'+i.id+'">'+i.name+' (متوفر: '+i.quantity+' '+i.unit+')</option>').join('');
+        const ingMap = {}; ingredients.forEach(i=>{ ingMap[i.id]=i.name; });
+        waste.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+        const tbody = document.getElementById('wasteBody');
+        if(!waste.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد هالك مسجل</td></tr>'; return; }
+        tbody.innerHTML = waste.slice(0,50).map(w=>'<tr><td>'+formatDate(w.date||w.createdAt)+'</td><td>'+(ingMap[w.ingredientId]||'—')+'</td><td>'+w.quantity+'</td><td>'+(w.reason||'—')+'</td><td>'+formatMoney(w.cost||0)+'</td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+async function addWaste(){
+    const ingredientId = document.getElementById('wasteIngredient').value;
+    const qty = document.getElementById('wasteQty').value;
+    const reason = document.getElementById('wasteReason').value;
+    if(!ingredientId||!qty){ showToast('اختر الصنف والكمية','error'); return; }
+    try {
+        const ing = await window.LuccaDB.Inventory.get(Number(ingredientId)||ingredientId);
+        const cost = (ing?ing.cost||ing.costPerUnit||0:0) * Number(qty);
+        await window.LuccaDB.WasteLog.add({ingredientId,quantity:Number(qty),reason,cost,performed_by:currentUser?.username||''});
+        loadWaste(); showToast('تم تسجيل الهالك');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
 // ===== PURCHASES =====
