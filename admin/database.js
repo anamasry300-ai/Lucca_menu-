@@ -7,7 +7,7 @@
 
 // ==================== قاعدة البيانات المحلية ====================
 const DB_NAME = 'lucca_caffe_db';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 class LuccaDatabase {
     constructor() {
@@ -199,6 +199,16 @@ class LuccaDatabase {
                     const bmStore = db.createObjectStore('botMemory', { keyPath: 'id', autoIncrement: true });
                     bmStore.createIndex('type', 'type', { unique: false });
                     bmStore.createIndex('keywords', 'keywords', { unique: false });
+                }
+                // قاعدة المعرفة (Knowledge Base)
+                if (!db.objectStoreNames.contains('knowledge_documents')) {
+                    const kdStore = db.createObjectStore('knowledge_documents', { keyPath: 'id', autoIncrement: true });
+                    kdStore.createIndex('type', 'type', { unique: false });
+                    kdStore.createIndex('name', 'name', { unique: false });
+                }
+                if (!db.objectStoreNames.contains('knowledge_chunks')) {
+                    const kcStore = db.createObjectStore('knowledge_chunks', { keyPath: 'id', autoIncrement: true });
+                    kcStore.createIndex('documentId', 'documentId', { unique: false });
                 }
             };
         });
@@ -1991,5 +2001,153 @@ const BotMemory = {
     }
 };
 
+// ===== Knowledge Base Module =====
+const CHUNK_SIZE = 500;
+const CHUNK_OVERLAP = 100;
+
+function chunkText(text, maxLen, overlap){
+    maxLen = maxLen || CHUNK_SIZE;
+    overlap = overlap || CHUNK_OVERLAP;
+    if(!text || text.length === 0) return [];
+    const chunks = [];
+    const sentences = text.split(/(?<=[.!?\n])\s+/);
+    let current = '';
+    for(const sentence of sentences){
+        if((current + ' ' + sentence).length > maxLen && current.length > 0){
+            chunks.push(current.trim());
+            const words = current.split(/\s+/);
+            const overlapWords = words.slice(-Math.ceil(overlap / 5));
+            current = overlapWords.join(' ') + ' ' + sentence;
+        } else {
+            current = current ? current + ' ' + sentence : sentence;
+        }
+    }
+    if(current.trim()) chunks.push(current.trim());
+    return chunks;
+}
+
+function estimateTokens(text){
+    return Math.ceil((text || '').split(/\s+/).length * 1.3);
+}
+
+const KnowledgeBase = {
+    async addDocument(doc){
+        const entry = {
+            name: doc.name || 'Untitled',
+            type: doc.type || 'text',
+            content: doc.content || '',
+            chunksCount: 0,
+            tags: doc.tags || '',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+        entry.id = await this._add('knowledge_documents', entry);
+        const chunks = chunkText(entry.content);
+        for(let i = 0; i < chunks.length; i++){
+            await this._add('knowledge_chunks', {
+                documentId: entry.id,
+                content: chunks[i],
+                chunkIndex: i,
+                tokensEstimate: estimateTokens(chunks[i]),
+                createdAt: new Date().toISOString()
+            });
+        }
+        entry.chunksCount = chunks.length;
+        await this._put('knowledge_documents', entry);
+        return entry;
+    },
+
+    async getAllDocuments(){
+        return this._getAll('knowledge_documents');
+    },
+
+    async getDocument(id){
+        return this._get('knowledge_documents', id);
+    },
+
+    async removeDocument(id){
+        const chunks = await this.getChunksByDocument(id);
+        for(const c of chunks) await this._delete('knowledge_chunks', c.id);
+        return this._delete('knowledge_documents', id);
+    },
+
+    async getChunksByDocument(documentId){
+        const all = await this._getAll('knowledge_chunks');
+        return all.filter(c => c.documentId === documentId);
+    },
+
+    async searchChunks(query){
+        const all = await this._getAll('knowledge_chunks');
+        const terms = query.toLowerCase().split(/[\s,.\-!?]+/).filter(t => t.length > 1);
+        const scored = [];
+        for(const chunk of all){
+            const content = (chunk.content || '').toLowerCase();
+            let score = 0;
+            for(const term of terms){
+                if(content.includes(term)){
+                    score += 1;
+                    const count = (content.match(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+                    if(count > 1) score += 0.5 * (count - 1);
+                }
+            }
+            if(content.includes(query.toLowerCase())) score += 5;
+            if(score > 0) scored.push({...chunk, score});
+        }
+        return scored.sort((a,b) => b.score - a.score).slice(0, 20);
+    },
+
+    async search(query){
+        const results = await this.searchChunks(query);
+        if(results.length === 0) return null;
+        let context = '';
+        for(const r of results.slice(0, 3)){
+            context += r.content + '\n---\n';
+        }
+        return { results, context: context.trim(), count: results.length };
+    },
+
+    async ingestText(name, text, tags){
+        return this.addDocument({ name, type: 'text', content: text, tags: tags || '' });
+    },
+
+    async ingestFile(file){
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const doc = await this.addDocument({
+                        name: file.name,
+                        type: file.type || 'text/plain',
+                        content: e.target.result,
+                        tags: ''
+                    });
+                    resolve(doc);
+                } catch(err) { reject(err); }
+            };
+            reader.onerror = reject;
+            reader.readAsText(file);
+        });
+    },
+
+    async getStats(){
+        const docs = await this.getAllDocuments();
+        let totalChunks = 0;
+        let totalTokens = 0;
+        for(const doc of docs){
+            const chunks = await this.getChunksByDocument(doc.id);
+            totalChunks += chunks.length;
+            totalTokens += chunks.reduce((s,c) => s + (c.tokensEstimate||0), 0);
+        }
+        return { documents: docs.length, chunks: totalChunks, tokens: totalTokens };
+    },
+
+    // Generic DB helpers
+    async _add(store, item){ return db.add(store, item); },
+    async _put(store, item){ return db.put(store, item); },
+    async _get(store, id){ return db.get(store, id); },
+    async _getAll(store){ return db.getAll(store); },
+    async _delete(store, id){ return db.delete(store, id); }
+};
+
 // تصدير للاستخدام
-window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, initSystem };
+window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, KnowledgeBase, initSystem };

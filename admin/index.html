@@ -1556,6 +1556,7 @@
             <div class="sidebar-section">
                 <div class="sidebar-section-title">التقارير</div>
                 <a class="sidebar-link" data-page="reports-page"><span class="icon">📈</span>مركز التقارير</a>
+                <a class="sidebar-link" data-page="kb-page"><span class="icon">📚</span>قاعدة المعرفة</a>
             </div>
             <div class="sidebar-section">
                 <div class="sidebar-section-title">النظام</div>
@@ -2048,6 +2049,39 @@
                 </div></div>
             </div>
 
+            <!-- ===== KNOWLEDGE BASE ===== -->
+            <div class="page" id="page-kb-page">
+                <div class="section-title">📚 قاعدة المعرفة</div>
+                <div class="panel" style="margin-bottom:16px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:2;min-width:200px"><label>اسم المستند</label><input type="text" id="kbDocName" placeholder="مثال: وصفة كابتشينو"></div>
+                        <div style="flex:1;min-width:120px"><label>التصنيف</label><input type="text" id="kbDocTags" placeholder="وصفات, مشروبات"></div>
+                        <button class="btn btn-primary" onclick="loadKBFileInput()">📁 رفع ملف</button>
+                        <input type="file" id="kbFileInput" accept=".txt,.md,.csv" style="display:none" onchange="handleKBFileUpload(event)">
+                    </div>
+                    <div style="margin-top:12px">
+                        <label>أو اكتب النص مباشرة:</label>
+                        <textarea id="kbDocContent" rows="4" placeholder="اكتب أو الصق النص هنا..." style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;resize:vertical"></textarea>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:12px">
+                        <button class="btn btn-primary" onclick="addKBDocument()">➕ إضافة المستند</button>
+                        <button class="btn btn-ghost" onclick="refreshKBStats()">🔄 تحديث</button>
+                    </div>
+                </div></div>
+
+                <div class="panel" style="margin-bottom:16px"><div class="panel-body">
+                    <div id="kbStats" style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.9rem;color:var(--text-secondary)">
+                        <span>📄 المستندات: <strong id="kbStatDocs">0</strong></span>
+                        <span>📝 الأجزاء: <strong id="kbStatChunks">0</strong></span>
+                        <span>🔍 للبحث: اكتب في البوت</span>
+                    </div>
+                </div></div>
+
+                <div class="panel"><div class="panel-body">
+                    <div id="kbDocList" style="font-size:0.9rem">جاري التحميل...</div>
+                </div></div>
+            </div>
+
         </div><!-- content-area -->
     </div><!-- main-content -->
 </div><!-- app -->
@@ -2144,6 +2178,7 @@ function initTabs(){
                 'expenses-page': ()=>loadExpenses(),
                 'roles-page': ()=>loadRoleUsers(),
                 'audit-page': ()=>loadAuditLogs(),
+                'kb-page': ()=>{ refreshKBStats(); loadKBDocList(); },
             };
             if(loaders[page]) loaders[page]();
         });
@@ -3532,6 +3567,71 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     </div>
 </div>
 
+// ===== KNOWLEDGE BASE FUNCTIONS =====
+function loadKBFileInput(){ document.getElementById('kbFileInput').click(); }
+async function handleKBFileUpload(e){
+    const file = e.target.files[0];
+    if(!file) return;
+    try{
+        const text = await file.text();
+        const doc = await window.LuccaDB.KnowledgeBase.addDocument({ name: file.name, type: file.type || 'text', content: text, tags: '' });
+        showToast('تم رفع المستند: ' + file.name + ' (' + doc.chunksCount + ' جزء)');
+        refreshKBStats();
+        loadKBDocList();
+    } catch(err){ showToast('خطأ: ' + err.message, 'error'); }
+    e.target.value = '';
+}
+async function addKBDocument(){
+    const name = document.getElementById('kbDocName').value.trim();
+    const content = document.getElementById('kbDocContent').value.trim();
+    const tags = document.getElementById('kbDocTags').value.trim();
+    if(!name || !content){ showToast('أدخل اسم المستند والنص', 'error'); return; }
+    try{
+        const doc = await window.LuccaDB.KnowledgeBase.addDocument({ name, type: 'text', content, tags });
+        showToast('تمت الإضافة: ' + doc.chunksCount + ' جزء');
+        document.getElementById('kbDocName').value = '';
+        document.getElementById('kbDocContent').value = '';
+        document.getElementById('kbDocTags').value = '';
+        refreshKBStats();
+        loadKBDocList();
+    } catch(err){ showToast('خطأ: ' + err.message, 'error'); }
+}
+async function refreshKBStats(){
+    try{
+        const stats = await window.LuccaDB.KnowledgeBase.getStats();
+        document.getElementById('kbStatDocs').textContent = stats.documents;
+        document.getElementById('kbStatChunks').textContent = stats.chunks;
+    } catch(e){}
+}
+async function loadKBDocList(){
+    const list = document.getElementById('kbDocList');
+    try{
+        const docs = await window.LuccaDB.KnowledgeBase.getAllDocuments();
+        if(!docs.length){ list.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px">لا توجد مستندات بعد. أضف أول مستند!</div>'; return; }
+        let h = '<table style="width:100%;border-collapse:collapse"><tr><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border)">الاسم</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border)">النوع</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border)">الأجزاء</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border)">التاريخ</th><th style="padding:8px;border-bottom:1px solid var(--border)">إجراءات</th></tr>';
+        docs.forEach(d => {
+            h += '<tr style="border-bottom:1px solid var(--border)">';
+            h += '<td style="padding:8px">' + (d.name || '') + '</td>';
+            h += '<td style="padding:8px">' + (d.type || '') + '</td>';
+            h += '<td style="padding:8px">' + (d.chunksCount || 0) + '</td>';
+            h += '<td style="padding:8px">' + new Date(d.createdAt).toLocaleDateString('ar-EG') + '</td>';
+            h += '<td style="padding:8px"><button class="btn btn-sm" onclick="deleteKBDoc(' + d.id + ')" style="color:var(--danger)">🗑️</button></td>';
+            h += '</tr>';
+        });
+        h += '</table>';
+        list.innerHTML = h;
+    } catch(e){ list.innerHTML = '<div style="color:var(--danger)">خطأ في التحميل</div>'; }
+}
+async function deleteKBDoc(id){
+    if(!confirm('حذف هذا المستند؟')) return;
+    try{
+        await window.LuccaDB.KnowledgeBase.removeDocument(id);
+        showToast('تم الحذف');
+        refreshKBStats();
+        loadKBDocList();
+    } catch(e){ showToast('خطأ: ' + e.message, 'error'); }
+}
+
 <!-- ===== AI ASSISTANT BOT (Admin) ===== -->
 <script src="../ai-pos-engine.js"></script>
 <!-- ===== BATMAN AI BOT — ADMIN COMMAND CENTER ===== -->
@@ -3654,10 +3754,21 @@ async function processAdminBot(text){
     if(matchAny(t,['الفواتير','فاتورة','invoice'])){
         try{const orders=await window.LuccaDB.Orders.getAll();const today=new Date().toISOString().slice(0,10);const tO=orders.filter(o=>(o.createdAt||o.date||'').slice(0,10)===today);const total=tO.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);let h='<table class="ai-table"><tr><th>رقم</th><th>المبلغ</th></tr>';tO.slice(-5).reverse().forEach(o=>{h+='<tr><td>'+(o.orderNumber||o.id)+'</td><td>'+(o.total||0).toLocaleString()+' ل.س</td></tr>';});h+='</table>';return aiBotReply('🧾 **فواتير اليوم ('+tO.length+')**: '+h+'<div style="font-weight:700">الإجمالي: '+total.toLocaleString()+' ل.س</div>');}catch(e){return aiBotReply('❌ '+e.message);}
     }
-    if(matchAny(t,['تথ'])){
+    if(matchAny(t,['تथ'])){
         return aiBotReply('✅ أنت في لوحة التحكم. كيف أستطيع المساعدة؟',[{text:'تقرير يومي',cmd:'report'},{text:'الموظفين',cmd:'employees'}]);
     }
-    return aiBotReply('🤔 ما فهمت. جرب:\n• "مبيعات اليوم"\n• "تقرير يومي"\n• "الموظفين"\n• "المنتجات"\n• "المصروفات"\n• "الفواتير"\n• "حضور موظف"',[{text:'تقرير',cmd:'report'},{text:'المبيعات',cmd:'sales'},{text:'الموظفين',cmd:'employees'}]);
+    // ===== SEARCH KNOWLEDGE BASE =====
+    try{
+        if(window.LuccaDB && window.LuccaDB.KnowledgeBase){
+            const kbResult = await window.LuccaDB.KnowledgeBase.search(text);
+            if(kbResult && kbResult.context){
+                return aiBotReply('📚 **من قاعدة المعرفة:**\n\n'+kbResult.context.substring(0,800)+(kbResult.context.length>800?'...':'')+'\n\n<sub>('+kbResult.count+' نتيجة)</sub>',[
+                    {text:'اسأل عن شي ثاني',cmd:'default'}
+                ]);
+            }
+        }
+    }catch(e){}
+    return aiBotReply('🤔 ما فهمت. جرب:\n• "مبيعات اليوم"\n• "تقرير يومي"\n• "الموظفين"\n• "المنتجات"\n• "المصروفات"\n• "الفواتير"\n• "حضور موظف"\n• "قاعدة المعرفة"',[{text:'تقرير',cmd:'report'},{text:'المبيعات',cmd:'sales'},{text:'الموظفين',cmd:'employees'},{text:'المعرفة',cmd:'knowledge'}]);
 }
 </script>
 </body>

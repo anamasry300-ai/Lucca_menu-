@@ -5007,6 +5007,19 @@ async function processAiCommand(text){
         }
     } catch(e){}
 
+    // ===== SEARCH KNOWLEDGE BASE (RAG) =====
+    try{
+        if(window.LuccaDB.KnowledgeBase){
+            const kbResult = await window.LuccaDB.KnowledgeBase.search(text);
+            if(kbResult && kbResult.context){
+                return aiBotReply('📚 **من قاعدة المعرفة:**\n\n' + kbResult.context.substring(0, 800) + (kbResult.context.length > 800 ? '...' : '') + '\n\n<sub>(تم العثور على ' + kbResult.count + ' نتيجة من ' + kbResult.results.length + ' جزء)</sub>',[
+                    {text:'علّمني المعلومة',cmd:'teach'},
+                    {text:'اسأل عن شي ثاني',cmd:'default'}
+                ]);
+            }
+        }
+    } catch(e){}
+
     // ===== LOG THIS INTERACTION =====
     try{ await window.LuccaDB.BotMemory.logInteraction(text, 'unhandled', ''); } catch(e){}
 
