@@ -1,11 +1,18 @@
 import { Router, Request, Response } from 'express';
 import { getDb, saveDb, queryAll, queryOne, insert, getLastInsertId, beginTransaction, commitTransaction, rollbackTransaction } from '../db.js';
 
+const VALID_COL_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+function sanitizeColumnName(name: string): string | null {
+  if (!VALID_COL_RE.test(name) || name.length > 64) return null;
+  return `\`${name}\``;
+}
+
 const router = Router();
 
 const VALID_TABLE_STATUSES = new Set(['available', 'occupied', 'reserved', 'cleaning', 'closed']);
-const VALID_ORDER_STATUSES = new Set(['pending', 'completed', 'cancelled', 'closed']);
-const JSON_COLUMNS = new Set(['items']);
+const VALID_ORDER_STATUSES = new Set(['pending', 'in_preparation', 'ready', 'served', 'completed', 'cancelled', 'closed']);
+const JSON_COLUMNS = new Set(['items', 'modifiers']);
 
 function parseRow(row: Record<string, unknown>): Record<string, unknown> {
   const obj: Record<string, unknown> = {};
@@ -32,10 +39,23 @@ function serializeRow(obj: Record<string, unknown>): Record<string, unknown> {
   return row;
 }
 
+function recordAuditLog(action: string, objectType: string, objectId: string | number, newValue?: unknown) {
+  try {
+    const db = getDb();
+    db.run(
+      "INSERT INTO audit_logs (action, objectType, objectId, newValue, userName, createdAt) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+      [action, objectType, String(objectId), typeof newValue === 'string' ? newValue : JSON.stringify(newValue || ''), 'system']
+    );
+  } catch (_) { /* audit logging is best-effort */ }
+}
+
 const SAFE_TABLES = new Set([
-  'users', 'tables', 'orders', 'customers',
+  'users', 'tables', 'tables_store', 'orders', 'customers',
   'inventory', 'purchases', 'employees', 'attendance',
-  'expenses', 'shifts', 'daily_shifts'
+  'expenses', 'shifts', 'daily_shifts',
+  'categories', 'products', 'product_modifiers', 'product_variations',
+  'payment_methods', 'taxes', 'payments', 'refunds',
+  'order_items', 'order_status_history', 'audit_logs', 'discounts'
 ]);
 
 router.get('/:store', (req: Request, res: Response) => {
@@ -65,6 +85,8 @@ router.get('/:store/:id', (req: Request, res: Response) => {
 router.post('/:store', (req: Request, res: Response) => {
   const store = req.params.store as string;
   if (!SAFE_TABLES.has(store)) { res.status(400).json({ error: 'Invalid store' }); return; }
+  // Prevent direct user creation via generic CRUD (use dedicated endpoint)
+  if (store === 'users') { res.status(403).json({ error: 'Cannot create users via generic endpoint' }); return; }
   try {
     const data = serializeRow(req.body);
 
@@ -95,16 +117,16 @@ router.post('/:store', (req: Request, res: Response) => {
       return;
     }
 
-    const keys = Object.keys(data);
-    if (keys.length === 0) { res.status(400).json({ error: 'No data' }); return; }
-    const cols = keys.map(k => `\`${k}\``).join(', ');
-    const vals = keys.map(() => '?').join(', ');
+    const safeKeys = Object.keys(data).filter(k => VALID_COL_RE.test(k) && k.length <= 64);
+    if (safeKeys.length === 0) { res.status(400).json({ error: 'No valid columns' }); return; }
+    const cols = safeKeys.map(k => `\`${k}\``).join(', ');
+    const vals = safeKeys.map(() => '?').join(', ');
 
     let id: number;
     if (store === 'orders') {
       beginTransaction();
       try {
-        id = insert(`INSERT INTO \`${store}\` (${cols}) VALUES (${vals})`, keys.map(k => data[k]));
+        id = insert(`INSERT INTO \`${store}\` (${cols}) VALUES (${vals})`, safeKeys.map(k => data[k]));
         // If this order is for a table, update table status
         if (data.tableId && data.tableId !== 'takeaway' && !isNaN(Number(data.tableId)) && data.status === 'pending') {
           const db = getDb();
@@ -123,10 +145,10 @@ router.post('/:store', (req: Request, res: Response) => {
       beginTransaction();
       try {
         const db = getDb();
-        const placeholders = keys.map(() => '?').join(', ');
+        const placeholders = safeKeys.map(() => '?').join(', ');
         db.run(
           `INSERT OR REPLACE INTO \`${store}\` (${cols}) VALUES (${placeholders})`,
-          keys.map(k => data[k])
+          safeKeys.map(k => data[k])
         );
         saveDb();
         id = (data.id as number) || 0;
@@ -136,10 +158,11 @@ router.post('/:store', (req: Request, res: Response) => {
         throw e;
       }
     } else {
-      id = insert(`INSERT INTO \`${store}\` (${cols}) VALUES (${vals})`, keys.map(k => data[k]));
+      id = insert(`INSERT INTO \`${store}\` (${cols}) VALUES (${vals})`, safeKeys.map(k => data[k]));
     }
 
     const created = queryOne(`SELECT * FROM \`${store}\` WHERE id = ?`, [id || getLastInsertId()]);
+    recordAuditLog('create', store, id || getLastInsertId(), created);
     res.status(201).json(created ? parseRow(created) : { id });
   } catch (e: unknown) {
     res.status(500).json({ error: (e as Error).message });
@@ -152,7 +175,8 @@ router.put('/:store/:id', (req: Request, res: Response) => {
   if (!SAFE_TABLES.has(store)) { res.status(400).json({ error: 'Invalid store' }); return; }
   try {
     const data = serializeRow(req.body);
-    const keys = Object.keys(data);
+    const allKeys = Object.keys(data);
+    const keys = allKeys.filter(k => VALID_COL_RE.test(k) && k.length <= 64);
     if (keys.length === 0) { res.json({ success: true }); return; }
 
     // Validation for table status updates

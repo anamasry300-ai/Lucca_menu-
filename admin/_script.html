@@ -1,0 +1,1110 @@
+<script>
+let currentUser = null;
+let dbReady = false;
+let currentReportData = null;
+let currentReportType = '';
+let salesChartView = 'daily';
+
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function formatMoney(n){ return (Number(n)||0).toLocaleString('ar-EG',{maximumFractionDigits:0}); }
+function formatDate(d){ return d ? new Date(d).toLocaleDateString('ar-EG',{year:'numeric',month:'short',day:'numeric'}) : ''; }
+function formatTime(d){ return d ? new Date(d).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'}) : ''; }
+function getServerUrl(){ return localStorage.getItem('luccaServerUrl') || 'http://localhost:3000'; }
+
+function showToast(text, type){
+    const t = document.getElementById('toast');
+    t.textContent = text;
+    t.className = 'toast ' + (type||'success');
+    t.style.display = 'flex';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(()=>{ t.style.display = 'none'; }, 2500);
+}
+
+async function apiFetch(path){
+    const url = getServerUrl() + '/api' + path;
+    const key = localStorage.getItem('luccaApiKey') || '';
+    const res = await fetch(url, { headers:{'x-api-key':key,'Content-Type':'application/json'}, signal: AbortSignal.timeout(8000) });
+    if(!res.ok) throw new Error('API '+res.status);
+    return res.json();
+}
+
+function getDateRange(){
+    return { from: document.getElementById('dateFrom').value || todayStr(), to: document.getElementById('dateTo').value || todayStr() };
+}
+
+// ===== INIT =====
+async function init(){
+    try { await window.LuccaDB.initSystem(); dbReady = true; } catch(e){ console.error('Init failed',e); }
+}
+
+// ===== AUTH =====
+async function doLogin(){
+    const user = document.getElementById('loginUser').value.trim();
+    const pass = document.getElementById('loginPass').value;
+    if(!user||!pass){ document.getElementById('loginError').textContent='أدخل بيانات صحيحة'; return; }
+    try {
+        const u = await window.LuccaDB.Users.login(user, pass);
+        currentUser = u;
+        document.getElementById('loginScreen').style.display='none';
+        document.getElementById('app').style.display='flex';
+        document.getElementById('userDisplayName').textContent = u.displayName || u.username;
+        document.getElementById('userRoleDisplay').textContent = u.role || 'user';
+        document.getElementById('userAvatar').textContent = (u.displayName||u.username||'U')[0].toUpperCase();
+        initDateFilter();
+        initTabs();
+        refreshDashboard();
+    } catch(e){ document.getElementById('loginError').textContent = 'خطأ في تسجيل الدخول'; }
+}
+
+function doLogout(){
+    window.LuccaDB.Users.logout();
+    currentUser = null;
+    document.getElementById('loginScreen').style.display='flex';
+    document.getElementById('app').style.display='none';
+}
+
+// ===== TABS =====
+function initTabs(){
+    document.querySelectorAll('.sidebar-link').forEach(link => {
+        link.addEventListener('click', function(){
+            const page = this.dataset.page;
+            if(!page) return;
+            document.querySelectorAll('.sidebar-link').forEach(l=>l.classList.remove('active'));
+            this.classList.add('active');
+            document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+            const target = document.getElementById('page-'+page);
+            if(target) target.classList.add('active');
+            const loaders = {
+                'dashboard': ()=>refreshDashboard(),
+                'orders-page': ()=>loadOrders(),
+                'tables-page': ()=>loadTables(),
+                'categories-page': ()=>loadCategories(),
+                'products-page': ()=>{ loadProducts(); populateProductSelects(); },
+                'paymethods-page': ()=>loadPaymentMethods(),
+                'employees-page': ()=>loadEmployees(),
+                'attendance-page': ()=>loadAttendance(),
+                'shifts-page': ()=>loadShifts(),
+                'inventory-page': ()=>loadInventory(),
+                'purchases-page': ()=>loadPurchases(),
+                'expenses-page': ()=>loadExpenses(),
+                'roles-page': ()=>loadRoleUsers(),
+                'audit-page': ()=>loadAuditLogs(),
+            };
+            if(loaders[page]) loaders[page]();
+        });
+    });
+}
+
+function toggleSidebar(){
+    document.getElementById('sidebar').classList.toggle('open');
+}
+
+// ===== DARK MODE =====
+function toggleDarkMode(){
+    document.documentElement.classList.toggle('dark');
+    localStorage.setItem('luccaDarkMode', document.documentElement.classList.contains('dark'));
+}
+(function(){ if(localStorage.getItem('luccaDarkMode')==='true') document.documentElement.classList.add('dark'); })();
+
+// ===== DATE FILTER =====
+function initDateFilter(){
+    document.getElementById('dateFrom').value = todayStr();
+    document.getElementById('dateTo').value = todayStr();
+    document.querySelectorAll('.date-preset').forEach(btn => {
+        btn.addEventListener('click', function(){
+            document.querySelectorAll('.date-preset').forEach(b=>b.classList.remove('active'));
+            this.classList.add('active');
+            const r = this.dataset.range;
+            const t = todayStr();
+            let f = t;
+            if(r==='yesterday'){ const d=new Date(); d.setDate(d.getDate()-1); f=d.toISOString().slice(0,10); }
+            else if(r==='7d'){ const d=new Date(); d.setDate(d.getDate()-7); f=d.toISOString().slice(0,10); }
+            else if(r==='30d'){ const d=new Date(); d.setDate(d.getDate()-30); f=d.toISOString().slice(0,10); }
+            else if(r==='month'){ const d=new Date(); d.setDate(1); f=d.toISOString().slice(0,10); }
+            document.getElementById('dateFrom').value = f;
+            document.getElementById('dateTo').value = t;
+            refreshDashboard();
+        });
+    });
+}
+
+function onDateFilterChange(){
+    document.querySelectorAll('.date-preset').forEach(b=>b.classList.remove('active'));
+    refreshDashboard();
+}
+
+// ===== GLOBAL SEARCH =====
+function handleGlobalSearch(val){
+    if(!val.trim()) return;
+    document.querySelectorAll('.sidebar-link').forEach(l=>l.classList.remove('active'));
+    const pl = document.querySelector('[data-page="products-page"]');
+    if(pl) pl.classList.add('active');
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    document.getElementById('page-products-page').classList.add('active');
+    document.getElementById('prodSearch').value = val;
+    loadProducts();
+    searchProducts();
+}
+
+// ===== DASHBOARD =====
+async function refreshDashboard(){
+    const {from, to} = getDateRange();
+    try {
+        const [kpis, salesByDay, categories, payments, topProducts, liveOrders, tables, insights, alerts] = await Promise.all([
+            apiFetch('/dashboard/kpis?from='+from+'&to='+to),
+            apiFetch('/dashboard/sales-by-day?from='+from+'&to='+to),
+            apiFetch('/dashboard/sales-by-category?from='+from+'&to='+to),
+            apiFetch('/dashboard/payments?from='+from+'&to='+to),
+            apiFetch('/dashboard/top-products?from='+from+'&to='+to+'&limit=8'),
+            apiFetch('/dashboard/live-orders'),
+            apiFetch('/dashboard/tables'),
+            apiFetch('/dashboard/insights?from='+from+'&to='+to),
+            apiFetch('/dashboard/alerts')
+        ]);
+        renderKPIs(kpis);
+        renderSalesChart(salesByDay);
+        renderCategoryAnalytics(categories);
+        renderPaymentAnalytics(payments);
+        renderTopProducts(topProducts);
+        renderLiveOrders(liveOrders);
+        renderTablesStatus(tables);
+        renderInsights(insights);
+        renderAlerts(alerts);
+    } catch(e){
+        document.getElementById('kpiGrid').innerHTML = '<div class="alert alert-danger">خطأ في تحميل البيانات: '+e.message+'</div>';
+    }
+}
+
+function renderKPIs(d){
+    const set = (id, val) => { const el=document.getElementById(id); if(el) el.textContent=val; };
+    const setTrend = (id, change) => {
+        const el = document.getElementById(id); if(!el) return;
+        if(change===undefined||change===null){ el.textContent='—'; el.className='kpi-trend neutral'; return; }
+        const v = Number(change);
+        if(v > 0){ el.textContent='↑ '+v.toFixed(1)+'%'; el.className='kpi-trend up'; }
+        else if(v < 0){ el.textContent='↓ '+Math.abs(v).toFixed(1)+'%'; el.className='kpi-trend down'; }
+        else { el.textContent='— 0%'; el.className='kpi-trend neutral'; }
+    };
+    set('kpiSales', formatMoney(d.sales?.value||0));
+    setTrend('kpiSalesTrend', d.sales?.change);
+    set('kpiOrders', d.orders?.value||0);
+    setTrend('kpiOrdersTrend', d.orders?.change);
+    set('kpiAvgOrder', formatMoney(d.avgOrder?.value||0));
+    setTrend('kpiAvgTrend', d.avgOrder?.change);
+    set('kpiDiscounts', formatMoney(d.discounts?.value||0));
+    set('kpiRefunds', formatMoney(d.refunds?.value||0));
+    if(d.grossProfit) set('kpiProfit', formatMoney(d.grossProfit.value)+' ('+d.grossProfit.margin?.toFixed(1)+'%)');
+    else set('kpiProfit', 'بيانات التكلفة غير متاحة');
+}
+
+function renderSalesChart(data){
+    const body = document.getElementById('salesChartBody');
+    if(!data||data.length===0){ body.innerHTML='<div class="empty-state"><div class="icon">📊</div><p>لا توجد بيانات مبيعات</p></div>'; return; }
+    const max = Math.max(...data.map(d=>d.revenue||0), 1);
+    const colors = ['#3B82F6','#60A5FA','#93C5FD','#2563EB','#1D4ED8'];
+    let html = '<div class="bar-chart">';
+    data.forEach((d,i)=>{
+        const h = Math.max(((d.revenue||0)/max)*100, 2);
+        const label = salesChartView==='monthly' ? (d.date||'').slice(0,7) : (d.date||'').slice(5);
+        html += '<div class="bar-group"><div class="bar-value">'+formatMoney(d.revenue||0)+'</div><div class="bar" style="height:'+h+'%;background:'+colors[i%colors.length]+'"></div><div class="bar-label">'+label+'</div></div>';
+    });
+    html += '</div>';
+    body.innerHTML = html;
+}
+
+function setChartView(view, btn){
+    salesChartView = view;
+    document.querySelectorAll('.chart-tab').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    refreshDashboard();
+}
+
+function renderCategoryAnalytics(data){
+    const el = document.getElementById('categoryAnalytics');
+    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">📂</div><p>لا توجد بيانات</p></div>'; return; }
+    const total = data.reduce((s,d)=>s+(d.revenue||0),0);
+    const colors = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6'];
+    let gradParts = []; let acc = 0;
+    data.slice(0,7).forEach((d,i)=>{
+        const pct = total>0?(d.revenue/total*100):0;
+        gradParts.push(colors[i]+' '+acc+'% '+(acc+pct)+'%');
+        acc += pct;
+    });
+    let html = '<div style="text-align:center"><div class="donut-chart" style="background:conic-gradient('+gradParts.join(',')+')"></div></div>';
+    html += '<div class="donut-legend">';
+    data.slice(0,7).forEach((d,i)=>{
+        const pct = total>0?(d.revenue/total*100).toFixed(1):0;
+        html += '<div class="legend-item"><div class="legend-dot" style="background:'+colors[i]+'"></div>'+d.name+' — '+formatMoney(d.revenue)+' ('+pct+'%)</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+}
+
+function renderPaymentAnalytics(data){
+    const el = document.getElementById('paymentAnalytics');
+    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">💳</div><p>لا توجد بيانات</p></div>'; return; }
+    const methodNames = {cash:'كاش',card:'كارت',digital:'رقمي',other:'أخرى',split:'مقسم'};
+    const colors = ['#10B981','#3B82F6','#8B5CF6','#F59E0B','#EF4444'];
+    let gradParts = []; let acc = 0;
+    data.forEach((d,i)=>{
+        const pct = d.percentage||0;
+        gradParts.push(colors[i%colors.length]+' '+acc+'% '+(acc+pct)+'%');
+        acc += pct;
+    });
+    let html = '<div style="text-align:center"><div class="donut-chart" style="background:conic-gradient('+gradParts.join(',')+')"></div></div>';
+    html += '<div class="donut-legend">';
+    data.forEach((d,i)=>{
+        html += '<div class="legend-item"><div class="legend-dot" style="background:'+colors[i%colors.length]+'"></div>'+(methodNames[d.method]||d.method)+' — '+formatMoney(d.total)+' ('+(d.percentage||0).toFixed(1)+'%)</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+}
+
+function renderTopProducts(data){
+    const el = document.getElementById('topProductsPanel');
+    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">🏆</div><p>لا توجد بيانات</p></div>'; return; }
+    let html = '<table class="data-table"><thead><tr><th>#</th><th>المنتج</th><th>القسم</th><th>الكمية</th><th>الإيراد</th></tr></thead><tbody>';
+    data.forEach((d,i)=>{
+        html += '<tr><td>'+(i+1)+'</td><td>'+d.name+'</td><td><span class="badge badge-info">'+(d.category||'—')+'</span></td><td>'+d.quantity+'</td><td>'+formatMoney(d.revenue)+'</td></tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+function renderLiveOrders(data){
+    const el = document.getElementById('liveOrdersPanel');
+    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">✅</div><p>لا توجد طلبات نشطة</p></div>'; return; }
+    const statusMap = {pending:'⏳ قيد الانتظار',in_preparation:'🔥 قيد التحضير',ready:'✅ جاهز',served:'🍽️ تم التقديم'};
+    let html = '<table class="data-table"><thead><tr><th>رقم</th><th>الطاولة</th><th>الإجمالي</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>';
+    data.forEach(d=>{
+        const st = d.status||'pending';
+        const cls = st==='pending'?'badge-warning':st==='in_preparation'?'badge-danger':st==='ready'?'badge-success':'badge-info';
+        html += '<tr><td>'+(d.orderNumber||d.id)+'</td><td>'+(d.tableId||'—')+'</td><td>'+formatMoney(d.total)+'</td><td><span class="badge '+cls+'">'+(statusMap[st]||st)+'</span></td><td>'+formatTime(d.createdAt)+'</td></tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+function renderTablesStatus(data){
+    const el = document.getElementById('tablesStatusPanel');
+    if(!data||!data.tables||data.tables.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">🪑</div><p>لا توجد طاولات</p></div>'; return; }
+    let html = '<div class="table-grid">';
+    data.tables.forEach(t=>{
+        const st = t.status||'available';
+        html += '<div class="table-cell '+st+'"><div style="font-size:1.2rem;font-weight:800">'+t.number+'</div><div style="font-size:0.7rem;opacity:0.7">'+(t.capacity||'')+' أشخاص</div></div>';
+    });
+    html += '</div>';
+    if(data.summary&&data.summary.length){
+        html += '<div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap">';
+        data.summary.forEach(s=>{
+            const label = s.status==='available'?'متاحة':s.status==='occupied'?'مشغولة':s.status==='reserved'?'محجوزة':s.status;
+            const cls = s.status==='available'?'badge-success':s.status==='occupied'?'badge-danger':'badge-warning';
+            html += '<span class="badge '+cls+'">'+label+': '+s.count+'</span>';
+        });
+        html += '</div>';
+    }
+    el.innerHTML = html;
+}
+
+function renderInsights(data){
+    const el = document.getElementById('insightsPanel');
+    if(!data||data.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">💡</div><p>لا توجد رؤى حالياً</p></div>'; return; }
+    let html = '';
+    data.forEach(d=>{
+        const icon = d.severity==='success'?'✅':d.severity==='warning'?'⚠️':d.severity==='danger'?'🚨':'💡';
+        html += '<div class="insight-card"><span>'+icon+'</span><span>'+d.message+'</span></div>';
+    });
+    el.innerHTML = html;
+}
+
+function renderAlerts(data){
+    const el = document.getElementById('alertsPanel');
+    if(!data||data.length===0){ el.innerHTML=''; return; }
+    let html = '';
+    data.forEach(d=>{
+        html += '<div class="alert alert-'+(d.severity==='danger'?'danger':'warning')+'">'+d.message+'</div>';
+    });
+    el.innerHTML = html;
+}
+
+// ===== ORDERS =====
+async function loadOrders(){
+    const from = document.getElementById('ordersDateFrom').value || todayStr();
+    const to = document.getElementById('ordersDateTo').value || todayStr();
+    const status = document.getElementById('ordersStatusFilter').value;
+    try {
+        const orders = await window.LuccaDB.Orders.getByDateRange(from, to);
+        let filtered = status ? orders.filter(o=>o.status===status) : orders;
+        filtered.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+        const total = filtered.reduce((s,o)=>s+(o.total||0),0);
+        const avg = filtered.length ? total/filtered.length : 0;
+        const cancelled = filtered.filter(o=>o.status==='cancelled').length;
+        document.getElementById('ordersKpiCount').textContent = filtered.length;
+        document.getElementById('ordersKpiTotal').textContent = formatMoney(total);
+        document.getElementById('ordersKpiAvg').textContent = formatMoney(avg);
+        document.getElementById('ordersKpiCancelled').textContent = cancelled;
+        const tbody = document.getElementById('ordersBody');
+        if(!filtered.length){ tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد طلبات</td></tr>'; return; }
+        const stMap = {pending:'⏳ قيد الانتظار',in_preparation:'🔥 قيد التحضير',ready:'✅ جاهز',served:'🍽️ تم التقديم',closed:'🔒 مغلق',cancelled:'❌ ملغي'};
+        tbody.innerHTML = filtered.map(o=>{
+            const st = o.status||'pending';
+            const cls = st==='closed'?'badge-success':st==='cancelled'?'badge-danger':st==='ready'?'badge-success':st==='in_preparation'?'badge-danger':'badge-warning';
+            return '<tr><td>'+(o.orderNumber||o.id)+'</td><td>'+(o.tableId||'—')+'</td><td>'+(o.customerName||'—')+'</td><td>'+formatMoney(o.total)+'</td><td>'+(o.paymentMethod||'—')+'</td><td><span class="badge '+cls+'">'+(stMap[st]||st)+'</span></td><td>'+formatDate(o.date)+'</td><td><button class="btn btn-ghost btn-sm" onclick="viewOrderDetails(\''+o.id+'\')">تفاصيل</button></td></tr>';
+        }).join('');
+    } catch(e){ document.getElementById('ordersBody').innerHTML='<tr><td colspan="8" style="color:var(--danger)">'+e.message+'</td></tr>'; }
+}
+
+function viewOrderDetails(id){
+    window.LuccaDB.db.get('orders', Number(id)||id).then(o=>{
+        if(!o){ showToast('الطلب غير موجود','error'); return; }
+        const items = JSON.parse(o.items||'[]');
+        let msg = 'طلب #'+(o.orderNumber||o.id)+'\nالطاولة: '+(o.tableId||'—')+'\nالعميل: '+(o.customerName||'—')+'\nالحالة: '+o.status+'\nالدفع: '+(o.paymentMethod||'—')+'\n\nالمنتجات:\n';
+        items.forEach(i=>{ msg += '  • '+i.name+' × '+i.quantity+' = '+formatMoney(i.total||i.quantity*(i.unitPrice||i.price||0))+'\n'; });
+        msg += '\nالإجمالي: '+formatMoney(o.total);
+        alert(msg);
+    });
+}
+
+// ===== TABLES =====
+async function loadTables(){
+    try {
+        const tables = await window.LuccaDB.Tables.getAll();
+        const tbody = document.getElementById('tablesBody');
+        if(!tables.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد طاولات</td></tr>'; return; }
+        const stLabels = {available:'✅ متاحة',occupied:'🔴 مشغولة',reserved:'🟡 محجوزة'};
+        const stCls = {available:'badge-success',occupied:'badge-danger',reserved:'badge-warning'};
+        tbody.innerHTML = tables.map(t=>{
+            const st = t.status||'available';
+            return '<tr><td>'+t.number+'</td><td>'+(t.capacity||'—')+'</td><td>'+(t.zone||'—')+'</td><td><span class="badge '+(stCls[st]||'badge-neutral')+'">'+(stLabels[st]||st)+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editTableModal(\''+t.id+'\')">✏️</button> <button class="btn btn-ghost btn-sm" onclick="deleteTable(\''+t.id+'\')">🗑️</button></td></tr>';
+        }).join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function addTable(){
+    const num = document.getElementById('tableNumber').value;
+    const cap = document.getElementById('tableCapacity').value;
+    const zone = document.getElementById('tableZone').value.trim();
+    if(!num){ showToast('أدخل رقم الطاولة','error'); return; }
+    try {
+        await window.LuccaDB.Tables.add({ number:Number(num), capacity:Number(cap)||4, zone:zone||null, status:'available' });
+        document.getElementById('tableNumber').value='';
+        loadTables(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function editTableModal(id){
+    const t = await window.LuccaDB.Tables.getById(Number(id)||id);
+    if(!t) return;
+    const num = prompt('رقم الطاولة:', t.number);
+    if(num===null) return;
+    const cap = prompt('السعة:', t.capacity);
+    const zone = prompt('المنطقة:', t.zone||'');
+    try {
+        await window.LuccaDB.Tables.update(Number(id)||id, { number:Number(num), capacity:Number(cap)||t.capacity, zone:zone||null });
+        loadTables(); showToast('تم التحديث');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function deleteTable(id){
+    if(!confirm('حذف الطاولة؟')) return;
+    try { await window.LuccaDB.Tables.delete(Number(id)||id); loadTables(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== CATEGORIES =====
+async function loadCategories(){
+    try {
+        const cats = await window.LuccaDB.Categories.getAll();
+        const tbody = document.getElementById('categoriesBody');
+        if(!cats.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد أقسام</td></tr>'; return; }
+        tbody.innerHTML = cats.map(c=>{
+            const active = c.active!==0 && c.active!==false;
+            return '<tr><td>'+(c.icon||'📂')+'</td><td>'+(c.nameAr||c.name||'')+'</td><td>'+(c.nameEn||'')+'</td><td>'+(c.sortOrder||0)+'</td><td><span class="badge '+(active?'badge-success':'badge-neutral')+'">'+(active?'نشط':'معطل')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editCategoryModal(\''+c.id+'\')">✏️</button> <button class="btn btn-ghost btn-sm" onclick="toggleCategory(\''+c.id+'\','+(active?0:1)+')">'+(active?'🔒':'🔓')+'</button> <button class="btn btn-ghost btn-sm" onclick="deleteCategory(\''+c.id+'\')">🗑️</button></td></tr>';
+        }).join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function addCategory(){
+    const nameAr = document.getElementById('catNameAr').value.trim();
+    const nameEn = document.getElementById('catNameEn').value.trim();
+    const icon = document.getElementById('catIcon').value.trim();
+    const sort = document.getElementById('catSort').value;
+    if(!nameAr){ showToast('أدخل اسم القسم','error'); return; }
+    try {
+        await window.LuccaDB.Categories.add({ nameAr, nameEn, name:nameAr, icon:icon||'📂', sortOrder:Number(sort)||0, active:1 });
+        ['catNameAr','catNameEn','catIcon'].forEach(id=>document.getElementById(id).value='');
+        loadCategories(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function editCategoryModal(id){
+    const cats = await window.LuccaDB.Categories.getAll();
+    const c = cats.find(x=>String(x.id)===String(id));
+    if(!c) return;
+    const nameAr = prompt('الاسم بالعربية:', c.nameAr||c.name||'');
+    if(nameAr===null) return;
+    const nameEn = prompt('الاسم بالإنجليزية:', c.nameEn||'');
+    const icon = prompt('الأيقونة:', c.icon||'📂');
+    try {
+        await window.LuccaDB.Categories.update(Number(id)||id, { nameAr, nameEn, name:nameAr, icon:icon||'📂' });
+        loadCategories(); showToast('تم التحديث');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function toggleCategory(id, newActive){
+    try { await window.LuccaDB.Categories.update(Number(id)||id, { active:newActive }); loadCategories(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function deleteCategory(id){
+    if(!confirm('حذف القسم؟')) return;
+    try { await window.LuccaDB.Categories.delete(Number(id)||id); loadCategories(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== PRODUCTS =====
+async function loadProducts(){
+    try {
+        const prods = await window.LuccaDB.Products.getAll();
+        const cats = await window.LuccaDB.Categories.getAll();
+        const catMap = {}; cats.forEach(c=>{ catMap[c.id]=c.nameAr||c.name||''; });
+        const search = (document.getElementById('prodSearch')?.value||'').toLowerCase();
+        const filterCat = document.getElementById('prodFilterCat')?.value;
+        let filtered = prods;
+        if(search) filtered = filtered.filter(p=>(p.name||p.nameAr||'').toLowerCase().includes(search)||(p.nameEn||'').toLowerCase().includes(search));
+        if(filterCat) filtered = filtered.filter(p=>String(p.categoryId)===String(filterCat));
+        const tbody = document.getElementById('productsBody');
+        if(!filtered.length){ tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد منتجات</td></tr>'; return; }
+        const badgeLabels = {new:'جديد',popular:'رائج',sale:'تخفيض'};
+        tbody.innerHTML = filtered.map(p=>{
+            const price = Number(p.price)||0; const cost = Number(p.costPrice)||0; const profit = price-cost;
+            const avail = p.available!==0 && p.available!==false;
+            return '<tr><td>'+(p.nameAr||p.name||'')+'</td><td>'+(catMap[p.categoryId]||p.category||'—')+'</td><td>'+formatMoney(price)+'</td><td>'+formatMoney(cost)+'</td><td style="color:'+(profit>=0?'var(--success)':'var(--danger)')+'">'+formatMoney(profit)+'</td><td>'+(p.badge?'<span class="badge badge-warning">'+(badgeLabels[p.badge]||p.badge)+'</span>':'')+'</td><td><span class="badge '+(avail?'badge-success':'badge-neutral')+'">'+(avail?'متاح':'معطل')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editProductModal(\''+p.id+'\')">✏️</button> <button class="btn btn-ghost btn-sm" onclick="toggleProduct(\''+p.id+'\','+(avail?0:1)+')">'+(avail?'🔒':'🔓')+'</button> <button class="btn btn-ghost btn-sm" onclick="deleteProduct(\''+p.id+'\')">🗑️</button></td></tr>';
+        }).join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function populateProductSelects(){
+    try {
+        const cats = await window.LuccaDB.Categories.getActive();
+        const opts = cats.map(c=>'<option value="'+c.id+'">'+(c.icon||'')+' '+(c.nameAr||c.name||'')+'</option>').join('');
+        const pc = document.getElementById('prodCategory');
+        if(pc) pc.innerHTML = '<option value="">اختر القسم</option>' + opts;
+        const fc = document.getElementById('prodFilterCat');
+        if(fc) fc.innerHTML = '<option value="">كل الأقسام</option>' + opts;
+    } catch(e){}
+}
+
+async function addProduct(){
+    const nameAr = document.getElementById('prodNameAr').value.trim();
+    const nameEn = document.getElementById('prodNameEn').value.trim();
+    const catId = document.getElementById('prodCategory').value;
+    const price = document.getElementById('prodPrice').value;
+    const cost = document.getElementById('prodCost').value;
+    const type = document.getElementById('prodType').value;
+    const badge = document.getElementById('prodBadge').value;
+    if(!nameAr||!price){ showToast('أدخل الاسم والسعر','error'); return; }
+    try {
+        await window.LuccaDB.Products.add({ nameAr, nameEn, name:nameAr, categoryId:Number(catId)||null, category:'', price:Number(price), costPrice:Number(cost)||0, productType:type, badge:badge||null, available:1, sortOrder:0 });
+        ['prodNameAr','prodNameEn','prodPrice','prodCost'].forEach(id=>document.getElementById(id).value='');
+        loadProducts(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function editProductModal(id){
+    const prods = await window.LuccaDB.Products.getAll();
+    const p = prods.find(x=>String(x.id)===String(id));
+    if(!p) return;
+    const name = prompt('الاسم:', p.nameAr||p.name||'');
+    if(name===null) return;
+    const price = prompt('السعر:', p.price);
+    const cost = prompt('التكلفة:', p.costPrice||0);
+    try {
+        await window.LuccaDB.Products.update(Number(id)||id, { nameAr:name, name, price:Number(price), costPrice:Number(cost)||0 });
+        loadProducts(); showToast('تم التحديث');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function toggleProduct(id, newAvail){
+    try { await window.LuccaDB.Products.update(Number(id)||id, { available:newAvail }); loadProducts(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function deleteProduct(id){
+    if(!confirm('حذف المنتج؟')) return;
+    try { await window.LuccaDB.Products.delete(Number(id)||id); loadProducts(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+function searchProducts(){ loadProducts(); }
+function filterProducts(){ loadProducts(); }
+
+// ===== PAYMENT METHODS =====
+async function loadPaymentMethods(){
+    try {
+        const methods = await window.LuccaDB.PaymentMethods.getAll();
+        const tbody = document.getElementById('paymethodsBody');
+        if(!methods.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد طرق دفع</td></tr>'; return; }
+        const typeLabels = {cash:'كاش',card:'كارت',digital:'رقمي',other:'أخرى'};
+        tbody.innerHTML = methods.map(m=>{
+            const active = m.active!==0 && m.active!==false;
+            return '<tr><td>'+(m.nameAr||m.name||'')+'</td><td>'+(m.nameEn||'')+'</td><td><span class="badge badge-info">'+(typeLabels[m.type]||m.type||'—')+'</span></td><td>'+(m.sortOrder||0)+'</td><td><span class="badge '+(active?'badge-success':'badge-neutral')+'">'+(active?'نشط':'معطل')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editPaymentMethodModal(\''+m.id+'\')">✏️</button> <button class="btn btn-ghost btn-sm" onclick="togglePaymentMethod(\''+m.id+'\','+(active?0:1)+')">'+(active?'🔒':'🔓')+'</button> <button class="btn btn-ghost btn-sm" onclick="deletePaymentMethod(\''+m.id+'\')">🗑️</button></td></tr>';
+        }).join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function addPaymentMethod(){
+    const nameAr = document.getElementById('pmNameAr').value.trim();
+    const nameEn = document.getElementById('pmNameEn').value.trim();
+    const type = document.getElementById('pmType').value;
+    const sort = document.getElementById('pmSort').value;
+    if(!nameAr){ showToast('أدخل اسم طريقة الدفع','error'); return; }
+    try {
+        await window.LuccaDB.PaymentMethods.add({ nameAr, nameEn, name:nameAr, type, sortOrder:Number(sort)||0, active:1 });
+        ['pmNameAr','pmNameEn'].forEach(id=>document.getElementById(id).value='');
+        loadPaymentMethods(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function editPaymentMethodModal(id){
+    const methods = await window.LuccaDB.PaymentMethods.getAll();
+    const m = methods.find(x=>String(x.id)===String(id));
+    if(!m) return;
+    const name = prompt('الاسم:', m.nameAr||m.name||'');
+    if(name===null) return;
+    const type = prompt('النوع (cash/card/digital/other):', m.type||'cash');
+    try {
+        await window.LuccaDB.PaymentMethods.update(Number(id)||id, { nameAr:name, name, type:type||m.type });
+        loadPaymentMethods(); showToast('تم التحديث');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function togglePaymentMethod(id, newActive){
+    try { await window.LuccaDB.PaymentMethods.update(Number(id)||id, { active:newActive }); loadPaymentMethods(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function deletePaymentMethod(id){
+    if(!confirm('حذف طريقة الدفع؟')) return;
+    try { await window.LuccaDB.PaymentMethods.delete(Number(id)||id); loadPaymentMethods(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== EMPLOYEES =====
+async function loadEmployees(){
+    try {
+        const emps = await window.LuccaDB.Employees.getAll();
+        const tbody = document.getElementById('employeesBody');
+        if(!emps.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد موظفون</td></tr>'; return; }
+        const roleLabels = {cashier:'كاشير',waiter:'جرسون',chef:'طباخ',manager:'مدير'};
+        tbody.innerHTML = emps.map(e=>{
+            const active = e.active!==false && e.active!==0;
+            return '<tr><td>'+(e.name||'')+'</td><td>'+(e.phone||'—')+'</td><td><span class="badge badge-info">'+(roleLabels[e.role]||e.role||'—')+'</span></td><td>'+formatMoney(e.salary||0)+'</td><td><span class="badge '+(active?'badge-success':'badge-neutral')+'">'+(active?'نشط':'معطل')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="toggleEmployee(\''+e.id+'\','+(active?0:1)+')">'+(active?'🔒':'🔓')+'</button> <button class="btn btn-ghost btn-sm" onclick="deleteEmployee(\''+e.id+'\')">🗑️</button></td></tr>';
+        }).join('');
+        populateEmployeeSelects();
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function addEmployee(){
+    const name = document.getElementById('empName').value.trim();
+    const phone = document.getElementById('empPhone').value.trim();
+    const role = document.getElementById('empRole').value;
+    const salary = document.getElementById('empSalary').value;
+    if(!name){ showToast('أدخل اسم الموظف','error'); return; }
+    try {
+        await window.LuccaDB.Employees.add({ name, phone, role, salary:Number(salary)||0, active:true, createdAt:new Date().toISOString() });
+        ['empName','empPhone','empSalary'].forEach(id=>document.getElementById(id).value='');
+        loadEmployees(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function toggleEmployee(id, newActive){
+    try { await window.LuccaDB.Employees.update(Number(id)||id, { active:!!newActive }); loadEmployees(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function deleteEmployee(id){
+    if(!confirm('حذف الموظف؟')) return;
+    try { await window.LuccaDB.Employees.delete(Number(id)||id); loadEmployees(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function populateEmployeeSelects(){
+    try {
+        const emps = await window.LuccaDB.Employees.getActive();
+        const opts = emps.map(e=>'<option value="'+e.id+'">'+e.name+'</option>').join('');
+        ['attEmployee','shiftEmployee'].forEach(id=>{
+            const el = document.getElementById(id);
+            if(el) el.innerHTML = '<option value="">اختر الموظف</option>' + opts;
+        });
+    } catch(e){}
+}
+
+// ===== ATTENDANCE =====
+async function loadAttendance(){
+    try {
+        const from = document.getElementById('attDateFrom').value;
+        const to = document.getElementById('attDateTo').value;
+        let records = await window.LuccaDB.Attendance.getAll();
+        if(from) records = records.filter(r=>r.date>=from);
+        if(to) records = records.filter(r=>r.date<=to);
+        records.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+        const emps = await window.LuccaDB.Employees.getAll();
+        const empMap = {}; emps.forEach(e=>{ empMap[e.id]=e.name; });
+        const tbody = document.getElementById('attendanceBody');
+        if(!records.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد سجلات</td></tr>'; return; }
+        tbody.innerHTML = records.map(r=>'<tr><td>'+(empMap[r.employeeId]||r.employeeId)+'</td><td>'+(r.date||'')+'</td><td>'+(r.checkIn||'—')+'</td><td>'+(r.checkOut||'—')+'</td><td>'+(r.hoursWorked?r.hoursWorked+'h':'—')+'</td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function checkIn(){
+    const empId = document.getElementById('attEmployee').value;
+    if(!empId){ showToast('اختر الموظف','error'); return; }
+    try { await window.LuccaDB.Attendance.checkIn(Number(empId)); loadAttendance(); showToast('تم تسجيل الحضور'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function checkOut(){
+    const empId = document.getElementById('attEmployee').value;
+    if(!empId){ showToast('اختر الموظف','error'); return; }
+    try { await window.LuccaDB.Attendance.checkOut(Number(empId)); loadAttendance(); showToast('تم تسجيل الانصراف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== SHIFTS =====
+async function loadShifts(){
+    try {
+        const from = document.getElementById('shiftDateFrom').value;
+        const to = document.getElementById('shiftDateTo').value;
+        let shifts = await window.LuccaDB.Shifts.getAll();
+        if(from) shifts = shifts.filter(s=>s.date>=from);
+        if(to) shifts = shifts.filter(s=>s.date<=to);
+        shifts.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+        const emps = await window.LuccaDB.Employees.getAll();
+        const empMap = {}; emps.forEach(e=>{ empMap[e.id]=e.name; });
+        const tbody = document.getElementById('shiftsBody');
+        if(!shifts.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد وديات</td></tr>'; return; }
+        tbody.innerHTML = shifts.map(s=>'<tr><td>'+(empMap[s.employeeId]||s.employeeId)+'</td><td>'+(s.date||'')+'</td><td>'+(s.startTime||'—')+'</td><td>'+(s.endTime||'—')+'</td><td>'+(s.hoursWorked?s.hoursWorked+'h':'—')+'</td><td>'+formatMoney(s.totalSales||0)+'</td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function startShift(){
+    const empId = document.getElementById('shiftEmployee').value;
+    if(!empId){ showToast('اختر الموظف','error'); return; }
+    try { await window.LuccaDB.Shifts.start(Number(empId)); loadShifts(); showToast('تم بدء الوردية'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function endShift(){
+    const empId = document.getElementById('shiftEmployee').value;
+    if(!empId){ showToast('اختر الموظف','error'); return; }
+    try { await window.LuccaDB.Shifts.end(Number(empId)); loadShifts(); showToast('تم إنهاء الوردية'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== INVENTORY =====
+async function loadInventory(){
+    try {
+        const items = await window.LuccaDB.Inventory.getAll();
+        const tbody = document.getElementById('inventoryBody');
+        if(!items.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد مخزون</td></tr>'; return; }
+        tbody.innerHTML = items.map(i=>{
+            const low = (i.quantity||0)<=(i.minStock||0);
+            return '<tr><td>'+(i.name||'')+'</td><td style="color:'+(low?'var(--danger)':'inherit')+';font-weight:'+(low?700:400)+'">'+(i.quantity||0)+'</td><td>'+(i.unit||'—')+'</td><td>'+formatMoney(i.cost||0)+'</td><td>'+(i.minStock||0)+'</td><td><button class="btn btn-ghost btn-sm" onclick="adjustStock(\''+i.id+'\',1)">➕</button> <button class="btn btn-ghost btn-sm" onclick="adjustStock(\''+i.id+'\',-1)">➖</button> <button class="btn btn-ghost btn-sm" onclick="deleteInventory(\''+i.id+'\')">🗑️</button></td></tr>';
+        }).join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function addInventory(){
+    const name = document.getElementById('invName').value.trim();
+    const qty = document.getElementById('invQty').value;
+    const unit = document.getElementById('invUnit').value.trim();
+    const cost = document.getElementById('invCost').value;
+    const min = document.getElementById('invMinStock').value;
+    if(!name){ showToast('أدخل اسم الصنف','error'); return; }
+    try {
+        await window.LuccaDB.Inventory.add({ name, quantity:Number(qty)||0, unit, cost:Number(cost)||0, minStock:Number(min)||5, status:'active' });
+        ['invName','invQty','invUnit','invCost'].forEach(id=>document.getElementById(id).value='');
+        loadInventory(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function adjustStock(id, delta){
+    try { await window.LuccaDB.Inventory.adjustStock(Number(id)||id, delta); loadInventory(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function deleteInventory(id){
+    if(!confirm('حذف الصنف؟')) return;
+    try { await window.LuccaDB.Inventory.delete(Number(id)||id); loadInventory(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== PURCHASES =====
+async function loadPurchases(){
+    try {
+        let purchases = await window.LuccaDB.Purchases.getAll();
+        purchases.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+        const tbody = document.getElementById('purchasesBody');
+        if(!purchases.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد مشتريات</td></tr>'; return; }
+        tbody.innerHTML = purchases.map(p=>'<tr><td>'+(p.item||p.name||'')+'</td><td>'+(p.quantity||'—')+'</td><td>'+formatMoney(p.costPrice||p.cost||0)+'</td><td>'+(p.supplier||'—')+'</td><td>'+formatDate(p.date)+'</td><td><button class="btn btn-ghost btn-sm" onclick="deletePurchase(\''+p.id+'\')">🗑️</button></td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function addPurchase(){
+    const item = document.getElementById('purchItem').value.trim();
+    const qty = document.getElementById('purchQty').value;
+    const cost = document.getElementById('purchCost').value;
+    const supplier = document.getElementById('purchSupplier').value.trim();
+    const notes = document.getElementById('purchNotes').value.trim();
+    if(!item||!qty){ showToast('أدخل الصنف والكمية','error'); return; }
+    try {
+        await window.LuccaDB.Purchases.add({ item, name:item, quantity:Number(qty), costPrice:Number(cost)||0, cost:Number(cost)||0, supplier, notes, date:todayStr() });
+        ['purchItem','purchQty','purchCost','purchSupplier','purchNotes'].forEach(id=>document.getElementById(id).value='');
+        loadPurchases(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function deletePurchase(id){
+    if(!confirm('حذف المشتريات؟')) return;
+    try { await window.LuccaDB.Purchases.delete(Number(id)||id); loadPurchases(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== EXPENSES =====
+async function loadExpenses(){
+    try {
+        const from = document.getElementById('expDateFrom').value;
+        const to = document.getElementById('expDateTo').value;
+        let expenses = await window.LuccaDB.Expenses.getAll();
+        if(from) expenses = expenses.filter(e=>e.date>=from);
+        if(to) expenses = expenses.filter(e=>e.date<=to);
+        expenses.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+        const tbody = document.getElementById('expensesBody');
+        if(!expenses.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد مصروفات</td></tr>'; return; }
+        tbody.innerHTML = expenses.map(e=>'<tr><td>'+(e.description||'')+'</td><td>'+formatMoney(e.amount||0)+'</td><td>'+(e.category||'—')+'</td><td>'+formatDate(e.date)+'</td><td><button class="btn btn-ghost btn-sm" onclick="deleteExpense(\''+e.id+'\')">🗑️</button></td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function addExpense(){
+    const desc = document.getElementById('expDesc').value.trim();
+    const amount = document.getElementById('expAmount').value;
+    const category = document.getElementById('expCategory').value.trim();
+    const notes = document.getElementById('expNotes').value.trim();
+    if(!desc||!amount){ showToast('أدخل الوصف والمبلغ','error'); return; }
+    try {
+        await window.LuccaDB.Expenses.add({ description:desc, amount:Number(amount), category, notes, date:todayStr() });
+        ['expDesc','expAmount','expCategory','expNotes'].forEach(id=>document.getElementById(id).value='');
+        loadExpenses(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function deleteExpense(id){
+    if(!confirm('حذف المصروف؟')) return;
+    try { await window.LuccaDB.Expenses.delete(Number(id)||id); loadExpenses(); showToast('تم الحذف'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== REPORTS =====
+async function loadReport(type){
+    currentReportType = type;
+    const {from, to} = getDateRange();
+    const output = document.getElementById('reportOutput');
+    const content = document.getElementById('reportContent');
+    const title = document.getElementById('reportTitle');
+    output.style.display = 'block';
+    content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    const titles = {sales:'تقرير المبيعات',orders:'تقرير الطلبات',payments:'تقرير المدفوعات',products:'تقرير المنتجات',categories:'تقرير الأقسام',employees:'تقرير الموظفين',discounts:'تقرير الخصومات',refunds:'تقرير المرتجعات',profit:'تقرير الأرباح',inventory:'تقرير المخزون',shifts:'تقرير الورديات'};
+    title.textContent = titles[type]||'تقرير';
+    try {
+        let html = '';
+        if(type==='sales'){
+            const d = await apiFetch('/dashboard/sales-by-day?from='+from+'&to='+to);
+            const k = await apiFetch('/dashboard/kpis?from='+from+'&to='+to);
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card green"><div class="kpi-value">'+formatMoney(k.sales?.value||0)+'</div><div class="kpi-label">صافي المبيعات</div></div><div class="kpi-card blue"><div class="kpi-value">'+(k.orders?.value||0)+'</div><div class="kpi-label">الطلبات</div></div><div class="kpi-card purple"><div class="kpi-value">'+formatMoney(k.avgOrder?.value||0)+'</div><div class="kpi-label">متوسط الطلب</div></div></div>';
+            html += '<table class="data-table"><thead><tr><th>التاريخ</th><th>الطلبات</th><th>الإيراد</th></tr></thead><tbody>';
+            d.forEach(r=>{ html += '<tr><td>'+r.date+'</td><td>'+r.orders+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
+            html += '</tbody></table>';
+            currentReportData = d;
+        } else if(type==='orders'){
+            const orders = await window.LuccaDB.Orders.getByDateRange(from, to);
+            html += '<table class="data-table"><thead><tr><th>رقم</th><th>الطاولة</th><th>العميل</th><th>الإجمالي</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>';
+            orders.forEach(o=>{ html += '<tr><td>'+(o.orderNumber||o.id)+'</td><td>'+(o.tableId||'—')+'</td><td>'+(o.customerName||'—')+'</td><td>'+formatMoney(o.total)+'</td><td>'+o.status+'</td><td>'+formatDate(o.date)+'</td></tr>'; });
+            html += '</tbody></table>';
+            currentReportData = orders;
+        } else if(type==='payments'){
+            const d = await apiFetch('/dashboard/payments?from='+from+'&to='+to);
+            html += '<table class="data-table"><thead><tr><th>الطريقة</th><th>العدد</th><th>الإجمالي</th><th>النسبة</th></tr></thead><tbody>';
+            d.forEach(r=>{ html += '<tr><td>'+r.method+'</td><td>'+r.count+'</td><td>'+formatMoney(r.total)+'</td><td>'+(r.percentage||0).toFixed(1)+'%</td></tr>'; });
+            html += '</tbody></table>';
+            currentReportData = d;
+        } else if(type==='products'){
+            const d = await apiFetch('/dashboard/products?from='+from+'&to='+to);
+            html += '<table class="data-table"><thead><tr><th>المنتج</th><th>القسم</th><th>السعر</th><th>التكلفة</th><th>الكمية</th><th>الإيراد</th></tr></thead><tbody>';
+            d.forEach(r=>{ html += '<tr><td>'+(r.name||r.nameAr||'')+'</td><td>'+(r.categoryName||r.category||'—')+'</td><td>'+formatMoney(r.price)+'</td><td>'+formatMoney(r.costPrice||0)+'</td><td>'+(r.qtySold||0)+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
+            html += '</tbody></table>';
+            currentReportData = d;
+        } else if(type==='categories'){
+            const d = await apiFetch('/dashboard/categories?from='+from+'&to='+to);
+            html += '<table class="data-table"><thead><tr><th>القسم</th><th>المنتجات</th><th>الكمية</th><th>الإيراد</th></tr></thead><tbody>';
+            d.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.productCount||0)+'</td><td>'+(r.qtySold||0)+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
+            html += '</tbody></table>';
+            currentReportData = d;
+        } else if(type==='employees'){
+            const d = await apiFetch('/dashboard/employees?from='+from+'&to='+to);
+            html += '<table class="data-table"><thead><tr><th>الموظف</th><th>الطلبات</th><th>المبيعات</th><th>المتوسط</th></tr></thead><tbody>';
+            d.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.orders||0)+'</td><td>'+formatMoney(r.sales)+'</td><td>'+formatMoney(r.avgOrder)+'</td></tr>'; });
+            html += '</tbody></table>';
+            currentReportData = d;
+        } else if(type==='discounts'){
+            const d = await apiFetch('/dashboard/discounts?from='+from+'&to='+to);
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card blue"><div class="kpi-value">'+(d.totalOrders||0)+'</div><div class="kpi-label">إجمالي الطلبات</div></div><div class="kpi-card orange"><div class="kpi-value">'+(d.discountedOrders||0)+'</div><div class="kpi-label">طلبات بخصم</div></div><div class="kpi-card red"><div class="kpi-value">'+formatMoney(d.totalDiscounts||0)+'</div><div class="kpi-label">إجمالي الخصومات</div></div></div>';
+            currentReportData = [d];
+        } else if(type==='refunds'){
+            const d = await apiFetch('/dashboard/refunds-voids?from='+from+'&to='+to);
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card red"><div class="kpi-value">'+(d.refundCount||0)+'</div><div class="kpi-label">مرتجعات ('+formatMoney(d.refundTotal||0)+')</div></div><div class="kpi-card orange"><div class="kpi-value">'+(d.voidCount||0)+'</div><div class="kpi-label">إلغاءات ('+formatMoney(d.voidTotal||0)+')</div></div></div>';
+            currentReportData = [d];
+        } else if(type==='profit'){
+            const k = await apiFetch('/dashboard/kpis?from='+from+'&to='+to);
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card green"><div class="kpi-value">'+(k.grossProfit?formatMoney(k.grossProfit.value):'بيانات غير متاحة')+'</div><div class="kpi-label">صافي الربح</div></div><div class="kpi-card purple"><div class="kpi-value">'+(k.grossProfit?k.grossProfit.margin?.toFixed(1)+'%':'—')+'</div><div class="kpi-label">هامش الربح</div></div></div>';
+            currentReportData = [k];
+        } else if(type==='inventory'){
+            const d = await apiFetch('/dashboard/inventory');
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card blue"><div class="kpi-value">'+(d.totalItems||0)+'</div><div class="kpi-label">إجمالي الأصناف</div></div><div class="kpi-card orange"><div class="kpi-value">'+(d.lowStock||0)+'</div><div class="kpi-label">مخزون منخفض</div></div><div class="kpi-card red"><div class="kpi-value">'+(d.outOfStock||0)+'</div><div class="kpi-label">نفذ من المخزون</div></div></div>';
+            if(d.items?.length){
+                html += '<table class="data-table"><thead><tr><th>المنتج</th><th>الكمية</th><th>الوحدة</th><th>التكلفة</th><th>الحد الأدنى</th><th>الحالة</th></tr></thead><tbody>';
+                d.items.forEach(i=>{
+                    const st = (i.quantity||0)<=0?'🔴 نفد':(i.quantity||0)<=(i.minStock||0)?'🟡 منخفض':'🟢 متوفر';
+                    html += '<tr><td>'+(i.name||'')+'</td><td>'+(i.quantity||0)+'</td><td>'+(i.unit||'—')+'</td><td>'+formatMoney(i.cost||0)+'</td><td>'+(i.minStock||0)+'</td><td>'+st+'</td></tr>';
+                });
+                html += '</tbody></table>';
+            }
+            currentReportData = d.items || [];
+        } else if(type==='shifts'){
+            const d = await apiFetch('/dashboard/employees?from='+from+'&to='+to);
+            html += '<table class="data-table"><thead><tr><th>الموظف</th><th>الطلبات</th><th>المبيعات</th><th>المتوسط</th></tr></thead><tbody>';
+            d.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.orders||0)+'</td><td>'+formatMoney(r.sales)+'</td><td>'+formatMoney(r.avgOrder)+'</td></tr>'; });
+            html += '</tbody></table>';
+            currentReportData = d;
+        }
+        content.innerHTML = html || '<div class="empty-state"><div class="icon">📊</div><p>لا توجد بيانات لهذا التقرير</p></div>';
+    } catch(e){ content.innerHTML = '<div class="alert alert-danger">خطأ: '+e.message+'</div>'; }
+}
+
+function exportReportCSV(){
+    if(!currentReportData||!Array.isArray(currentReportData)||!currentReportData.length){ showToast('لا توجد بيانات للتصدير','error'); return; }
+    const keys = Object.keys(currentReportData[0]).filter(k=>typeof currentReportData[0][k]!=='object');
+    let csv = '\uFEFF' + keys.join(',') + '\n';
+    currentReportData.forEach(row=>{
+        csv += keys.map(k=>'"'+String(row[k]||'').replace(/"/g,'""')+'"').join(',') + '\n';
+    });
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'report-'+currentReportType+'-'+todayStr()+'.csv';
+    a.click(); URL.revokeObjectURL(url);
+}
+
+// ===== ROLES =====
+async function loadRoleUsers(){
+    try {
+        const users = await window.LuccaDB.Users.getAll();
+        const tbody = document.getElementById('rolesBody');
+        if(!users.length){ tbody.innerHTML='<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد مستخدمون</td></tr>'; return; }
+        const roleLabels = {cashier:'كاشير',manager:'مدير',admin:'مدير النظام',kitchen:'مطبخ'};
+        tbody.innerHTML = users.map(u=>'<tr><td>'+(u.username||'')+'</td><td>'+(u.displayName||u.username||'')+'</td><td><span class="badge badge-info">'+(roleLabels[u.role]||u.role||'—')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editUserRole(\''+u.id+'\')">✏️</button></td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function addRoleUser(){
+    const username = document.getElementById('roleUsername').value.trim();
+    const displayName = document.getElementById('roleDisplayName').value.trim();
+    const password = document.getElementById('rolePassword').value;
+    const role = document.getElementById('roleSelect').value;
+    if(!username||!password){ showToast('أدخل اسم المستخدم وكلمة المرور','error'); return; }
+    try {
+        await window.LuccaDB.Users.add({ username, displayName:displayName||username, password, role });
+        ['roleUsername','roleDisplayName','rolePassword'].forEach(id=>document.getElementById(id).value='');
+        loadRoleUsers(); showToast('تمت الإضافة');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function editUserRole(userId){
+    const roles = ['cashier','manager','admin','kitchen'];
+    const roleLabels = {cashier:'كاشير',manager:'مدير',admin:'مدير النظام',kitchen:'مطبخ'};
+    const newRole = prompt('الدور الجديد (cashier/manager/admin/kitchen):');
+    if(!newRole||!roles.includes(newRole)) return;
+    try {
+        await window.LuccaDB.Users.getAll().then(async users=>{
+            const u = users.find(x=>String(x.id)===String(userId));
+            if(u){ await window.LuccaDB.db.put('users', {...u, role:newRole}); }
+        });
+        loadRoleUsers(); showToast('تم التحديث');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== AUDIT LOG =====
+async function loadAuditLogs(){
+    try {
+        const from = document.getElementById('auditDateFrom').value;
+        const to = document.getElementById('auditDateTo').value;
+        let logs = await window.LuccaDB.AuditLogs.getAll();
+        if(from) logs = logs.filter(l=>(l.createdAt||l.date||'').slice(0,10)>=from);
+        if(to) logs = logs.filter(l=>(l.createdAt||l.date||'').slice(0,10)<=to);
+        logs.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+        logs = logs.slice(0,100);
+        const tbody = document.getElementById('auditBody');
+        if(!logs.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد سجلات</td></tr>'; return; }
+        const actionLabels = {create:'إنشاء',update:'تعديل',delete:'حذف'};
+        tbody.innerHTML = logs.map(l=>'<tr><td>'+formatDate(l.createdAt||l.date)+'</td><td>'+(l.userName||l.userId||'—')+'</td><td>'+(actionLabels[l.action]||l.action||'—')+'</td><td>'+(l.objectType||'—')+'</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(l.objectId||'—')+'</td></tr>').join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== BACKUP =====
+async function exportBackup(){
+    try {
+        const data = await window.LuccaDB.DataSync.exportAll();
+        const blob = new Blob([data], {type:'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'lucca-backup-'+todayStr()+'.json';
+        a.click(); URL.revokeObjectURL(url);
+        showToast('تم التصدير بنجاح');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function handleImport(event){
+    const file = event.target.files[0];
+    if(!file) return;
+    try {
+        const text = await file.text();
+        await window.LuccaDB.DataSync.importAll(text);
+        showToast('تم الاستيراد بنجاح');
+        refreshDashboard();
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== SERVER =====
+function saveServer(){
+    const url = document.getElementById('serverUrl').value.trim();
+    if(!url){ showToast('أدخل رابط الخادم','error'); return; }
+    localStorage.setItem('luccaServerUrl', url);
+    window.LuccaDB.ServerSync.setServerUrl(url);
+    document.getElementById('serverStatus').innerHTML = '<span style="color:var(--success)">✅ تم الحفظ</span>';
+    showToast('تم حفظ رابط الخادم');
+}
+
+function loadServerSettings(){
+    const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+    document.getElementById('serverUrl').value = url;
+}
+loadServerSettings();
+
+async function testServer(){
+    try {
+        await window.LuccaDB.ServerSync.testConnection();
+        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--success)">✅ الاتصال ناجح</span>';
+    } catch(e){
+        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--danger)">❌ فشل الاتصال: '+e.message+'</span>';
+    }
+}
+
+async function syncPush(){
+    document.getElementById('serverStatus').innerHTML = '<span style="color:var(--primary)">⬆️ جاري الرفع...</span>';
+    try {
+        await window.LuccaDB.ServerSync.pushAll();
+        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--success)">✅ تم رفع البيانات بنجاح</span>';
+        showToast('تم رفع البيانات');
+    } catch(e){
+        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--danger)">❌ خطأ: '+e.message+'</span>';
+    }
+}
+
+async function syncPull(){
+    document.getElementById('serverStatus').innerHTML = '<span style="color:var(--primary)">⬇️ جاري السحب...</span>';
+    try {
+        await window.LuccaDB.ServerSync.pullAll();
+        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--success)">✅ تم سحب البيانات بنجاح</span>';
+        showToast('تم سحب البيانات');
+        refreshDashboard();
+    } catch(e){
+        document.getElementById('serverStatus').innerHTML = '<span style="color:var(--danger)">❌ خطأ: '+e.message+'</span>';
+    }
+}
+
+// ===== PRINTER =====
+const AdminPrinter = {
+    device: null, port: null, writer: null, connected: false, connType: null,
+    init(){
+        const saved = localStorage.getItem('luccaPrinterSettings');
+        if(saved) document.getElementById('printerStatus').textContent = 'تم حفظ إعدادات الطابعة سابقاً';
+    },
+    updateUI(){
+        const st = document.getElementById('printerStatus');
+        if(this.connected) st.innerHTML = '<span style="color:var(--success)">✅ متصلة ('+this.connType+')</span>';
+        else st.textContent = 'غير متصلة';
+    }
+};
+
+async function connectAdminPrinter(){
+    if(navigator.usb){
+        try {
+            const device = await navigator.usb.requestDevice({filters:[]});
+            await device.open();
+            if(device.configuration===null) await device.selectConfiguration(1);
+            const iface = device.configuration.interfaces[0];
+            await device.claimInterface(iface.interfaceNumber);
+            AdminPrinter.device = device;
+            AdminPrinter.connected = true;
+            AdminPrinter.connType = 'USB';
+            AdminPrinter.updateUI();
+            showToast('تم توصيل الطابعة عبر USB');
+        } catch(e){ showToast('فشل التوصيل: '+e.message,'error'); }
+    } else if('serial' in navigator){
+        try {
+            const port = await navigator.serial.requestPort();
+            await port.open({baudRate:9600});
+            AdminPrinter.port = port;
+            AdminPrinter.writer = port.writable.getWriter();
+            AdminPrinter.connected = true;
+            AdminPrinter.connType = 'Serial';
+            AdminPrinter.updateUI();
+            showToast('تم توصيل الطابعة عبر Serial');
+        } catch(e){ showToast('فشل التوصيل: '+e.message,'error'); }
+    } else {
+        showToast('المتصفح لا يدعم توصيل الطابعة','error');
+    }
+}
+
+async function testAdminPrinter(){
+    if(!AdminPrinter.connected){ showToast('الطابعة غير متصلة','error'); return; }
+    try {
+        const cmd = [0x1B, 0x40, 0x1B, 0x61, 0x01, 0x1D, 0x21, 0x11, 0x0A, 0x4C, 0x55, 0x43, 0x43, 0x41, 0x0A, 0x1D, 0x21, 0x00, 0x0A, 0x54, 0x65, 0x73, 0x74, 0x20, 0x50, 0x72, 0x69, 0x6E, 0x74, 0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41];
+        if(AdminPrinter.connType==='USB'){
+            const iface = AdminPrinter.device.configuration.interfaces[0];
+            const ep = iface.alternate.endpoints.find(e=>e.direction==='out');
+            await AdminPrinter.device.transferOut(ep.endpointNumber, new Uint8Array(cmd));
+        } else {
+            await AdminPrinter.writer.write(new Uint8Array(cmd));
+        }
+        showToast('تم إرسال أمر الطباعة التجريبية');
+    } catch(e){ showToast('خطأ في الطباعة: '+e.message,'error'); }
+}
+
+function savePrinterSettings(){
+    const paper = document.getElementById('printerPaper').value;
+    const copies = document.getElementById('printerCopies').value;
+    localStorage.setItem('luccaPrinterSettings', JSON.stringify({paper, copies}));
+    showToast('تم حفظ إعدادات الطابعة');
+}
+
+// ===== BOOT =====
+document.addEventListener('DOMContentLoaded', async ()=>{
+    try { await init(); } catch(e){ console.error(e); }
+    AdminPrinter.init();
+    const savedUser = window.LuccaDB.Users.getCurrentUser();
+    if(savedUser){
+        try {
+            const users = await window.LuccaDB.Users.getAll();
+            const exists = users.find(u=>u.id===savedUser.id||u.username===savedUser.username);
+            if(exists){
+                currentUser = exists;
+                document.getElementById('loginScreen').style.display='none';
+                document.getElementById('app').style.display='flex';
+                document.getElementById('userDisplayName').textContent = exists.displayName || exists.username;
+                document.getElementById('userRoleDisplay').textContent = exists.role || 'user';
+                document.getElementById('userAvatar').textContent = (exists.displayName||exists.username||'U')[0].toUpperCase();
+                initDateFilter();
+                initTabs();
+                refreshDashboard();
+                return;
+            }
+        } catch(e){}
+    }
+});
+</script>
+</body>
+</html>

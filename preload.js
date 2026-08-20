@@ -8,5 +8,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
         electron: process.versions.electron
     },
     openAdmin: () => ipcRenderer.send('open-admin'),
+    openExternal: (url) => ipcRenderer.send('open-external', url),
     isElectron: true
 });
