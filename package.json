@@ -3,18 +3,58 @@
   "version": "1.0.0",
   "description": "Lucca Caffè - نظام إدارة المقهى",
   "main": "main.js",
+  "author": "Lucca Caffè",
+  "license": "MIT",
   "scripts": {
     "start": "electron .",
     "build": "npm run icon && npx electron-packager . LuccaPOS --platform=win32 --arch=x64 --out=dist --overwrite --asar --icon=icon --ignore=node_modules --ignore=\\.git$ --ignore=README\\.md$ --ignore=backend --ignore=dist --ignore=scripts --ignore=\\.bat$ --ignore=\\.md$ --ignore=icon\\.svg$ --ignore=icon-tmp",
-    "icon": "node scripts/generate-icon.js"
+    "icon": "node scripts/generate-icon.js",
+    "build:installer": "electron-builder --win",
+    "publish": "electron-builder --win --publish always"
   },
-  "author": "Lucca Caffè",
-  "license": "MIT",
+  "build": {
+    "appId": "com.lucca.caffe.pos",
+    "productName": "LuccaPOS",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "admin/**/*",
+      "ai-pos-engine.js",
+      "sync-engine.js",
+      "forecasting.js",
+      "knowledge-base.js",
+      "report-export.js",
+      "supabase-db.js",
+      "version.json",
+      "icon.ico",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "anamasry300-ai",
+      "repo": "Lucca_menu-"
+    }
+  },
   "devDependencies": {
     "electron": "^42.3.0",
+    "electron-builder": "^25.0.0",
     "electron-packager": "^17.0.0"
   },
   "dependencies": {
+    "electron-updater": "^6.3.0",
     "png-to-ico": "^3.0.1",
     "sharp": "^0.34.5"
   }

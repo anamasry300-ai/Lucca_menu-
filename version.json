@@ -1,0 +1,8 @@
+{
+    "version": "1.0.0",
+    "releaseDate": "2026-08-21",
+    "releaseNotes": "Initial release - Full POS system with offline sync",
+    "minVersion": "1.0.0",
+    "forceUpdate": false,
+    "downloadUrl": "https://github.com/anamasry300-ai/Lucca_menu-/releases"
+}

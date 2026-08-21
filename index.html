@@ -4108,7 +4108,7 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
             const syncBar = document.createElement('div');
             syncBar.id = 'syncStatusBar';
             syncBar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;height:28px;background:var(--bg-card,#1a1a2e);border-top:1px solid var(--border,#2a2a3e);display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:0.7rem;color:var(--text-secondary,#888);z-index:9999;gap:12px;';
-            syncBar.innerHTML = '<span id="syncStatusIcon">🔄</span><span id="syncStatusText">جاري التحقق...</span><span id="syncStatusQueue"></span>';
+            syncBar.innerHTML = '<span id="syncStatusIcon">🔄</span><span id="syncStatusText">جاري التحقق...</span><span id="updateBadge" style="display:none;background:#e74c3c;color:white;padding:1px 6px;border-radius:8px;cursor:pointer" onclick="checkAppUpdate()">⬆️ تحديث</span><span id="syncStatusQueue"></span>';
             document.body.appendChild(syncBar);
 
             function updateSyncUI(){
@@ -4137,16 +4137,69 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
                 queue.textContent = s.lastSync ? 'آخر مزامنة: ' + new Date(s.lastSync).toLocaleTimeString('ar-EG') : '';
             }
 
-            // Update every 5 seconds
             setInterval(updateSyncUI, 5000);
             updateSyncUI();
 
-            // Enable sync if Supabase is available
             if(window.LuccaDB.enableSync){
                 window.LuccaDB.enableSync(null, {
                     interval: 30000,
                     onStatusChange: updateSyncUI
                 });
+            }
+
+            // ===== AUTO UPDATE CHECK =====
+            initAutoUpdate();
+        }
+
+        // ===== AUTO UPDATE SYSTEM =====
+        function initAutoUpdate(){
+            // Electron auto-updater events
+            if(window.electronAPI){
+                window.electronAPI.onUpdateAvailable(function(data){
+                    showToast('🔄 تحديث جديد متاح: v'+data.version);
+                    const badge = document.getElementById('updateBadge');
+                    if(badge){ badge.style.display='inline-block'; badge.textContent='⬆️ تحديث v'+data.version; }
+                });
+                window.electronAPI.onUpdateDownloaded(function(data){
+                    showToast('✅ تم تحميل التحديث v'+data.version+' - يُعاد التشغيل تلقائياً');
+                    setTimeout(()=>{ window.electronAPI.installUpdate(); }, 3000);
+                });
+                window.electronAPI.onUpdateProgress(function(data){
+                    const text = document.getElementById('syncStatusText');
+                    if(text) text.textContent = 'جاري تحميل التحديث... '+data.percent+'%';
+                });
+                // Check version on startup
+                window.electronAPI.getVersion().then(function(v){
+                    window._appVersion = v.version;
+                    const queue = document.getElementById('syncStatusQueue');
+                    if(queue) queue.textContent = 'v'+v.version;
+                });
+            }
+
+            // Also check via GitHub raw (for non-Electron)
+            if(navigator.onLine){
+                fetch('https://raw.githubusercontent.com/anamasry300-ai/Lucca_menu-/main/version.json')
+                    .then(r => r.json())
+                    .then(remote => {
+                        const local = window._appVersion || '1.0.0';
+                        if(remote.version !== local){
+                            const badge = document.getElementById('updateBadge');
+                            if(badge){
+                                badge.style.display = 'inline-block';
+                                badge.textContent = '⬆️ تحديث v'+remote.version;
+                                badge.onclick = function(){ window.open(remote.downloadUrl || 'https://github.com/anamasry300-ai/Lucca_menu-/releases', '_blank'); };
+                            }
+                        }
+                    })
+                    .catch(function(){});
+            }
+        }
+
+        function checkAppUpdate(){
+            if(window.electronAPI){
+                window.electronAPI.checkForUpdates();
+            } else {
+                window.open('https://github.com/anamasry300-ai/Lucca_menu-/releases', '_blank');
             }
         }
     </script>
