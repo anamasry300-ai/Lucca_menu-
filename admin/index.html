@@ -2024,6 +2024,7 @@
                         <div class="panel-title" id="reportTitle">تقرير</div>
                         <div style="display:flex;gap:8px">
                             <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()">📥 تصدير CSV</button>
+                            <button class="btn btn-secondary btn-sm" onclick="exportReportExcel()">📊 تصدير Excel</button>
                             <button class="btn btn-ghost btn-sm" onclick="document.getElementById('reportOutput').style.display='none'">✕ إغلاق</button>
                         </div>
                     </div>
@@ -3441,6 +3442,21 @@ function exportReportCSV(){
     a.click(); URL.revokeObjectURL(url);
 }
 
+async function exportReportExcel(){
+    try{
+        if(!window.ReportExport){ showToast('مكتبة التصدير غير جاهزة','error'); return; }
+        const sheetMap = {sales:'sales',products:'products',cost:'cost'};
+        const sheet = sheetMap[currentReportType];
+        if(sheet){
+            const fname = await window.ReportExport.exportSheet(sheet, 'تقرير_'+currentReportType);
+            showToast('تم التصدير: '+fname);
+        } else {
+            const fname = await window.ReportExport.generateFullReport('تقرير_شامل');
+            showToast('تم التصدير الشامل: '+fname);
+        }
+    } catch(e){ showToast('خطأ في التصدير: '+e.message,'error'); }
+}
+
 // ===== ROLES =====
 async function loadRoleUsers(){
     try {
@@ -3891,6 +3907,7 @@ async function deleteKBDoc(id){
 <!-- ===== AI ASSISTANT BOT (Admin) ===== -->
 <script src="../ai-pos-engine.js"></script>
 <script src="../forecasting.js"></script>
+<script src="../report-export.js"></script>
 <!-- ===== BATMAN AI BOT — ADMIN COMMAND CENTER ===== -->
 <style>
 :root{
