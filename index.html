@@ -14,6 +14,7 @@
     <script src="ai-pos-engine.js"></script>
     <script src="forecasting.js"></script>
     <script src="report-export.js"></script>
+    <script src="sync-engine.js"></script>
     <script src="menu-data.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -4097,7 +4098,57 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
             setInterval(updateKitchenBadge, 15000);
             if(window.LuccaDB && window.LuccaDB.ExpenseCategories) window.LuccaDB.ExpenseCategories.init().catch(()=>{});
             checkCashDrawerStatus();
+            initSyncEngine();
         });
+
+        // ===== SYNC ENGINE INIT =====
+        function initSyncEngine(){
+            if(!window.SyncEngine) return;
+            // Create sync status indicator
+            const syncBar = document.createElement('div');
+            syncBar.id = 'syncStatusBar';
+            syncBar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;height:28px;background:var(--bg-card,#1a1a2e);border-top:1px solid var(--border,#2a2a3e);display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:0.7rem;color:var(--text-secondary,#888);z-index:9999;gap:12px;';
+            syncBar.innerHTML = '<span id="syncStatusIcon">🔄</span><span id="syncStatusText">جاري التحقق...</span><span id="syncStatusQueue"></span>';
+            document.body.appendChild(syncBar);
+
+            function updateSyncUI(){
+                const s = window.LuccaDB.getSyncStatus ? window.LuccaDB.getSyncStatus() : null;
+                const icon = document.getElementById('syncStatusIcon');
+                const text = document.getElementById('syncStatusText');
+                const queue = document.getElementById('syncStatusQueue');
+                if(!s || !icon || !text || !queue) return;
+
+                if(!navigator.onLine){
+                    icon.textContent = '📴';
+                    text.textContent = 'أوفلاين - البيانات محفوظة محلياً';
+                    text.style.color = '#f39c12';
+                    syncBar.style.borderTopColor = '#f39c12';
+                } else if(s.pending > 0){
+                    icon.textContent = '🔄';
+                    text.textContent = 'مزامنة... ('+s.pending+' معلق)';
+                    text.style.color = '#3498db';
+                    syncBar.style.borderTopColor = '#3498db';
+                } else {
+                    icon.textContent = '✅';
+                    text.textContent = 'متصل ومزامن';
+                    text.style.color = '#27ae60';
+                    syncBar.style.borderTopColor = '#27ae60';
+                }
+                queue.textContent = s.lastSync ? 'آخر مزامنة: ' + new Date(s.lastSync).toLocaleTimeString('ar-EG') : '';
+            }
+
+            // Update every 5 seconds
+            setInterval(updateSyncUI, 5000);
+            updateSyncUI();
+
+            // Enable sync if Supabase is available
+            if(window.LuccaDB.enableSync){
+                window.LuccaDB.enableSync(null, {
+                    interval: 30000,
+                    onStatusChange: updateSyncUI
+                });
+            }
+        }
     </script>
 
 <!-- ===== AI ASSISTANT BOT — BATMAN COMMAND CENTER ===== -->
@@ -5225,6 +5276,38 @@ async function processAiCommand(text){
                 {text:'ادارة الطاولات',cmd:'manage_tables'},
                 {text:'حجز جديد',cmd:'new reservation'}
             ]);
+        } catch(e){ return aiBotReply('❌ '+e.message); }
+    }
+
+    // ===== SYNC STATUS =====
+    if(matchAny(t,['المزامنة','مزامنة','sync','同步','sink','مزامن','متصل','اتصال','connection','status','حالة الاتصال','online','offline','أوفلاين'])){
+        try{
+            const s = window.LuccaDB.getSyncStatus ? window.LuccaDB.getSyncStatus() : null;
+            const online = navigator.onLine;
+            let html = '<table class="ai-table">';
+            html += '<tr><td>🌐 الحالة</td><td style="color:'+(online?'#27ae60':'#f39c12')+';font-weight:700">'+(online?'🟢 متصل':'🔴 أوفلاين')+'</td></tr>';
+            if(s){
+                html += '<tr><td>📥 معلق</td><td>'+(s.pending||0)+'</td></tr>';
+                html += '<tr><td>✅ تم</td><td>'+(s.done||0)+'</td></tr>';
+                html += '<tr><td>❌ فاشل</td><td>'+(s.failed||0)+'</td></tr>';
+                html += '<tr><td>🔄 آخر مزامنة</td><td>'+(s.lastSync?new Date(s.lastSync).toLocaleTimeString('ar-EG'):'لم تتم')+'</td></tr>';
+                html += '<tr><td>📱 الجهاز</td><td style="font-size:0.7rem">'+(s.deviceId||'').slice(0,20)+'</td></tr>';
+            }
+            html += '</table>';
+            if(!online) html += '\n\n💡 **البيانات محفوظة محلياً** - لما يتصل النت هتتم المزامنة تلقائياً';
+            return aiBotReply('🔄 **حالة الاتصال والمزامنة:**'+html,[
+                {text:'مزامنة الآن',cmd:'force_sync'},
+                {text:'حالة الصندوق',cmd:'الصندوق'}
+            ]);
+        } catch(e){ return aiBotReply('❌ '+e.message); }
+    }
+
+    if(matchAny(t,['force_sync','مزامنة الآن','زامن','sync now','ارسل'])){
+        try{
+            if(!navigator.onLine) return aiBotReply('🔴 **أنت غير متصل بالنت**\nالبيانات محفوظة محلياً وهي تتم المزامنة تلقائياً لما يتصل النت.');
+            if(!window.LuccaDB.triggerSync) return aiBotReply('❌ محرك المزامنة غير متوفر');
+            const result = await window.LuccaDB.triggerSync();
+            return aiBotReply('✅ **تمت المزامنة:**\n• تم إرسال: '+(result?.push?.synced||0)+' سجل\n• تم استقبال: '+(result?.pull||0)+' سجل\n• أخطاء: '+(result?.push?.errors||0));
         } catch(e){ return aiBotReply('❌ '+e.message); }
     }
 

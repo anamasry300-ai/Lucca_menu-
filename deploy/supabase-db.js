@@ -566,6 +566,17 @@
     ProductVariations: { async getAll() { return _db.getAll('product_variations'); } },
     Taxes: { async getAll() { return _db.getAll('taxes'); } },
     AuditLogs, OrderStatusHistory: { async getAll() { return _db.getAll('order_status_history'); } },
-    BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem
+    BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem,
+    // Sync methods
+    enableSync: function(opts){
+      if(!window.SyncEngine) return;
+      window.SyncEngine.startAutoSync(_supabase, _db, {
+        interval: (opts && opts.interval) || 30000,
+        onStatusChange: (opts && opts.onStatusChange) || null
+      });
+    },
+    getSyncStatus: function(){ return window.SyncEngine ? window.SyncEngine.getSyncStatus() : null; },
+    triggerSync: function(){ return window.SyncEngine ? window.SyncEngine.triggerSync() : Promise.resolve(); },
+    _supabaseClient: _supabase
   };
 })();
