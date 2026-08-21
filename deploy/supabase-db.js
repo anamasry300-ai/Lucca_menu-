@@ -374,6 +374,104 @@
     }
   };
 
+  // ===== Enhanced Inventory Modules =====
+  const Suppliers = {
+    async getAll() { return _db.getAll('suppliers'); },
+    async get(id) { return _db.get('suppliers', id); },
+    async add(s) { s.created_at = new Date().toISOString(); return _db.add('suppliers', s); },
+    async update(id, d) { return _db.put('suppliers', { id, ...d }); },
+    async delete(id) { return _db.delete('suppliers', id); },
+    async getActive() { const all = await this.getAll(); return all.filter(s => s.active !== 0); }
+  };
+
+  const StockMovements = {
+    async getAll() { return _db.getAll('stock_movements'); },
+    async getByIngredient(id) { const all = await this.getAll(); return all.filter(m => m.ingredient_id === id); },
+    async getByType(type) { const all = await this.getAll(); return all.filter(m => m.type === type); },
+    async add(m) { m.date = m.date || new Date().toISOString(); m.created_at = new Date().toISOString(); return _db.add('stock_movements', m); },
+    async getStats() {
+      const all = await this.getAll();
+      const purchases = all.filter(m => m.type === 'purchase').reduce((s, m) => s + Math.abs(m.quantity || 0), 0);
+      const sales = all.filter(m => m.type === 'sale' || m.type === 'recipe_deduct').reduce((s, m) => s + Math.abs(m.quantity || 0), 0);
+      const waste = all.filter(m => m.type === 'waste').reduce((s, m) => s + Math.abs(m.quantity || 0), 0);
+      return { total: all.length, purchases, sales, waste };
+    }
+  };
+
+  const ProductRecipes = {
+    async getAll() { return _db.getAll('product_recipes'); },
+    async getByProduct(productId) { const all = await this.getAll(); return all.filter(r => r.product_id == productId); },
+    async getByIngredient(ingredientId) { const all = await this.getAll(); return all.filter(r => r.ingredient_id == ingredientId); },
+    async add(r) { r.created_at = new Date().toISOString(); return _db.add('product_recipes', r); },
+    async delete(id) { return _db.delete('product_recipes', id); },
+    async deleteByProduct(productId) {
+      const all = await this.getByProduct(productId);
+      for (const r of all) await _db.delete('product_recipes', r.id);
+    },
+    async getRecipeCost(productId) {
+      const recipes = await this.getByProduct(productId);
+      let totalCost = 0;
+      for (const r of recipes) {
+        const ing = await _db.get('inventory_items', r.ingredient_id);
+        if (ing) totalCost += (ing.cost_per_unit || 0) * (r.quantity_needed || 1);
+      }
+      return totalCost;
+    }
+  };
+
+  const WasteLog = {
+    async getAll() { return _db.getAll('waste_log'); },
+    async add(w) {
+      w.date = w.date || new Date().toISOString();
+      w.created_at = new Date().toISOString();
+      const id = await _db.add('waste_log', w);
+      if (w.ingredient_id) {
+        const item = await _db.get('inventory_items', w.ingredient_id);
+        if (item) {
+          await _db.put('inventory_items', { ...item, quantity: Math.max(0, (item.quantity || 0) - (w.quantity || 0)), updated_at: new Date().toISOString() });
+        }
+      }
+      return id;
+    },
+    async getStats() {
+      const all = await this.getAll();
+      return { count: all.length, totalCost: all.reduce((s, w) => s + (w.cost || 0), 0), totalQty: all.reduce((s, w) => s + (w.quantity || 0), 0) };
+    }
+  };
+
+  // Enhanced Inventory with recipe support
+  const InventoryEnhanced = {
+    async adjustStock(id, qty, type, notes) {
+      const item = await _db.get('inventory_items', id);
+      if (!item) return null;
+      const oldQty = item.quantity || 0;
+      item.quantity = Math.max(0, oldQty + qty);
+      item.updated_at = new Date().toISOString();
+      await _db.put('inventory_items', item);
+      await StockMovements.add({ ingredient_id: id, type: type || 'adjustment', quantity: qty, notes: notes || '' });
+      return item;
+    },
+    async getLowStock() {
+      const all = await _db.getAll('inventory_items');
+      return all.filter(i => (i.quantity || 0) <= (i.min_quantity || 5) && (i.active || 1) === 1);
+    },
+    async deductForCheckout(orderItems) {
+      if (!orderItems || !orderItems.length) return;
+      for (const oi of orderItems) {
+        const pid = oi.productId || oi.product_id;
+        if (pid) {
+          const recipes = await ProductRecipes.getByProduct(pid);
+          if (recipes.length > 0) {
+            for (const r of recipes) {
+              await this.adjustStock(r.ingredient_id, -(r.quantity_needed || 1) * (oi.quantity || 1), 'recipe_deduct', 'Order deduction');
+            }
+            continue;
+          }
+        }
+      }
+    }
+  };
+
   async function initSystem() {
     await Users.createDefaultAdmin();
     await Tables.init();
@@ -388,6 +486,6 @@
     ProductVariations: { async getAll() { return _db.getAll('product_variations'); } },
     Taxes: { async getAll() { return _db.getAll('taxes'); } },
     AuditLogs, OrderStatusHistory: { async getAll() { return _db.getAll('order_status_history'); } },
-    BotMemory, KnowledgeBase, initSystem
+    BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, initSystem
   };
 })();
