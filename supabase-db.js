@@ -20,7 +20,11 @@
     const out = {};
     for (const [k, v] of Object.entries(obj)) {
       const sk = k.replace(/[A-Z]/g, c => '_' + c.toLowerCase());
-      out[sk] = (v && typeof v === 'object' && !Array.isArray(v)) ? toSnake(v) : v;
+      if (Array.isArray(v) || (v && typeof v === 'object' && !(v instanceof Date) && !(v instanceof RegExp))) {
+        out[sk] = JSON.stringify(v);
+      } else {
+        out[sk] = v;
+      }
     }
     return out;
   }
@@ -31,7 +35,11 @@
     const out = {};
     for (const [k, v] of Object.entries(obj)) {
       const ck = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-      out[ck] = (v && typeof v === 'object' && !Array.isArray(v)) ? toCamel(v) : v;
+      if (typeof v === 'string' && v.length > 1 && ((v[0] === '[' && v[v.length-1] === ']') || (v[0] === '{' && v[v.length-1] === '}'))) {
+        try { out[ck] = JSON.parse(v); } catch(e) { out[ck] = v; }
+      } else {
+        out[ck] = (v && typeof v === 'object' && !Array.isArray(v)) ? toCamel(v) : v;
+      }
     }
     return out;
   }
