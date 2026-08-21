@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     openAdmin: () => ipcRenderer.send('open-admin'),
     openExternal: (url) => ipcRenderer.send('open-external', url),
+    saveImageToClipboard: (base64) => ipcRenderer.send('save-image-clipboard', base64),
+    onImageSaved: (callback) => ipcRenderer.on('image-saved', (e, data) => callback(data)),
     isElectron: true,
 
     // Update system
