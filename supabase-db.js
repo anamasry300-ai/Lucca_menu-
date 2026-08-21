@@ -14,25 +14,47 @@
 
   const _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+  function toSnake(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(toSnake);
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      const sk = k.replace(/[A-Z]/g, c => '_' + c.toLowerCase());
+      out[sk] = (v && typeof v === 'object' && !Array.isArray(v)) ? toSnake(v) : v;
+    }
+    return out;
+  }
+
+  function toCamel(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(toCamel);
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      const ck = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+      out[ck] = (v && typeof v === 'object' && !Array.isArray(v)) ? toCamel(v) : v;
+    }
+    return out;
+  }
+
   const _db = {
     async getAll(table) {
       const { data, error } = await _supabase.from(table).select('*');
       if (error) throw error;
-      return data || [];
+      return (data || []).map(toCamel);
     },
     async get(table, id) {
       const { data, error } = await _supabase.from(table).select('*').eq('id', id).single();
       if (error) throw error;
-      return data;
+      return toCamel(data);
     },
     async add(table, row) {
-      const { data, error } = await _supabase.from(table).insert(row).select().single();
+      const { data, error } = await _supabase.from(table).insert(toSnake(row)).select().single();
       if (error) throw error;
       return data.id;
     },
     async put(table, row) {
       const id = row.id;
-      const { error } = await _supabase.from(table).update(row).eq('id', id);
+      const { error } = await _supabase.from(table).update(toSnake(row)).eq('id', id);
       if (error) throw error;
       return row;
     },
@@ -49,9 +71,10 @@
     async login(username, password) {
       const { data, error } = await _supabase.from('users').select('*').eq('username', username).eq('password', password).single();
       if (error || !data) throw new Error('بيانات الدخول غير صحيحة');
-      if (!data.active) throw new Error('الحساب معطل');
-      localStorage.setItem('currentUser', JSON.stringify(data));
-      return data;
+      const user = toCamel(data);
+      if (!user.active) throw new Error('الحساب معطل');
+      localStorage.setItem('currentUser', JSON.stringify(user));
+      return user;
     },
     logout() { localStorage.removeItem('currentUser'); },
     getCurrentUser() {
@@ -154,7 +177,35 @@
     async getByTable(tableId) {
       const { data, error } = await _supabase.from('orders').select('*').eq('table_id', String(tableId)).eq('status', 'pending');
       if (error) throw error;
-      return data || [];
+      return (data || []).map(toCamel);
+    },
+    async create(tableId, items, customerName, customerPhone, options = {}) {
+      const order = {
+        tableId: tableId,
+        items: items || [],
+        customerName: customerName || '',
+        customerPhone: customerPhone || '',
+        paymentMethod: options.paymentMethod || 'cash',
+        customerNotes: options.customerNotes || '',
+        invoiceDelivery: options.invoiceDelivery || 'cashier',
+        status: options.status || 'pending',
+        orderType: options.orderType || 'dine_in',
+        paymentStatus: 'unpaid',
+        totalPaid: 0,
+        changeAmount: 0,
+        subtotal: 0,
+        tax: 0,
+        total: 0,
+        date: new Date().toISOString(),
+        createdBy: (window.LuccaDB && window.LuccaDB.Users && window.LuccaDB.Users.getCurrentUser && window.LuccaDB.Users.getCurrentUser()?.name) || 'unknown'
+      };
+      (order.items || []).forEach(item => {
+        order.subtotal += (item.price || 0) * (item.quantity || 1);
+      });
+      order.total = order.subtotal;
+      order.orderNumber = 'ORD-' + Date.now();
+      const id = await _db.add('orders', order);
+      return { ...order, id };
     },
     async add(order) { return _db.add('orders', order); },
     async update(id, data) { return _db.put('orders', { ...data, id }); },
@@ -162,7 +213,7 @@
     async getByDateRange(from, to) {
       const { data, error } = await _supabase.from('orders').select('*').gte('created_at', from).lte('created_at', to);
       if (error) throw error;
-      return data || [];
+      return (data || []).map(toCamel);
     },
     async updateStatus(orderId, status) { return this.update(orderId, { status }); }
   };
@@ -304,15 +355,33 @@
   };
 
   const MenuSync = {
-    buildFromProducts(products, categories) {
-      const cats = categories || [];
-      const grouped = {};
-      products.forEach(p => {
-        const catId = p.category_id || p.categoryId || 0;
-        if (!grouped[catId]) grouped[catId] = [];
-        grouped[catId].push(p);
+    async getCatalog() {
+      const settings = await _db.getAll('settings');
+      const s = settings.find(x => x.key === 'sharedMenuCatalog');
+      return s ? (typeof s.value === 'string' ? JSON.parse(s.value) : s.value) : [];
+    },
+    async buildFromProducts() {
+      const categories = await Categories.getActive();
+      if (!categories.length) return null;
+      const products = await Products.getActive();
+      if (!products.length) return null;
+      const iconMap = { coffee: '☕', drinks: '🥤', food: '🍽️', desserts: '🍰', hot: '🔥', cold: '🧊', juice: '🧃', milkshake: '🥤', soda: '🥤', pizza: '🍕', breakfast: '🥞', addons: '➕', winter: '❄️', specialty: '⭐' };
+      return categories.map(cat => {
+        const catProducts = products.filter(p => p.categoryId === cat.id || p.category === cat.name);
+        return {
+          id: cat.id || `cat-${cat.sortOrder || 0}`,
+          icon: cat.icon || iconMap[cat.nameEn || ''] || '📂',
+          title: cat.nameAr || cat.name || 'قسم',
+          items: catProducts.map(p => ({
+            name: p.name,
+            price: parseFloat(p.price) || 0,
+            description: p.description || '',
+            badge: p.badge || null,
+            origins: (Array.isArray(p.origins) ? p.origins : []).map(o => typeof o === 'object' ? { name: o.name, price: o.price } : o),
+            _productId: p.id
+          }))
+        };
       });
-      return { categories: cats, products: grouped };
     }
   };
 
