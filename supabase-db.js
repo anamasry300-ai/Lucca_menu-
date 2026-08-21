@@ -217,13 +217,45 @@
     },
     async add(order) { return _db.add('orders', order); },
     async update(id, data) { return _db.put('orders', { ...data, id }); },
+    async updateOrder(orderId, updates) {
+      const item = await _db.get('orders', orderId);
+      if (!item) return null;
+      Object.assign(item, updates);
+      if (updates.items && !updates.subtotal) {
+        item.subtotal = updates.items.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
+        const discount = item.discount || 0;
+        const discountAmount = item.subtotal * (discount / 100);
+        const afterDiscount = item.subtotal - discountAmount;
+        item.total = afterDiscount;
+      }
+      await _db.put('orders', { ...item, id: orderId });
+      return item;
+    },
     async delete(id) { return _db.delete('orders', id); },
     async getByDateRange(from, to) {
       const { data, error } = await _supabase.from('orders').select('*').gte('created_at', from).lte('created_at', to);
       if (error) throw error;
       return (data || []).map(toCamel);
     },
-    async updateStatus(orderId, status) { return this.update(orderId, { status }); }
+    async updateStatus(orderId, status) { return this.update(orderId, { status }); },
+    async checkout(orderId, paymentMethod) {
+      const order = await _db.get('orders', orderId);
+      if (!order) throw new Error('الطلب غير موجود');
+      if (order.status === 'closed') throw new Error('الطلب مغلق بالفعل');
+      const now = new Date().toISOString();
+      const updates = {
+        status: 'closed',
+        paymentMethod: paymentMethod || 'cash',
+        paymentStatus: 'paid',
+        totalPaid: order.total || 0,
+        changeAmount: 0
+      };
+      await _db.put('orders', { ...order, ...updates, id: orderId });
+      if (order.tableId && !isNaN(parseInt(order.tableId))) {
+        await Tables.update(parseInt(order.tableId), { status: 'available', currentOrder: null });
+      }
+      return { ...order, ...updates };
+    }
   };
 
   const PaymentMethods = {
