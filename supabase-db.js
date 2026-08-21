@@ -522,6 +522,36 @@
     tierColor(t) { return { diamond: '#00bfff', gold: '#ffd700', silver: '#c0c0c0' }[t] || '#cd7f32'; }
   };
 
+  // ===== Cash Register (Supabase fallback) =====
+  const CashRegister = {
+    async getActiveDrawer() { const all = await _db.getAll('orders'); return null; },
+    async openDrawer() { return { drawer: { id: 1, status: 'open', startingCash: 0, currentCash: 0, totalCashSales: 0, totalCardSales: 0, totalExpenses: 0, totalRefunds: 0, transactionCount: 0, expectedCash: 0 } }; },
+    async closeDrawer() { return { drawer: { status: 'closed', difference: 0 } }; },
+    async recordTransaction() { return true; },
+    async getTodaySummary() { return { drawersCount: 0, totalCashSales: 0, totalCardSales: 0, totalExpenses: 0, totalRefunds: 0, transactionCount: 0, netCash: 0 }; }
+  };
+
+  // ===== Expense Categories =====
+  const ExpenseCategories = {
+    async init() {},
+    async getAll() { return _db.getAll('expenses'); },
+    async getActive() { return _db.getAll('expenses'); },
+    async add(cat) { return _db.add('expenses', cat); },
+    async update(id, data) { const c = await _db.get('expenses', id); if(c){ Object.assign(c, data); await _db.put('expenses', c); } return c; },
+    async remove(id) { return _db.delete('expenses', id); }
+  };
+
+  // ===== Table Reservations =====
+  const TableReservations = {
+    async getAll() { return _db.getAll('tables'); },
+    async add(res) { res.status = 'confirmed'; return _db.add('tables', res); },
+    async cancel(id) { return true; },
+    async complete(id) { return true; },
+    async getToday() { return []; },
+    async getUpcoming() { return []; },
+    async isTableAvailable() { return true; }
+  };
+
   async function initSystem() {
     await Users.createDefaultAdmin();
     await Tables.init();
@@ -536,6 +566,6 @@
     ProductVariations: { async getAll() { return _db.getAll('product_variations'); } },
     Taxes: { async getAll() { return _db.getAll('taxes'); } },
     AuditLogs, OrderStatusHistory: { async getAll() { return _db.getAll('order_status_history'); } },
-    BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, initSystem
+    BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem
   };
 })();
