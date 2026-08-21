@@ -3654,6 +3654,10 @@ function savePrinterSettings(){
 document.addEventListener('DOMContentLoaded', async ()=>{
     try { await init(); } catch(e){ console.error(e); }
     AdminPrinter.init();
+    // Enable sync engine in admin
+    if(window.SyncEngine && window.LuccaDB && window.LuccaDB._supabaseClient){
+        window.SyncEngine.startAutoSync(window.LuccaDB._supabaseClient, window.LuccaDB.db || null, { interval: 60000 });
+    }
     const savedUser = window.LuccaDB.Users.getCurrentUser();
     if(savedUser){
         try {
@@ -3908,6 +3912,7 @@ async function deleteKBDoc(id){
 <script src="../ai-pos-engine.js"></script>
 <script src="../forecasting.js"></script>
 <script src="../report-export.js"></script>
+<script src="../sync-engine.js"></script>
 <!-- ===== BATMAN AI BOT — ADMIN COMMAND CENTER ===== -->
 <style>
 :root{

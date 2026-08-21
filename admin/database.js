@@ -2592,3 +2592,27 @@ const KnowledgeBase = {
 
 // تصدير للاستخدام
 window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem };
+
+// ===== SYNC INTEGRATION =====
+// When Supabase is available, enable auto-sync
+window.LuccaDB.enableSync = function(supabaseClient, options){
+    if(!window.SyncEngine) return;
+    // Wrap DB operations to auto-enqueue
+    window.SyncEngine.wrapDBOperations(db, supabaseClient);
+    // Start auto sync
+    const result = window.SyncEngine.startAutoSync(supabaseClient, db, {
+        interval: (options && options.interval) || 30000,
+        onStatusChange: (options && options.onStatusChange) || null
+    });
+    return result;
+};
+
+window.LuccaDB.getSyncStatus = function(){
+    if(!window.SyncEngine) return null;
+    return window.SyncEngine.getSyncStatus();
+};
+
+window.LuccaDB.triggerSync = function(){
+    if(!window.SyncEngine) return Promise.resolve(null);
+    return window.SyncEngine.triggerSync();
+};
