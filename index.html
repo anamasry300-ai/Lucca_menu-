@@ -58,7 +58,7 @@
                         </button>
                         <button class="report-btn" id="dailyReportBtn" title="التقرير اليومي">📊 تقرير</button>
                         <button class="kitchen-btn" id="analyticsBtn" title="تحليلات المبيعات">📈 تحليلات</button>
-                        <button class="kitchen-btn" id="kitchenViewBtn" title="عرض طلبات المطبخ">🍳 المطبخ</button>
+                        <button class="kitchen-btn" id="kitchenViewBtn" title="شاشة المطبخ" onclick="openKitchenDisplay()" style="background:#e67e22;">🍳 المطبخ</button>
                         <button class="kitchen-btn" id="tableSettingsBtn" title="إدارة الطاولات" onclick="openTableSettings()" style="background:#6B7280;">⚙️ طاولات</button>
                         <button class="kitchen-btn" id="adminPanelBtn" title="لوحة التحكم" onclick="openAdminPanel()" style="background:#1e40af;">🛠️ إدارة</button>
                     </div>
@@ -800,17 +800,31 @@
             const list = document.getElementById('settingsTableList');
             if (!list || !window.LuccaDB || !window.LuccaDB.Tables) return;
             const tables = await window.LuccaDB.Tables.getAll();
+            const statusLabels = { available: '🟢 فارغة', occupied: '🔴 مشغولة', reserved: '🔵 محجوزة', cleaning: '🟡 تنظيف' };
             list.innerHTML = tables.map(t => `
                 <div class="settings-table-item">
                     <div class="info">
-                        <span class="num">${t.number}</span>
+                        <span class="num">#${t.number}</span>
                         <span class="zone-tag">${t.zone || 'صالة'}</span>
                         <span class="cap-tag">👤 ${t.capacity || 4}</span>
-                        <span style="font-size:0.65rem;color:var(--text-muted)">${t.status}</span>
+                        <select onchange="updateTableStatus(${t.number}, this.value)" style="font-size:0.7rem;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text)">
+                            <option value="available" ${t.status==='available'?'selected':''}>🟢 فارغة</option>
+                            <option value="reserved" ${t.status==='reserved'?'selected':''}>🔵 محجوزة</option>
+                            <option value="cleaning" ${t.status==='cleaning'?'selected':''}>🟡 تنظيف</option>
+                        </select>
                     </div>
-                    <button class="remove-btn" onclick="removeTable(${t.id})" title="حذف">✕</button>
+                    <button class="remove-btn" onclick="removeTable(${t.number})" title="حذف">✕</button>
                 </div>
             `).join('');
+        }
+
+        async function updateTableStatus(tableNum, status) {
+            if (!window.LuccaDB || !window.LuccaDB.Tables) return;
+            try {
+                await window.LuccaDB.Tables.update(tableNum, { status });
+                setOrderStatus(`✅ طاولة ${tableNum} ← ${status === 'available' ? 'فارغة' : status === 'reserved' ? 'محجوزة' : 'تنظيف'}`, 'success');
+                await loadTables();
+            } catch(e) { setOrderStatus('❌ فشل تغيير الحالة', 'error'); }
         }
 
         async function addNewTable() {
@@ -832,12 +846,12 @@
             } catch(e) { setOrderStatus('❌ فشل إضافة الطاولة', 'error'); }
         }
 
-        async function removeTable(id) {
+        async function removeTable(num) {
             if (!window.LuccaDB || !window.LuccaDB.Tables) return;
-            if (!confirm('هل أنت متأكد من حذف هذه الطاولة؟')) return;
+            if (!confirm('هل أنت متأكد من حذف طاولة رقم '+num+'؟')) return;
             try {
-                await window.LuccaDB.Tables.remove(id);
-                setOrderStatus('✅ تم حذف الطاولة', 'success');
+                await window.LuccaDB.Tables.remove(num);
+                setOrderStatus('✅ تم حذف طاولة '+num, 'success');
                 await renderSettingsTableList();
                 await loadTables();
             } catch(e) { setOrderStatus('❌ فشل حذف الطاولة', 'error'); }
@@ -866,7 +880,7 @@
                             await LuccaDB.Orders.updateStatus(pendingOrder.id, 'cancelled');
                         }
                     }
-                    await window.LuccaDB.Tables.update(parseInt(tableNum), { status: 'available', currentOrder: null });
+                    await window.LuccaDB.Tables.update(tableNum, { status: 'available', currentOrder: null });
                     setOrderStatus(`طاولة ${tableNum} أصبحت متاحة ✓`, 'success');
                     currentOrder.length = 0;
                     currentOrderId = null;
@@ -888,6 +902,14 @@
         async function openAdminPanel() {
             const modal = document.getElementById('adminPanelModal');
             if (modal) { modal.classList.add('show'); posLoadCategories(); posLoadProducts(); posLoadPaymentMethods(); }
+        }
+
+        function openKitchenDisplay(){
+            if(window.electronAPI && window.electronAPI.isElectron){
+                window.electronAPI.openExternal('file://' + __dirname + '/kitchen.html');
+            } else {
+                window.open('kitchen.html', '_blank', 'width=1400,height=900');
+            }
         }
         function closeAdminPanel() { document.getElementById('adminPanelModal')?.classList.remove('show'); }
         function switchAdminTab(tab) {
@@ -2390,8 +2412,7 @@
                 } else {
                     // Don't auto-create order if table is not available (after checkout/free)
                     if (tableNum !== 'takeaway' && window.LuccaDB && window.LuccaDB.Tables) {
-                        const tables = await LuccaDB.Tables.getAll();
-                        const table = tables.find(t => String(t.number) === String(tableNum));
+                        const table = await LuccaDB.Tables.getByNumber(tableNum);
                         if (table && table.status !== 'available' && table.status !== 'occupied') {
                             setOrderStatus(`الطاولة ${tableNum} حالياً: ${table.status} — لا يمكن فتح طلب جديد`, 'error');
                             document.querySelectorAll('.table-card').forEach(c => c.classList.remove('selected'));
@@ -2408,7 +2429,7 @@
                     currentOrderId = newOrder.id;
                     updateStatusWorkflowUI('pending');
                     if (tableNum !== 'takeaway' && window.LuccaDB && window.LuccaDB.Tables) {
-                        try { await LuccaDB.Tables.update(parseInt(tableNum), { status: 'occupied', currentOrder: newOrder.id }); } catch(e) {}
+                        try { await LuccaDB.Tables.update(tableNum, { status: 'occupied', currentOrder: newOrder.id }); } catch(e) {}
                     }
                     if (unsavedItems.length > 0) {
                         currentOrder.push(...unsavedItems);

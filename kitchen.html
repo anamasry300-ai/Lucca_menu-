@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Lucca - شاشة المطبخ</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #0a0a12;
+            --card-bg: #141422;
+            --card-border: #2a2a3e;
+            --primary: #c9a227;
+            --green: #27ae60;
+            --orange: #f39c12;
+            --red: #e74c3c;
+            --blue: #3498db;
+            --text: #e8e8e8;
+            --text-muted: #888;
+            --radius: 12px;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ===== HEADER ===== */
+        .kitchen-header {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid var(--primary);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .kitchen-header h1 {
+            font-size: 1.4rem;
+            color: var(--primary);
+            font-family: 'Playfair Display', serif;
+        }
+        .kitchen-header .kitchen-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .kitchen-clock {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            font-family: monospace;
+        }
+        .kitchen-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85rem;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--green);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .refresh-btn {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text);
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .refresh-btn:hover { background: var(--primary); color: #000; }
+
+        /* ===== STATS BAR ===== */
+        .stats-bar {
+            display: flex;
+            gap: 12px;
+            padding: 10px 20px;
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--card-border);
+        }
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .stat-new { background: rgba(231,76,60,0.2); color: var(--red); }
+        .stat-preparing { background: rgba(243,156,18,0.2); color: var(--orange); }
+        .stat-ready { background: rgba(39,174,96,0.2); color: var(--green); }
+        .stat-total { background: rgba(52,152,219,0.2); color: var(--blue); }
+
+        /* ===== FILTER TABS ===== */
+        .filter-tabs {
+            display: flex;
+            gap: 8px;
+            padding: 10px 20px;
+            background: var(--bg);
+        }
+        .filter-tab {
+            padding: 8px 20px;
+            border-radius: 20px;
+            border: 1px solid var(--card-border);
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        .filter-tab.active {
+            background: var(--primary);
+            color: #000;
+            border-color: var(--primary);
+            font-weight: 700;
+        }
+
+        /* ===== ORDERS GRID ===== */
+        .orders-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px;
+            padding: 16px 20px;
+            padding-bottom: 40px;
+        }
+
+        /* ===== ORDER CARD ===== */
+        .order-card {
+            background: var(--card-bg);
+            border: 2px solid var(--card-border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            transition: all 0.3s;
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .order-card.new { border-color: var(--red); box-shadow: 0 0 20px rgba(231,76,60,0.2); }
+        .order-card.preparing { border-color: var(--orange); box-shadow: 0 0 20px rgba(243,156,18,0.15); }
+        .order-card.ready { border-color: var(--green); box-shadow: 0 0 20px rgba(39,174,96,0.15); }
+
+        .order-header {
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--card-border);
+        }
+        .order-number {
+            font-size: 1.3rem;
+            font-weight: 800;
+            color: var(--primary);
+        }
+        .order-table-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+        .order-table-badge.table { background: rgba(52,152,219,0.2); color: var(--blue); }
+        .order-table-badge.takeaway { background: rgba(243,156,18,0.2); color: var(--orange); }
+        .order-table-badge.delivery { background: rgba(155,89,182,0.2); color: #9b59b6; }
+
+        .order-time {
+            padding: 4px 16px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+            background: rgba(0,0,0,0.3);
+        }
+        .order-time .elapsed {
+            color: var(--orange);
+            font-weight: 700;
+        }
+
+        .order-items {
+            padding: 12px 16px;
+        }
+        .order-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .order-item:last-child { border-bottom: none; }
+        .item-qty {
+            background: var(--primary);
+            color: #000;
+            font-weight: 800;
+            font-size: 1rem;
+            min-width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+        }
+        .item-name {
+            flex: 1;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        .item-check {
+            width: 28px;
+            height: 28px;
+            border: 2px solid var(--card-border);
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+            background: transparent;
+            color: transparent;
+        }
+        .item-check.done {
+            background: var(--green);
+            border-color: var(--green);
+            color: white;
+        }
+        .item-note {
+            font-size: 0.75rem;
+            color: var(--orange);
+            font-style: italic;
+            margin-top: 2px;
+        }
+
+        .order-notes {
+            padding: 8px 16px;
+            font-size: 0.8rem;
+            color: var(--orange);
+            background: rgba(243,156,18,0.05);
+            border-top: 1px solid var(--card-border);
+        }
+
+        .order-actions {
+            padding: 10px 16px;
+            display: flex;
+            gap: 8px;
+            border-top: 1px solid var(--card-border);
+        }
+        .action-btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-start {
+            background: var(--orange);
+            color: #000;
+        }
+        .btn-start:hover { background: #e67e22; }
+        .btn-ready {
+            background: var(--green);
+            color: white;
+        }
+        .btn-ready:hover { background: #219a52; }
+        .btn-done {
+            background: var(--blue);
+            color: white;
+        }
+        .btn-done:hover { background: #2980b9; }
+
+        /* ===== EMPTY STATE ===== */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 80px 20px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+        .empty-state .icon { font-size: 4rem; margin-bottom: 16px; }
+        .empty-state h2 { font-size: 1.3rem; margin-bottom: 8px; color: var(--text); }
+        .empty-state p { font-size: 0.9rem; max-width: 400px; }
+
+        /* ===== NEW ORDER ANIMATION ===== */
+        @keyframes newOrderFlash {
+            0% { box-shadow: 0 0 0 0 rgba(231,76,60,0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(231,76,60,0); }
+            100% { box-shadow: 0 0 0 0 rgba(231,76,60,0); }
+        }
+        .order-card.new { animation: slideIn 0.3s ease, newOrderFlash 2s infinite; }
+
+        /* ===== SOUND BADGE ===== */
+        .sound-toggle {
+            background: transparent;
+            border: 1px solid var(--card-border);
+            color: var(--text);
+            padding: 6px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .sound-toggle.muted { color: var(--red); }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 768px) {
+            .orders-container { grid-template-columns: 1fr; padding: 10px; }
+            .kitchen-header h1 { font-size: 1.1rem; }
+            .stats-bar { flex-wrap: wrap; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="kitchen-header">
+    <div>
+        <h1>🍳 LUCCA - شاشة المطبخ</h1>
+        <div class="kitchen-subtitle">Kitchen Display System</div>
+    </div>
+    <div class="header-right">
+        <button class="sound-toggle" id="soundToggle" onclick="toggleSound()" title="تشغيل/إيقاف الصوت">🔔</button>
+        <div class="kitchen-status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">متصل</span>
+        </div>
+        <div class="kitchen-clock" id="kitchenClock">--:--</div>
+        <button class="refresh-btn" onclick="refreshOrders()">🔄 تحديث</button>
+    </div>
+</div>
+
+<!-- STATS -->
+<div class="stats-bar">
+    <div class="stat-item stat-new">🔴 جديدة: <span id="statNew">0</span></div>
+    <div class="stat-item stat-preparing">🟡 قيد التجهيز: <span id="statPreparing">0</span></div>
+    <div class="stat-item stat-ready">🟢 جاهزة: <span id="statReady">0</span></div>
+    <div class="stat-item stat-total">📋 الإجمالي: <span id="statTotal">0</span></div>
+</div>
+
+<!-- FILTERS -->
+<div class="filter-tabs">
+    <button class="filter-tab active" onclick="filterOrders('all', this)">الكل</button>
+    <button class="filter-tab" onclick="filterOrders('new', this)">🔴 جديدة</button>
+    <button class="filter-tab" onclick="filterOrders('in_preparation', this)">🟡 قيد التجهيز</button>
+    <button class="filter-tab" onclick="filterOrders('ready', this)">🟢 جاهزة</button>
+    <button class="filter-tab" onclick="filterOrders('completed', this)">✅ مكتملة</button>
+</div>
+
+<!-- ORDERS -->
+<div class="orders-container" id="ordersContainer">
+    <div class="empty-state">
+        <div class="icon">🍳</div>
+        <h2>لا توجد طلبات حالياً</h2>
+        <p>ستظهر الطلبات الجديدة هنا تلقائياً عند وصولها من نقطة البيع</p>
+    </div>
+</div>
+
+<!-- AUDIO -->
+<audio id="newOrderSound" preload="auto">
+    <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2JkY2LhX15hYmQkI2IgH1+hYeKjY2Ni4WDe36ChYiJjIuJhYF8f4OGiImLi4mFgXx+g4aIiYyLiYWBfH6DhoiJjIuJhYF8foOGiImMi4mFgXx+g4aIiYyLiYWBfH6DhoiJjIuJhYF8foOGiImMi4mFgXx+g4aIiYyLiYWBfA==" type="audio/wav">
+</audio>
+
+<script>
+// ===== CONFIGURATION =====
+const DB_KEY = 'lucca_kitchen_orders';
+let currentFilter = 'all';
+let soundEnabled = true;
+let lastOrderCount = 0;
+
+// ===== CLOCK =====
+function updateClock(){
+    const now = new Date();
+    document.getElementById('kitchenClock').textContent = now.toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ===== SOUND =====
+function toggleSound(){
+    soundEnabled = !soundEnabled;
+    const btn = document.getElementById('soundToggle');
+    btn.textContent = soundEnabled ? '🔔' : '🔕';
+    btn.classList.toggle('muted', !soundEnabled);
+}
+
+function playNewOrderSound(){
+    if(!soundEnabled) return;
+    try {
+        const audio = document.getElementById('newOrderSound');
+        audio.currentTime = 0;
+        audio.play().catch(()=>{});
+    } catch(e){}
+}
+
+// ===== LOAD ORDERS =====
+async function loadOrders(){
+    let orders = [];
+
+    // Try Supabase first
+    if(window.supabase){
+        try {
+            const SUPABASE_URL = 'https://uudimvcdkaacqaxgajbk.supabase.co';
+            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZGltdmNka2FhY3FheGdhamJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMzQ4MTYsImV4cCI6MjEwMjgxMDgxNn0.WrwCUlqWW2ib7D8T41DNzUbybo4FHnNQ1AIBTZr2ZlM';
+            const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            const { data, error } = await supabase.from('orders').select('*').order('created_at', {ascending: false}).limit(50);
+            if(!error && data) orders = data;
+        } catch(e){}
+    }
+
+    // Fallback to IndexedDB
+    if(orders.length === 0 && window.LuccaDB){
+        try {
+            orders = await window.LuccaDB.Orders.getAll();
+        } catch(e){}
+    }
+
+    // Fallback to localStorage
+    if(orders.length === 0){
+        try { orders = JSON.parse(localStorage.getItem(DB_KEY) || '[]'); } catch(e){ orders = []; }
+    }
+
+    return orders;
+}
+
+// ===== RENDER ORDERS =====
+async function renderOrders(){
+    const allOrders = await loadOrders();
+
+    // Filter: show only today's active orders
+    const today = new Date().toISOString().slice(0, 10);
+    let filtered = allOrders.filter(o => {
+        const d = (o.createdAt || o.date || '').slice(0, 10);
+        return d === today;
+    });
+
+    // Apply status filter
+    if(currentFilter !== 'all'){
+        if(currentFilter === 'new'){
+            filtered = filtered.filter(o => o.status === 'pending' || o.status === 'new');
+        } else {
+            filtered = filtered.filter(o => o.status === currentFilter);
+        }
+    }
+
+    // Sort: newest first, then by status priority
+    const statusOrder = { pending: 0, new: 0, in_preparation: 1, ready: 2, completed: 3, closed: 4, cancelled: 5 };
+    filtered.sort((a, b) => {
+        const sa = statusOrder[a.status] !== undefined ? statusOrder[a.status] : 99;
+        const sb = statusOrder[b.status] !== undefined ? statusOrder[b.status] : 99;
+        if(sa !== sb) return sa - sb;
+        return new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0);
+    });
+
+    // Update stats
+    const todayOrders = allOrders.filter(o => (o.createdAt || o.date || '').slice(0,10) === today);
+    const newCount = todayOrders.filter(o => o.status === 'pending' || o.status === 'new').length;
+    const prepCount = todayOrders.filter(o => o.status === 'in_preparation').length;
+    const readyCount = todayOrders.filter(o => o.status === 'ready').length;
+    document.getElementById('statNew').textContent = newCount;
+    document.getElementById('statPreparing').textContent = prepCount;
+    document.getElementById('statReady').textContent = readyCount;
+    document.getElementById('statTotal').textContent = todayOrders.length;
+
+    // Sound for new orders
+    if(newCount > lastOrderCount && lastOrderCount > 0){
+        playNewOrderSound();
+    }
+    lastOrderCount = newCount;
+
+    // Render
+    const container = document.getElementById('ordersContainer');
+    if(filtered.length === 0){
+        container.innerHTML = '<div class="empty-state"><div class="icon">🍳</div><h2>لا توجد طلبات '+(currentFilter==='all'?'حالياً':'في هذه الفئة')+'</h2><p>ستظهر الطلبات الجديدة هنا</p></div>';
+        return;
+    }
+
+    container.innerHTML = '';
+    for(const order of filtered){
+        container.appendChild(createOrderCard(order));
+    }
+}
+
+// ===== CREATE ORDER CARD =====
+function createOrderCard(order){
+    const card = document.createElement('div');
+    const status = order.status || 'pending';
+    card.className = 'order-card ' + (status === 'pending' || status === 'new' ? 'new' : status === 'in_preparation' ? 'preparing' : status === 'ready' ? 'ready' : '');
+
+    const items = order.items || [];
+    const tableId = order.tableId;
+    const isTakeaway = tableId === 'takeaway' || tableId == 0;
+    const isDelivery = tableId === 'delivery';
+    const tableBadgeClass = isTakeaway ? 'takeaway' : isDelivery ? 'delivery' : 'table';
+    const tableLabel = isTakeaway ? '🛵 سفري' : isDelivery ? '🚗 ديليفري' : '🪑 طاولة ' + tableId;
+    const orderNum = order.orderNumber || ('#' + String(order.id || '').slice(-4));
+    const time = order.createdAt || order.date || new Date().toISOString();
+    const elapsed = getElapsedTime(time);
+
+    let itemsHtml = '';
+    items.forEach((item, idx) => {
+        const name = item.nameAr || item.name || '';
+        const qty = item.quantity || 1;
+        const note = item.note || '';
+        itemsHtml += '<div class="order-item">' +
+            '<div class="item-qty">' + qty + '</div>' +
+            '<div style="flex:1">' +
+            '<div class="item-name">' + name + '</div>' +
+            (note ? '<div class="item-note">📝 ' + note + '</div>' : '') +
+            '</div>' +
+            '<button class="item-check '+(item._done?'done':'')+'" onclick="toggleItemDone(this, \''+order.id+'\', '+idx+')">✓</button>' +
+            '</div>';
+    });
+
+    let notesHtml = '';
+    if(order.customerNotes) notesHtml = '<div class="order-notes">📝 ' + order.customerNotes + '</div>';
+
+    let actionsHtml = '';
+    if(status === 'pending' || status === 'new'){
+        actionsHtml = '<div class="order-actions">' +
+            '<button class="action-btn btn-start" onclick="updateOrderStatus(\''+order.id+'\', \'in_preparation\')">🟡 بدأ التجهيز</button>' +
+            '</div>';
+    } else if(status === 'in_preparation'){
+        actionsHtml = '<div class="order-actions">' +
+            '<button class="action-btn btn-ready" onclick="updateOrderStatus(\''+order.id+'\', \'ready\')">🟢 جاهز للتقديم</button>' +
+            '</div>';
+    } else if(status === 'ready'){
+        actionsHtml = '<div class="order-actions">' +
+            '<button class="action-btn btn-done" onclick="updateOrderStatus(\''+order.id+'\', \'completed\')">✅ تم التقديم</button>' +
+            '</div>';
+    }
+
+    card.innerHTML = '<div class="order-header">' +
+        '<span class="order-number">' + orderNum + '</span>' +
+        '<span class="order-table-badge ' + tableBadgeClass + '">' + tableLabel + '</span>' +
+        '</div>' +
+        '<div class="order-time">' +
+        '<span>' + new Date(time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) + '</span>' +
+        '<span class="elapsed">' + elapsed + '</span>' +
+        '</div>' +
+        '<div class="order-items">' + itemsHtml + '</div>' +
+        notesHtml +
+        actionsHtml;
+
+    return card;
+}
+
+// ===== TIME HELPERS =====
+function getElapsedTime(timeStr){
+    const diff = Date.now() - new Date(timeStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if(mins < 1) return 'الآن';
+    if(mins < 60) return mins + ' دقيقة';
+    const hrs = Math.floor(mins / 60);
+    return hrs + ' س ' + (mins % 60) + ' د';
+}
+
+// ===== UPDATE ORDER STATUS =====
+async function updateOrderStatus(orderId, newStatus){
+    // Try Supabase first
+    if(window.supabase){
+        try {
+            const SUPABASE_URL = 'https://uudimvcdkaacqaxgajbk.supabase.co';
+            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZGltdmNka2FhY3FheGdhamJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMzQ4MTYsImV4cCI6MjEwMjgxMDgxNn0.WrwCUlqWW2ib7D8T41DNzUbybo4FHnNQ1AIBTZr2ZlM';
+            const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            await supabase.from('orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId);
+        } catch(e){}
+    }
+
+    // Also update IndexedDB
+    if(window.LuccaDB){
+        try {
+            const order = await window.LuccaDB.db.get('orders', orderId);
+            if(order){
+                order.status = newStatus;
+                order.updatedAt = new Date().toISOString();
+                await window.LuccaDB.db.put('orders', order);
+            }
+        } catch(e){}
+    }
+
+    // Update localStorage fallback
+    try {
+        const orders = JSON.parse(localStorage.getItem(DB_KEY) || '[]');
+        const idx = orders.findIndex(o => o.id == orderId);
+        if(idx >= 0){
+            orders[idx].status = newStatus;
+            orders[idx].updatedAt = new Date().toISOString();
+            localStorage.setItem(DB_KEY, JSON.stringify(orders));
+        }
+    } catch(e){}
+
+    renderOrders();
+}
+
+// ===== TOGGLE ITEM DONE =====
+function toggleItemDone(btn, orderId, itemIdx){
+    btn.classList.toggle('done');
+}
+
+// ===== FILTER =====
+function filterOrders(filter, btn){
+    currentFilter = filter;
+    document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+    if(btn) btn.classList.add('active');
+    renderOrders();
+}
+
+// ===== REFRESH =====
+function refreshOrders(){
+    document.getElementById('statusDot').style.background = '#3498db';
+    document.getElementById('statusText').textContent = 'جاري التحديث...';
+    renderOrders().then(()=>{
+        setTimeout(()=>{
+            document.getElementById('statusDot').style.background = '#27ae60';
+            document.getElementById('statusText').textContent = 'متصل';
+        }, 500);
+    });
+}
+
+// ===== AUTO REFRESH =====
+setInterval(refreshOrders, 10000);
+
+// ===== INIT =====
+document.addEventListener('DOMContentLoaded', () => {
+    renderOrders();
+    // Check connection
+    if(!navigator.onLine){
+        document.getElementById('statusDot').style.background = '#f39c12';
+        document.getElementById('statusText').textContent = 'أوفلاين';
+    }
+    window.addEventListener('online', ()=>{
+        document.getElementById('statusDot').style.background = '#27ae60';
+        document.getElementById('statusText').textContent = 'متصل';
+        refreshOrders();
+    });
+    window.addEventListener('offline', ()=>{
+        document.getElementById('statusDot').style.background = '#f39c12';
+        document.getElementById('statusText').textContent = 'أوفلاين';
+    });
+});
+</script>
+
+<!-- Load Supabase SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Load IndexedDB fallback -->
+<script src="admin/database.js"></script>
+
+</body>
+</html>
