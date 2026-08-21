@@ -1156,6 +1156,92 @@ const WasteLog = {
     }
 };
 
+// ==================== ولاء العملاء ====================
+const POINTS_PER_UNIT = 1; // نقطة لكل وحدة عملة
+const REDEEM_RATE = 100; // 100 نقطة = 1 وحدة خصم
+
+const CustomerLoyalty = {
+    async getOrCreateByPhone(phone) {
+        if (!phone) return null;
+        const all = await db.getAll('customers');
+        let customer = all.find(c => (c.phone || '').replace(/\D/g, '') === phone.replace(/\D/g, ''));
+        if (!customer) {
+            customer = { name: '', phone: phone, points: 0, totalSpent: 0, totalVisits: 0, tier: 'bronze', createdAt: new Date().toISOString() };
+            customer.id = await db.add('customers', customer);
+        }
+        if (!customer.points) customer.points = 0;
+        if (!customer.totalSpent) customer.totalSpent = 0;
+        if (!customer.totalVisits) customer.totalVisits = 0;
+        if (!customer.tier) customer.tier = 'bronze';
+        return customer;
+    },
+
+    async addPoints(phone, amount, orderId) {
+        const customer = await this.getOrCreateByPhone(phone);
+        if (!customer) return null;
+        const earned = Math.floor(amount * POINTS_PER_UNIT);
+        customer.points += earned;
+        customer.totalSpent += amount;
+        customer.totalVisits += 1;
+        customer.lastVisit = new Date().toISOString();
+        customer.tier = this.calcTier(customer.totalSpent);
+        await db.put('customers', customer);
+        return { customer, earned, total: customer.points };
+    },
+
+    async redeemPoints(phone, points) {
+        const customer = await this.getOrCreateByPhone(phone);
+        if (!customer) return null;
+        if (customer.points < points) return { error: 'النقاط غير كافية', available: customer.points };
+        const discount = Math.floor(points / REDEEM_RATE);
+        customer.points -= points;
+        customer.redeemedTotal = (customer.redeemedTotal || 0) + discount;
+        customer.lastRedeem = new Date().toISOString();
+        await db.put('customers', customer);
+        return { customer, discount, remaining: customer.points };
+    },
+
+    async getCustomer(phone) {
+        return this.getOrCreateByPhone(phone);
+    },
+
+    async getAllCustomers() {
+        const all = await db.getAll('customers');
+        return all.filter(c => c.phone).sort((a, b) => (b.totalSpent || 0) - (a.totalSpent || 0));
+    },
+
+    async getTopCustomers(limit) {
+        const all = await this.getAllCustomers();
+        return all.slice(0, limit || 10);
+    },
+
+    async getStats() {
+        const all = await this.getAllCustomers();
+        const totalPoints = all.reduce((s, c) => s + (c.points || 0), 0);
+        const totalSpent = all.reduce((s, c) => s + (c.totalSpent || 0), 0);
+        const tiers = { diamond: 0, gold: 0, silver: 0, bronze: 0 };
+        all.forEach(c => { if (tiers[c.tier] !== undefined) tiers[c.tier]++; });
+        return { customers: all.length, totalPoints, totalSpent, tiers };
+    },
+
+    calcTier(totalSpent) {
+        if (totalSpent >= 50000) return 'diamond';
+        if (totalSpent >= 25000) return 'gold';
+        if (totalSpent >= 10000) return 'silver';
+        return 'bronze';
+    },
+
+    tierName(tier) {
+        const names = { diamond: '💎 ماسي', gold: '🥇 ذهبي', silver: '🥈 فضي', bronze: '🥉 برونزي' };
+        return names[tier] || '🥉 برونزي';
+    },
+
+    tierColor(tier) {
+        const colors = { diamond: '#00bfff', gold: '#ffd700', silver: '#c0c0c0', bronze: '#cd7f32' };
+        return colors[tier] || '#cd7f32';
+    }
+};
+
 // ==================== إدارة الموظفين ====================
 const Employees = {
     async getAll() {
@@ -2247,4 +2333,4 @@ const KnowledgeBase = {
 };
 
 // تصدير للاستخدام
-window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, initSystem };
+window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, initSystem };

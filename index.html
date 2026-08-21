@@ -2541,6 +2541,17 @@
                 const orderId = currentOrderId;
                 currentOrderId = null;
 
+                // ===== LOYALTY POINTS =====
+                try {
+                    const custPhone = (order && order.customerPhone) || formData.customerPhone;
+                    if(custPhone && window.LuccaDB.CustomerLoyalty && total > 0){
+                        const result = await window.LuccaDB.CustomerLoyalty.addPoints(custPhone, total, orderId);
+                        if(result && result.earned > 0){
+                            setTimeout(()=>{ setOrderStatus('⭐ تم إضافة '+result.earned+' نقطة ولاء ('+result.total+' إجمالي)', 'success'); }, 1500);
+                        }
+                    }
+                } catch(e){}
+
                 // Fetch the latest order data for invoice display
                 const allOrders = await LuccaDB.Orders.getAll();
                 const order = allOrders.find(o => o.id === orderId) || closedOrder;
@@ -3943,8 +3954,22 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
             if (e.ctrlKey && e.key === 'f') { e.preventDefault(); openOrderSearchModal(); return; }
             // Ctrl+, = settings
             if (e.ctrlKey && e.key === ',') { e.preventDefault(); showServerSettings(); return; }
+            // F1 = open AI assistant
+            if (e.key === 'F1') { e.preventDefault(); toggleAIChat(); return; }
+            // F2 = calculate totals
+            if (e.key === 'F2') { e.preventDefault(); document.querySelector('.btn-checkout').click(); return; }
+            // F3 = checkout/pay
+            if (e.key === 'F3') { e.preventDefault(); document.getElementById('requestCheckBtn').click(); return; }
+            // F5 = refresh
+            if (e.key === 'F5') { e.preventDefault(); loadMenu(); loadTables(); return; }
+            // F6 = toggle kitchen
+            if (e.key === 'F6') { e.preventDefault(); toggleKitchen(); return; }
+            // F7 = toggle orders
+            if (e.key === 'F7') { e.preventDefault(); document.getElementById('ordersPanel').classList.toggle('show'); return; }
+            // F8 = split bill
+            if (e.key === 'F8') { e.preventDefault(); openSplitBillModal(); return; }
             // F1-F12 = select tables 1-12
-            if (e.key >= 'F1' && e.key <= 'F12') {
+            if (e.key >= 'F9' && e.key <= 'F12') {
                 e.preventDefault();
                 const tbl = parseInt(e.key.replace('F', ''));
                 if (tbl >= 1 && tbl <= 12) {
@@ -3962,6 +3987,13 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
                 return;
             }
             if (e.key === '0') { selectTable(10); return; }
+            // ESC = close modals
+            if (e.key === 'Escape') {
+                document.querySelectorAll('.modal.show').forEach(m => m.classList.remove('show'));
+                const aiWin = document.getElementById('aiChatWindow');
+                if(aiWin && aiWin.classList.contains('open')) aiWin.classList.remove('open');
+                return;
+            }
         });
 
         // Start periodic sync
@@ -4267,11 +4299,206 @@ async function processAiCommand(text){
     }
 
     // ===== TUTORIAL / HELP =====
-    if(matchAny(t,['كيف','شرح','تعليم','طريقة','استخدام','tutorial','help','مساعدة','ازاي','هعلم','محتاج اعرف'])){
-        return aiBotReply('📚 **دليل استخدام لوكا بوينت أوف سيل**\n\n**1. نقطة البيع (POS):**\n• اختر القسم ← اختر المنتج ← اضاف للطلب\n• اضغط "إتمام الطلب" لعمل الدفع\n\n**2. الدفع:**\n• اختر طريقة الدفع (كاش/فيزا/واتساب)\n• يمكّنك الدفع بالتقسيم\n\n**3. الفاتورة:**\n• بعد الدفع تظهر الفاتورة\n• تقدر تطبعها أو ترسلها واتساب\n\n**4. إدارة الطاولات:**\n• اختر رقم الطاولة من القائمة\n• الطلبات المتعددة لكل طاولة\n\n**5. لوحة التحكم:**\n• افتح من الزاوية العلوية\n• إدارة المنتجات والفئات وطرق الدفع\n• تقارير المبيعات والمصروفات',[
-            {text:'كيف أضيف منتج؟',cmd:'add_product'},
-            {text:'كيف أسوي فاتورة؟',cmd:'create_order'},
-            {text:'إدارة الموظفين',cmd:'manage_employees'}
+    if(matchAny(t,['كيف','شرح','تعليم','طريقة','استخدام','tutorial','help','مساعدة','ازاي','هعلم','محتاج اعرف','missions','مهمات','وظائف','أوامر','commands','ayo','الاوامر','الأوامر'])){
+        // Check if user asked about specific section
+        const sections = {
+            pos: matchAny(t,['نقطة البيع','البيع','pos','كاشير',' cashier']),
+            payment: matchAny(t,['الدفع','دفع','payment','كاش','فيزا','cash','split','تقسيم']),
+            table: matchAny(t,['الطاولات','طاولة','tables','table']),
+            admin: matchAny(t,['لوحة التحكم','الادارة','admin','dashboard']),
+            bot: matchAny(t,['البوت','المساعد','الذكاء','bot','ai','assistant','مساعدات']),
+            reports: matchAny(t,['التقارير','تقرير','reports','report']),
+            inventory: matchAny(t,['المخزون','المخازن','inventory','stock']),
+            products: matchAny(t,['المنتجات','منتج','products','product']),
+            keyboard: matchAny(t,['الاختصارات','اختصارات','shortcuts','keyboard']),
+            kb: matchAny(t,['قاعدة المعرفة','المعرفة','knowledge','documents','مستندات']),
+        };
+
+        if(sections.pos){
+            return aiBotReply('🛒 **نقطة البيع (POS)**\n\n' +
+                '**إضافة منتجات:**\n' +
+                '• اختر القسم من شريط الأقسام\n' +
+                '• اضغط على المنتج لإضافته للطلب\n' +
+                '• غيّر الكمية بـ +/-\n' +
+                '• احذف منتج بـ 🗑️\n\n' +
+                '**أنواع الطلبات:**\n' +
+                '• 🏠 طاولة - لزبائن يجلسون\n' +
+                '• 📦 سفري - أوردر يتسحب\n' +
+                '• 🚗 ديليفري - توصيل\n\n' +
+                '**إتمام الطلب:**\n' +
+                '• اضغط "💳 إتمام الطلب"\n' +
+                '• اختر طريقة الدفع\n' +
+                '• يمكنك الدفع بالتقسيم\n' +
+                '• اطبع الفاتورة أو أرسلها واتساب',[
+                {text:'طرق الدفع',cmd:'payment help'},
+                {text:'الاختصارات',cmd:'keyboard help'},
+                {text:'الوصفات',cmd:'recipes help'}
+            ]);
+        }
+
+        if(sections.payment){
+            return aiBotReply('💳 **طرق الدفع**\n\n' +
+                '**الدفع الكامل:**\n' +
+                '• اختر طريقة الدفع من الأزرار\n' +
+                '• كاش / فيزا / واتساب باي\n\n' +
+                '**الدفع بالتقسيم:**\n' +
+                '• اضغط "💰 تقسيم"\n' +
+                '• أضف طرق دفع متعددة\n' +
+                '• المجموع يجب أن يساوي الإجمالي\n\n' +
+                '**الإشعارات:**\n' +
+                '• الدفعPartial = انتظر الباقي\n' +
+                '• الدفعFull = تم الطلب',[
+                {text:'نقطة البيع',cmd:'pos help'},
+                {text:'الفواتير',cmd:'invoices help'}
+            ]);
+        }
+
+        if(sections.bot){
+            return aiBotReply('🤖 **المساعد الذكي - أوامرك**\n\n' +
+                '**🎯 أوامر نقطة البيع:**\n' +
+                '• "افتح طاولة 5" - فتح طاولة\n' +
+                '• "حط قهوة + مياه" - إضافة أصناف\n' +
+                '• "احسب" - حساب المجموع\n' +
+                '• "ادفع كاش" - الدفع\n' +
+                '• "اغلق الطاولة 3" - إغلاق\n\n' +
+                '**📊 أوامر التقارير:**\n' +
+                '• "تقرير يومي" / "مبيعات اليوم"\n' +
+                '• "تقرير شهري"\n' +
+                '• "top 5 منتجات"\n\n' +
+                '**💰 أوامر المحاسبة:**\n' +
+                '• "cost report" / "تكلفة"\n' +
+                '• "P&L" / "حسابات"\n\n' +
+                '**📦 أوامر المخزون:**\n' +
+                '• "المخزون" / "inventory"\n' +
+                '• "الموردين" / "suppliers"\n' +
+                '• "reorder"\n\n' +
+                '**📚 قاعدة المعرفة:**\n' +
+                '• "ابحث عن [كلمة]" - بحث\n' +
+                '• "علّمني [نص]" - تعليم\n\n' +
+                '**🔧 أوامر عامة:**\n' +
+                '• "_PRODUCTS" - عرض كل المنتجات\n' +
+                '• "تفاصيل [اسم المنتج]"\n' +
+                '• "الوقت" / "today"',[
+                {text:'الاختصارات',cmd:'keyboard help'},
+                {text:'تقييم البوت',cmd:'rate_bot'}
+            ]);
+        }
+
+        if(sections.keyboard){
+            return aiBotReply('⌨️ **الاختصارات السريعة**\n\n' +
+                '** Cherry Picks:**\n' +
+                '• `F1` - افتح المساعد الذكي\n' +
+                '• `F2` - حساب المجموع\n' +
+                '• `F3` - إتمام الطلب\n' +
+                '• `F5` - تحديث\n\n' +
+                '**الأرقام:**\n' +
+                '• `1-9` - اختيار منتج بالترتيب\n' +
+                '• `ESC` - إغلاق / رجوع\n\n' +
+                '**الوصفات:**\n' +
+                '• `Ctrl + S` - حفظ\n' +
+                '• `Ctrl + P` - طباعة\n' +
+                '• `Ctrl + Z` - تراجع\n\n' +
+                '**quick typing:**\n' +
+                '• `Ctrl + 1-9` - افتح طاولة سريعة',[
+                {text:'المساعد الذكي',cmd:'ai help'},
+                {text:'نقطة البيع',cmd:'pos help'}
+            ]);
+        }
+
+        if(sections.kb){
+            return aiBotReply('📚 **قاعدة المعرفة**\n\n' +
+                '**إضافة مستند:**\n' +
+                '• "علّمني [نص المستند]" - إضافة مباشر\n' +
+                '• ارفع ملفات من لوحة التحكم\n\n' +
+                '**البحث:**\n' +
+                '• "ابحث عن [كلمة]" - بحث ذكي\n' +
+                '• "وين [|唿] [كلمة]" - بحث عام\n\n' +
+                '**الأوامر:**\n' +
+                '• "show kb" - عرض المستندات\n' +
+                '• "reset kb" - مسح قاعدة المعرفة',[
+                {text:'البحث في المعرفة',cmd:'kb_search'},
+                {text:'تعليم البوت',cmd:'teach bot'}
+            ]);
+        }
+
+        if(sections.inventory){
+            return aiBotReply('📦 **إدارة المخزون**\n\n' +
+                '**الحالة:**\n' +
+                '• "المخزون" / "inventory"\n' +
+                '• "الموردين" / "suppliers"\n' +
+                '• "reorder" - إعادة طلب\n\n' +
+                '**الوصفات:**\n' +
+                '• "وصفات [منتج]"\n' +
+                '• اربط المنتجات بالمكونات\n\n' +
+                '**الحركات:**\n' +
+                '• "stock in [كمية] [منتج]"\n' +
+                '• "stock out [كمية] [منتج]"\n' +
+                '• "waste" - تسجيل هالك\n\n' +
+                '** التنبيهات:**\n' +
+                '• تنبيه مخزون منخفض\n' +
+                '• تنبيه انتهاء صلاحية',[
+                {text:'الموردين',cmd:'suppliers help'},
+                {text:'الوصفات',cmd:'recipes help'}
+            ]);
+        }
+
+        if(sections.reports){
+            return aiBotReply('📊 **التقارير المتاحة**\n\n' +
+                '**المبيعات:**\n' +
+                '• "daily_report" - تقرير يومي\n' +
+                '• "weekly_report" - تقرير أسبوعي\n' +
+                '• "monthly_report" - تقرير شهري\n\n' +
+                '**المنتجات:**\n' +
+                '• "top 5" - أفضل 5 منتجات\n' +
+                '• "worst 5" - أقل 5 منتجات\n\n' +
+                '**المصروفات:**\n' +
+                '• "expenses" - تقرير المصروفات\n\n' +
+                '**التكاليف:**\n' +
+                '• "cost report" / "تكلفة"\n\n' +
+                '**المحاسبة:**\n' +
+                '• "P&L" / "حسابات"\n\n' +
+                '**التصدير:**\n' +
+                '• CSV أو Excel من لوحة التحكم',[
+                {text:'تصدير Excel',cmd:'export excel'},
+                {text:'P&L',cmd:'P&L'}
+            ]);
+        }
+
+        if(sections.products){
+            return aiBotReply('📦 **إدارة المنتجات**\n\n' +
+                '**عرض:**\n' +
+                '• "_PRODUCTS" - كل المنتجات\n' +
+                '• "تفاصيل [اسم]" - تفاصيل منتج\n\n' +
+                '**إضافة:**\n' +
+                '• "أضف [اسم] بـ [سعر] في [قسم]"\n\n' +
+                '**تعديل:**\n' +
+                '• "السعر الصح [سعر] [منتج]"\n' +
+                '• "المكونات صح [منتج] هي [مكونات]"\n\n' +
+                '**بحث:**\n' +
+                '• "وين [اسم المنتج]" - بحث في المنتجات',[
+                {text:'المنتجات',cmd:'_PRODUCTS'},
+                {text:'إضافة منتج',cmd:'add_product'}
+            ]);
+        }
+
+        // Default general help
+        return aiBotReply('🎯 **مرحبا! أنا مساعد لوكا الذكي**\n\n' +
+            '**اختر قسم لتعلم المزيد:**\n\n' +
+            '🛒 **نقطة البيع** - كيف تبيع وتسوي أوردرات\n' +
+            '💳 **الدفع** - طرق الدفع والتقسيم\n' +
+            '🪑 **الطاولات** - إدارة الطاولات\n' +
+            '🤖 **المساعد** - كل أوامر البوت\n' +
+            '⌨️ **الاختصارات** - اختصارات لوحة المفاتيح\n' +
+            '📦 **المخزون** - إدارة المخزون والوصفات\n' +
+            '📊 **التقارير** - تقارير المبيعات والتكاليف\n' +
+            '📦 **المنتجات** - إضافة وتعديل المنتجات\n' +
+            '📚 **قاعدة المعرفة** - تعليم البوت والبحث',[
+            {text:'نقطة البيع',cmd:'pos help'},
+            {text:'المساعد الذكي',cmd:'ai help'},
+            {text:'الاختصارات',cmd:'keyboard help'},
+            {text:'المخزون',cmd:'inventory help'},
+            {text:'التقارير',cmd:'reports help'},
+            {text:'قاعدة المعرفة',cmd:'kb help'}
         ]);
     }
 
@@ -4770,6 +4997,48 @@ async function processAiCommand(text){
             html += '</table>';
             return aiBotReply('📦 **المخزون:**'+html,[
                 {text:'اضافة صنف',cmd:'add_inventory'}
+            ]);
+        } catch(e){ return aiBotReply('❌ '+e.message); }
+    }
+
+    // ===== LOYALTY =====
+    if(matchAny(t,['الولاء','نقاط','loyalty','points','العملاء','customers','vip','member','عضو','عملاء',' vip '])) {
+        try{
+            const phone = t.replace(/(?:الولاء|نقاط|loyalty|points|العملاء|customers|vip|member|عضو|عملاء)\s*/gi,'').trim();
+            if(phone && phone.length >= 6){
+                const cust = await window.LuccaDB.CustomerLoyalty.getCustomer(phone);
+                if(!cust) return aiBotReply('❌ لم يتم العثور على عميل بهذا الرقم');
+                const tierName = window.LuccaDB.CustomerLoyalty.tierName(cust.tier);
+                let html = '<table class="ai-table">';
+                html += '<tr><td>📱 الرقم</td><td>'+cust.phone+'</td></tr>';
+                html += '<tr><td>⭐ النقاط</td><td><b>'+(cust.points||0)+'</b></td></tr>';
+                html += '<tr><td>💰 المبلغ المصروف</td><td>'+formatMoney(cust.totalSpent||0)+' ل.س</td></tr>';
+                html += '<tr><td>🔄 عدد الزيارات</td><td>'+(cust.totalVisits||0)+'</td></tr>';
+                html += '<tr><td>🏅 الشريحة</td><td>'+tierName+'</td></tr>';
+                html += '</table>';
+                const discount = Math.floor((cust.points||0)/100);
+                if(discount > 0) html += '\n\n💡 يمكنك خصم **'+discount+' ل.س** بـ **'+(cust.points)+' نقطة**';
+                return aiBotReply('👥 ** بيانات العميل:**'+html,[
+                    {text:'خصم نقاط',cmd:'redeem_points '+phone},
+                    {text:'كل العملاء',cmd:'all_customers'}
+                ]);
+            }
+            // Show all customers
+            const customers = await window.LuccaDB.CustomerLoyalty.getAllCustomers();
+            if(customers.length === 0) return aiBotReply('👥 لا يوجد عملاء مسجلين بعد.\n\nالpoints تُضاف تلقائياً عند كل عملية بيع برقم موبايل.');
+            let html = '<table class="ai-table"><tr><th>العميل</th><th>النقاط</th><th>الشريحة</th></tr>';
+            customers.slice(0,10).forEach(c=>{
+                html += '<tr><td>'+(c.name||c.phone||'مجهول')+'</td><td>'+(c.points||0)+'</td><td>'+window.LuccaDB.CustomerLoyalty.tierName(c.tier)+'</td></tr>';
+            });
+            html += '</table>';
+            html += '\n📊 **إحصائيات:**';
+            const stats = await window.LuccaDB.CustomerLoyalty.getStats();
+            html += '\n• إجمالي العملاء: '+stats.customers;
+            html += '\n• إجمالي النقاط: '+stats.totalPoints;
+            html += '\n• إجمالي المبيعات: '+formatMoney(stats.totalSpent)+' ل.س';
+            return aiBotReply('👥 **العملاء:**'+html,[
+                {text:'بحث عن عميل',cmd:'loyalty'},
+                {text:'الشريحة الماسية',cmd:'diamond'}
             ]);
         } catch(e){ return aiBotReply('❌ '+e.message); }
     }
