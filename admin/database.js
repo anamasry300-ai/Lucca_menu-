@@ -1242,6 +1242,264 @@ const CustomerLoyalty = {
     }
 };
 
+// ==================== إدارة الصندوق ====================
+const CashRegister = {
+    _storeName: 'cash_registers',
+
+    async openDrawer(startingCash, employeeId, notes) {
+        const existing = await this.getActiveDrawer();
+        if(existing) return { error: 'الصندوق مفتوح بالفعل! أغلقه أولاً.', drawer: existing };
+
+        const drawer = {
+            status: 'open',
+            startingCash: Number(startingCash) || 0,
+            currentCash: Number(startingCash) || 0,
+            employeeId: employeeId || null,
+            openedAt: new Date().toISOString(),
+            closedAt: null,
+            closingCash: null,
+            expectedCash: 0,
+            difference: 0,
+            totalCashSales: 0,
+            totalCardSales: 0,
+            totalExpenses: 0,
+            totalRefunds: 0,
+            transactionCount: 0,
+            notes: notes || ''
+        };
+        drawer.id = await db.add(this._storeName, drawer);
+        return { drawer };
+    },
+
+    async closeDrawer(closingCash, notes) {
+        const drawer = await this.getActiveDrawer();
+        if(!drawer) return { error: 'لا يوجد صندوق مفتوح' };
+
+        drawer.status = 'closed';
+        drawer.closingCash = Number(closingCash) || 0;
+        drawer.closedAt = new Date().toISOString();
+        drawer.difference = drawer.closingCash - drawer.expectedCash;
+        if(notes) drawer.notes = (drawer.notes || '') + '\n' + notes;
+        await db.put(this._storeName, drawer);
+        return { drawer };
+    },
+
+    async getActiveDrawer() {
+        const all = await db.getAll(this._storeName);
+        return all.find(d => d.status === 'open') || null;
+    },
+
+    async getAllDrawers() {
+        return db.getAll(this._storeName);
+    },
+
+    async recordTransaction(drawerId, type, amount, method, description) {
+        const drawer = await db.get(this._storeName, drawerId);
+        if(!drawer) return null;
+
+        amount = Number(amount) || 0;
+        drawer.transactionCount = (drawer.transactionCount || 0) + 1;
+
+        if(type === 'sale'){
+            if(method === 'cash' || method === 'كاش'){
+                drawer.totalCashSales += amount;
+                drawer.currentCash += amount;
+            } else {
+                drawer.totalCardSales += amount;
+            }
+        } else if(type === 'expense'){
+            drawer.totalExpenses += amount;
+            drawer.currentCash -= amount;
+        } else if(type === 'refund'){
+            drawer.totalRefunds += amount;
+            if(method === 'cash' || method === 'كاش'){
+                drawer.currentCash -= amount;
+            }
+        }
+
+        drawer.expectedCash = drawer.startingCash + drawer.totalCashSales - drawer.totalExpenses - drawer.totalRefunds;
+        await db.put(this._storeName, drawer);
+        return drawer;
+    },
+
+    async getDrawerStats(drawerId) {
+        const drawer = await db.get(this._storeName, drawerId);
+        if(!drawer) return null;
+        return {
+            startingCash: drawer.startingCash,
+            currentCash: drawer.currentCash,
+            expectedCash: drawer.expectedCash,
+            difference: drawer.difference,
+            totalCashSales: drawer.totalCashSales,
+            totalCardSales: drawer.totalCardSales,
+            totalExpenses: drawer.totalExpenses,
+            totalRefunds: drawer.totalRefunds,
+            transactionCount: drawer.transactionCount,
+            totalSales: drawer.totalCashSales + drawer.totalCardSales
+        };
+    },
+
+    async getTodaySummary() {
+        const all = await db.getAll(this._storeName);
+        const today = new Date().toISOString().slice(0, 10);
+        const todayDrawers = all.filter(d => {
+            const d1 = (d.openedAt || '').slice(0, 10);
+            const d2 = (d.closedAt || '').slice(0, 10);
+            return d1 === today || d2 === today;
+        });
+        let totalCash = 0, totalCard = 0, totalExpenses = 0, totalRefunds = 0, count = 0;
+        todayDrawers.forEach(d => {
+            totalCash += d.totalCashSales || 0;
+            totalCard += d.totalCardSales || 0;
+            totalExpenses += d.totalExpenses || 0;
+            totalRefunds += d.totalRefunds || 0;
+            count += d.transactionCount || 0;
+        });
+        return {
+            drawersCount: todayDrawers.length,
+            totalCashSales: totalCash,
+            totalCardSales: totalCard,
+            totalExpenses: totalExpenses,
+            totalRefunds: totalRefunds,
+            transactionCount: count,
+            netCash: totalCash - totalExpenses - totalRefunds
+        };
+    }
+};
+
+// ==================== تصنيفات المصروفات ====================
+const ExpenseCategories = {
+    _storeName: 'expense_categories',
+    _defaults: [
+        { name: 'رواتب', nameEn: 'Salaries', icon: '👤', active: 1 },
+        { name: 'إيجار', nameEn: 'Rent', icon: '🏠', active: 1 },
+        { name: 'كهرباء', nameEn: 'Electricity', icon: '💡', active: 1 },
+        { name: 'مياه', nameEn: 'Water', icon: '💧', active: 1 },
+        { name: 'مواد خام', nameEn: 'Raw Materials', icon: '📦', active: 1 },
+        { name: 'صيانة', nameEn: 'Maintenance', icon: '🔧', active: 1 },
+        { name: 'تسويق', nameEn: 'Marketing', icon: '📢', active: 1 },
+        { name: 'نقل', nameEn: 'Transport', icon: '🚗', active: 1 },
+        { name: '其他', nameEn: 'Other', icon: '📋', active: 1 }
+    ],
+
+    async init() {
+        const existing = await db.getAll(this._storeName);
+        if(existing.length === 0){
+            for(const cat of this._defaults){
+                cat.createdAt = new Date().toISOString();
+                await db.add(this._storeName, cat);
+            }
+        }
+    },
+
+    async getAll() { return db.getAll(this._storeName); },
+
+    async add(cat) {
+        cat.createdAt = new Date().toISOString();
+        cat.active = 1;
+        return db.add(this._storeName, cat);
+    },
+
+    async update(id, data) {
+        const cat = await db.get(this._storeName, id);
+        if(cat){
+            Object.assign(cat, data);
+            await db.put(this._storeName, cat);
+            return cat;
+        }
+        return null;
+    },
+
+    async remove(id) {
+        return db.delete(this._storeName, id);
+    },
+
+    async getActive() {
+        const all = await this.getAll();
+        return all.filter(c => c.active !== 0);
+    }
+};
+
+// ==================== حجوزات الطاولات ====================
+const TableReservations = {
+    _storeName: 'table_reservations',
+
+    async getAll() { return db.getAll(this._storeName); },
+
+    async add(res) {
+        res.createdAt = new Date().toISOString();
+        res.status = 'confirmed';
+        return db.add(this._storeName, res);
+    },
+
+    async cancel(id) {
+        const res = await db.get(this._storeName, id);
+        if(res){
+            res.status = 'cancelled';
+            await db.put(this._storeName, res);
+            return res;
+        }
+        return null;
+    },
+
+    async complete(id) {
+        const res = await db.get(this._storeName, id);
+        if(res){
+            res.status = 'completed';
+            res.completedAt = new Date().toISOString();
+            await db.put(this._storeName, res);
+            return res;
+        }
+        return null;
+    },
+
+    async getToday() {
+        const all = await this.getAll();
+        const today = new Date().toISOString().slice(0, 10);
+        return all.filter(r => (r.date || '').slice(0, 10) === today && r.status === 'confirmed');
+    },
+
+    async getByDate(date) {
+        const all = await this.getAll();
+        return all.filter(r => (r.date || '').slice(0, 10) === date && r.status === 'confirmed');
+    },
+
+    async getUpcoming() {
+        const all = await this.getAll();
+        const now = new Date();
+        return all.filter(r => {
+            if(r.status !== 'confirmed') return false;
+            const dt = new Date(r.date + 'T' + (r.time || '00:00'));
+            return dt >= now;
+        }).sort((a,b) => {
+            const da = new Date(a.date+'T'+(a.time||'00:00'));
+            const db2 = new Date(b.date+'T'+(b.time||'00:00'));
+            return da - db2;
+        });
+    },
+
+    async isTableAvailable(tableId, date, time, excludeId) {
+        const reservations = await this.getByDate(date);
+        return !reservations.some(r => {
+            if(excludeId && r.id === excludeId) return false;
+            if(r.tableId != tableId) return false;
+            // Check time overlap (2 hour window)
+            const rTime = r.time || '00:00';
+            const rEnd = addHours(rTime, r.duration || 2);
+            const newEnd = addHours(time, 2);
+            return time < rEnd && newEnd > rTime;
+        });
+    }
+};
+
+function addHours(timeStr, hours){
+    const [h, m] = timeStr.split(':').map(Number);
+    let totalMin = h * 60 + m + hours * 60;
+    const nh = Math.floor(totalMin / 60) % 24;
+    const nm = totalMin % 60;
+    return String(nh).padStart(2,'0') + ':' + String(nm).padStart(2,'0');
+}
+
 // ==================== إدارة الموظفين ====================
 const Employees = {
     async getAll() {
@@ -2333,4 +2591,4 @@ const KnowledgeBase = {
 };
 
 // تصدير للاستخدام
-window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, initSystem };
+window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem };

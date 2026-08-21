@@ -52,6 +52,9 @@
                             <option value="">جاري التحميل...</option>
                         </select>
                         <button class="free-table-btn" id="freeTableBtn" title="تحرير الطاولة">تحرير</button>
+                        <button class="kitchen-btn" id="cashDrawerBtn" title="الصندوق النقدي" onclick="toggleCashDrawer()" style="background:#27ae60;">
+                            💰 الصندوق <span id="cashDrawerBadge" style="display:none;font-size:0.7rem;padding:1px 6px;border-radius:10px;background:#27ae60;color:white;margin-left:4px">🟢 مفتوح</span>
+                        </button>
                         <button class="report-btn" id="dailyReportBtn" title="التقرير اليومي">📊 تقرير</button>
                         <button class="kitchen-btn" id="analyticsBtn" title="تحليلات المبيعات">📈 تحليلات</button>
                         <button class="kitchen-btn" id="kitchenViewBtn" title="عرض طلبات المطبخ">🍳 المطبخ</button>
@@ -1748,6 +1751,87 @@
             return digits;
         }
 
+        // ==================== الصندوق النقدي ====================
+        async function checkCashDrawerStatus(){
+            try{
+                if(!window.LuccaDB || !window.LuccaDB.CashRegister) return;
+                const drawer = await window.LuccaDB.CashRegister.getActiveDrawer();
+                const badge = document.getElementById('cashDrawerBadge');
+                const btn = document.getElementById('cashDrawerBtn');
+                if(!badge || !btn) return;
+                if(drawer){
+                    badge.style.display = 'inline-block';
+                    badge.textContent = '🟢 مفتوح';
+                    badge.style.background = '#27ae60';
+                    btn.title = 'الصندوق مفتوح | اضغط للإغلاق';
+                    // Show drawer summary in order status
+                    setOrderStatus('🟢 الصندوق مفتوح | المبيعات: '+Number(drawer.totalCashSales||0).toLocaleString()+' ل.س', 'success');
+                } else {
+                    badge.style.display = 'inline-block';
+                    badge.textContent = '🔴 مغلق';
+                    badge.style.background = '#e74c3c';
+                    btn.title = 'الصندوق مغلق | اضغط للفتح';
+                }
+            } catch(e){}
+        }
+
+        async function toggleCashDrawer(){
+            try{
+                if(!window.LuccaDB || !window.LuccaDB.CashRegister) return;
+                const drawer = await window.LuccaDB.CashRegister.getActiveDrawer();
+                if(drawer){
+                    // Close drawer
+                    const html = '<div style="max-width:300px">' +
+                        '<h3 style="color:var(--primary);margin-bottom:12px">🔒 إغلاق الصندوق</h3>' +
+                        '<div style="margin-bottom:8px"><b>المبيعات النقدية:</b> '+Number(drawer.totalCashSales||0).toLocaleString()+' ل.س</div>' +
+                        '<div style="margin-bottom:8px"><b>المصروفات:</b> '+Number(drawer.totalExpenses||0).toLocaleString()+' ل.س</div>' +
+                        '<div style="margin-bottom:8px"><b>المتوقع:</b> '+Number(drawer.expectedCash||0).toLocaleString()+' ل.س</div>' +
+                        '<label style="display:block;margin:12px 0 4px;color:var(--text-secondary);font-size:0.85rem">المبلغ الفعلي في الصندوق</label>' +
+                        '<input type="number" id="closingCashInput" value="'+(drawer.expectedCash||0)+'" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:8px;font-size:1rem">' +
+                        '<div style="display:flex;gap:8px;margin-top:12px">' +
+                        '<button class="btn" style="flex:1;background:var(--primary);color:white" onclick="confirmCloseDrawer()">إغلاق وتسوية</button>' +
+                        '<button class="btn btn-ghost" onclick="this.closest(\'.toast-overlay\').remove()">إلغاء</button>' +
+                        '</div></div>';
+                    showToast(html);
+                } else {
+                    // Open drawer
+                    const html = '<div style="max-width:300px">' +
+                        '<h3 style="color:var(--primary);margin-bottom:12px">🔓 فتح الصندوق</h3>' +
+                        '<label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:0.85rem">المبلغ الابتدائي في الصندوق</label>' +
+                        '<input type="number" id="openingCashInput" value="1000" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:8px;font-size:1rem">' +
+                        '<div style="display:flex;gap:8px;margin-top:12px">' +
+                        '<button class="btn" style="flex:1;background:var(--primary);color:white" onclick="confirmOpenDrawer()">فتح الصندوق</button>' +
+                        '<button class="btn btn-ghost" onclick="this.closest(\'.toast-overlay\').remove()">إلغاء</button>' +
+                        '</div></div>';
+                    showToast(html);
+                }
+            } catch(e){ showToast('خطأ في الصندوق: '+e.message, 'error'); }
+        }
+
+        async function confirmOpenDrawer(){
+            const cash = Number(document.getElementById('openingCashInput').value) || 0;
+            try{
+                await window.LuccaDB.CashRegister.openDrawer(cash, null, 'فتح يوم جديد');
+                showToast('✅ تم فتح الصندوق بـ '+cash.toLocaleString()+' ل.س');
+                await checkCashDrawerStatus();
+            } catch(e){ showToast('❌ '+e.message, 'error'); }
+        }
+
+        async function confirmCloseDrawer(){
+            const cash = Number(document.getElementById('closingCashInput').value) || 0;
+            try{
+                const result = await window.LuccaDB.CashRegister.closeDrawer(cash, 'إغلاق يومي');
+                if(result.error){ showToast('❌ '+result.error, 'error'); return; }
+                const diff = result.drawer.difference;
+                let msg = '✅ تم إغلاق الصندوق';
+                if(diff > 0) msg += '\n📈 فائض: '+diff.toLocaleString()+' ل.س';
+                else if(diff < 0) msg += '\n📉 عجز: '+Math.abs(diff).toLocaleString()+' ل.س';
+                else msg += '\n⚖️ مطابق تماماً';
+                showToast(msg);
+                await checkCashDrawerStatus();
+            } catch(e){ showToast('❌ '+e.message, 'error'); }
+        }
+
         function generateWhatsAppMessage(order, items, subtotal) {
             const discount = order.discount || 0;
             const discountAmount = subtotal * (discount / 100);
@@ -2549,6 +2633,15 @@
                         if(result && result.earned > 0){
                             setTimeout(()=>{ setOrderStatus('⭐ تم إضافة '+result.earned+' نقطة ولاء ('+result.total+' إجمالي)', 'success'); }, 1500);
                         }
+                    }
+                } catch(e){}
+
+                // ===== CASH REGISTER =====
+                try {
+                    const drawer = await window.LuccaDB.CashRegister.getActiveDrawer();
+                    if(drawer && total > 0){
+                        await window.LuccaDB.CashRegister.recordTransaction(drawer.id, 'sale', total, paymentMethod, 'طلب #'+orderId);
+                        await checkCashDrawerStatus();
                     }
                 } catch(e){}
 
@@ -4001,8 +4094,9 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
             PrinterManager.init().catch(() => {});
             SyncQueue.start();
             updateKitchenBadge();
-            // Update kitchen badge every 15s
             setInterval(updateKitchenBadge, 15000);
+            if(window.LuccaDB && window.LuccaDB.ExpenseCategories) window.LuccaDB.ExpenseCategories.init().catch(()=>{});
+            checkCashDrawerStatus();
         });
     </script>
 
@@ -5069,6 +5163,68 @@ async function processAiCommand(text){
             html += '</table>';
 
             return aiBotReply('📈 **تقرير الأسبوع الأخير:**'+html);
+        } catch(e){ return aiBotReply('❌ '+e.message); }
+    }
+
+    // ===== CASH DRAWER =====
+    if(matchAny(t,['الصندوق','صندوق','cash drawer','cashier drawer','فتح الصندوق','اقفل الصندوق','close drawer','الفتح','الإغلاق'])){
+        try{
+            const drawer = await window.LuccaDB.CashRegister.getActiveDrawer();
+            if(drawer){
+                let html = '<table class="ai-table">';
+                html += '<tr><td>🟢 الحالة</td><td>مفتوح</td></tr>';
+                html += '<tr><td>💵 المبلغ الابتدائي</td><td>'+Number(drawer.startingCash||0).toLocaleString()+' ل.س</td></tr>';
+                html += '<tr><td>💰 المبيعات النقدية</td><td>'+Number(drawer.totalCashSales||0).toLocaleString()+' ل.س</td></tr>';
+                html += '<tr><td>💳 بيع بالкарت</td><td>'+Number(drawer.totalCardSales||0).toLocaleString()+' ل.س</td></tr>';
+                html += '<tr><td>💸 المصروفات</td><td>'+Number(drawer.totalExpenses||0).toLocaleString()+' ل.س</td></tr>';
+                html += '<tr><td>🔄 الإستردادات</td><td>'+Number(drawer.totalRefunds||0).toLocaleString()+' ل.س</td></tr>';
+                html += '<tr><td>📊 المتوقع</td><td><b>'+Number(drawer.expectedCash||0).toLocaleString()+' ل.س</b></td></tr>';
+                html += '<tr><td>🔢 عدد المعاملات</td><td>'+(drawer.transactionCount||0)+'</td></tr>';
+                html += '</table>';
+                return aiBotReply('💰 **الصندوق مفتوح:**'+html,[
+                    {text:'اقفل الصندوق',cmd:'close drawer'},
+                    {text:'المصروفات',cmd:'expenses'}
+                ]);
+            } else {
+                return aiBotReply('🔒 الصندوق مغلق حالياً.\n\nاضغط على زر **💰 الصندوق** في شريط الأدوات لفتحه.',[
+                    {text:'فتح الصندوق',cmd:'open drawer'}
+                ]);
+            }
+        } catch(e){ return aiBotReply('❌ '+e.message); }
+    }
+
+    // ===== EXPENSE CATEGORIES =====
+    if(matchAny(t,['تصنيفات المصروفات','expense categories','التصنيفات','categories expenses'])){
+        try{
+            const cats = await window.LuccaDB.ExpenseCategories.getActive();
+            let html = '<table class="ai-table"><tr><th>التصنيف</th><th>الأيقونة</th></tr>';
+            cats.forEach(c=>{ html += '<tr><td>'+(c.name||'')+'</td><td>'+(c.icon||'')+'</td></tr>'; });
+            html += '</table>';
+            return aiBotReply('📂 **تصنيفات المصروفات:**'+html,[
+                {text:'إضافة مصروف',cmd:'add_expense'},
+                {text:'تقرير المصروفات',cmd:'expenses'}
+            ]);
+        } catch(e){ return aiBotReply('❌ '+e.message); }
+    }
+
+    // ===== TABLE RESERVATIONS =====
+    if(matchAny(t,['الحجوزات','حجوزات','reservations','حجز طاولة','احجز','table reservation',' забронировать'])){
+        try{
+            const upcoming = await window.LuccaDB.TableReservations.getUpcoming();
+            if(upcoming.length === 0){
+                return aiBotReply('📅 **لا توجد حجوزات قادمة**\n\nلحجز طاولة:\n1. اختر الطاولة\n2. حدد التاريخ والوقت\n3. اسم العميل ورقم الهاتف\n\nأو من لوحة التحكم → الطاولات',[
+                    {text:'ادارة الطاولات',cmd:'manage_tables'}
+                ]);
+            }
+            let html = '<table class="ai-table"><tr><th>الطاولة</th><th>التاريخ</th><th>الوقت</th><th>العميل</th></tr>';
+            upcoming.slice(0,8).forEach(r=>{
+                html += '<tr><td>#'+(r.tableId||'')+'</td><td>'+(r.date||'').slice(5)+'</td><td>'+(r.time||'')+'</td><td>'+(r.customerName||'')+'</td></tr>';
+            });
+            html += '</table>';
+            return aiBotReply('📅 **الحجوزات القادمة ('+upcoming.length+'):**'+html,[
+                {text:'ادارة الطاولات',cmd:'manage_tables'},
+                {text:'حجز جديد',cmd:'new reservation'}
+            ]);
         } catch(e){ return aiBotReply('❌ '+e.message); }
     }
 
