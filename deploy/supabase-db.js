@@ -81,10 +81,27 @@
       }
     },
     async getAll() { return _db.getAll('tables_store'); },
-    async getById(id) { return _db.get('tables_store', id); },
+    async getByNumber(num) {
+      const all = await this.getAll();
+      return all.find(t => t.number === parseInt(num)) || null;
+    },
+    async _findByRef(ref) {
+      const all = await this.getAll();
+      const num = parseInt(ref);
+      return all.find(t => t.number === num) || all.find(t => t.id === num) || null;
+    },
+    async getById(id) { return this._findByRef(id); },
     async add(t) { return _db.add('tables_store', { status: 'available', capacity: 4, zone: 'صالة', ...t }); },
-    async update(id, data) { return _db.put('tables_store', { ...data, id }); },
-    async remove(id) { return _db.delete('tables_store', id); }
+    async update(id, data) {
+      const table = await this._findByRef(id);
+      if(table){ Object.assign(table, data); return _db.put('tables_store', table); }
+      return null;
+    },
+    async remove(id) {
+      const table = await this._findByRef(id);
+      if(table) return _db.delete('tables_store', table.id);
+    },
+    async delete(id) { return this.remove(id); }
   };
 
   const Categories = {

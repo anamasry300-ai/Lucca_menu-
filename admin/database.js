@@ -539,6 +539,13 @@ const Tables = {
         return db.getAll('tables');
     },
 
+    // Find table by number OR id (handles mismatch after add/delete)
+    async _findByRef(ref) {
+        const all = await db.getAll('tables');
+        const num = parseInt(ref);
+        return all.find(t => t.number === num) || all.find(t => t.id === num) || null;
+    },
+
     async add(tableData) {
         const all = await db.getAll('tables');
         const maxId = all.reduce((m, t) => Math.max(m, t.id || 0), 0);
@@ -549,8 +556,11 @@ const Tables = {
     },
 
     async remove(id) {
-        await db.delete('tables', id);
-        ServerAPI.delete('tables', id).catch(() => {});
+        const table = await this._findByRef(id);
+        if(table){
+            await db.delete('tables', table.id);
+            ServerAPI.delete('tables', table.id).catch(() => {});
+        }
     },
 
     async delete(id) {
@@ -558,17 +568,22 @@ const Tables = {
     },
 
     async update(id, data) {
-        const table = await db.get('tables', id);
+        const table = await this._findByRef(id);
         if (table) {
             Object.assign(table, data);
             await db.put('tables', table);
-            ServerAPI.put('tables', id, table).catch(() => {});
+            ServerAPI.put('tables', table.id, table).catch(() => {});
         }
         return table;
     },
 
     async getById(id) {
-        return db.get('tables', id);
+        return this._findByRef(id);
+    },
+
+    async getByNumber(number) {
+        const all = await db.getAll('tables');
+        return all.find(t => t.number === parseInt(number)) || null;
     },
 
     async getZones() {
