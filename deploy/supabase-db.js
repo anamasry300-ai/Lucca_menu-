@@ -472,6 +472,56 @@
     }
   };
 
+  // ===== Customer Loyalty =====
+  const REDEEM_RATE = 100;
+  const CustomerLoyalty = {
+    async getOrCreateByPhone(phone) {
+      if (!phone) return null;
+      const all = await _db.getAll('customers');
+      let customer = all.find(c => (c.phone || '').replace(/\D/g, '') === phone.replace(/\D/g, ''));
+      if (!customer) {
+        customer = { name: '', phone, points: 0, totalSpent: 0, totalVisits: 0, tier: 'bronze', createdAt: new Date().toISOString() };
+        customer.id = await _db.add('customers', customer);
+      }
+      return customer;
+    },
+    async addPoints(phone, amount, orderId) {
+      const customer = await this.getOrCreateByPhone(phone);
+      if (!customer) return null;
+      const earned = Math.floor(amount * 1);
+      customer.points = (customer.points || 0) + earned;
+      customer.totalSpent = (customer.totalSpent || 0) + amount;
+      customer.totalVisits = (customer.totalVisits || 0) + 1;
+      customer.lastVisit = new Date().toISOString();
+      customer.tier = this.calcTier(customer.totalSpent);
+      await _db.put('customers', customer);
+      return { customer, earned, total: customer.points };
+    },
+    async redeemPoints(phone, points) {
+      const customer = await this.getOrCreateByPhone(phone);
+      if (!customer) return null;
+      if ((customer.points || 0) < points) return { error: 'النقاط غير كافية', available: customer.points };
+      const discount = Math.floor(points / REDEEM_RATE);
+      customer.points -= points;
+      await _db.put('customers', customer);
+      return { customer, discount, remaining: customer.points };
+    },
+    async getCustomer(phone) { return this.getOrCreateByPhone(phone); },
+    async getAllCustomers() {
+      const all = await _db.getAll('customers');
+      return all.filter(c => c.phone).sort((a, b) => (b.totalSpent || 0) - (a.totalSpent || 0));
+    },
+    async getStats() {
+      const all = await this.getAllCustomers();
+      const totalPoints = all.reduce((s, c) => s + (c.points || 0), 0);
+      const totalSpent = all.reduce((s, c) => s + (c.totalSpent || 0), 0);
+      return { customers: all.length, totalPoints, totalSpent, tiers: { diamond: 0, gold: 0, silver: 0, bronze: 0 } };
+    },
+    calcTier(s) { return s >= 50000 ? 'diamond' : s >= 25000 ? 'gold' : s >= 10000 ? 'silver' : 'bronze'; },
+    tierName(t) { return { diamond: '💎 ماسي', gold: '🥇 ذهبي', silver: '🥈 فضي' }[t] || '🥉 برونزي'; },
+    tierColor(t) { return { diamond: '#00bfff', gold: '#ffd700', silver: '#c0c0c0' }[t] || '#cd7f32'; }
+  };
+
   async function initSystem() {
     await Users.createDefaultAdmin();
     await Tables.init();
@@ -486,6 +536,6 @@
     ProductVariations: { async getAll() { return _db.getAll('product_variations'); } },
     Taxes: { async getAll() { return _db.getAll('taxes'); } },
     AuditLogs, OrderStatusHistory: { async getAll() { return _db.getAll('order_status_history'); } },
-    BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, initSystem
+    BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, initSystem
   };
 })();
