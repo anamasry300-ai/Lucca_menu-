@@ -4481,7 +4481,7 @@ async function processAiCommand(text){
     const posKeywords = ['افتح','فتح','اقفل','قفل','حط','حطيت','ضف','اضف','زود','شيل','امسح','احذف','حساب','ادفع','دفع','انقل','ادمج','قسم','اطبع','ابعت','خلي','غير','المطبخ','الطلب','الطلبات','ترابيزة','طاولة','table','كاش','فيزا','transfer','merge','split','print','pay','close','open'];
     const isPosCommand = posKeywords.some(kw => t.includes(kw)) && window.aiPosEngine;
 
-            if(isPosCommand) {
+    if(isPosCommand) {
         try {
             const result = await window.aiPosEngine.process(text);
             if(result.success) {
