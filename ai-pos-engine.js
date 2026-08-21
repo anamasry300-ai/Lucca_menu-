@@ -20,7 +20,7 @@ class AIPosEngine {
 
     // ===== ENTITY EXTRACTION =====
     extractTableNumber(text) {
-        const arabicNums = {'واحد':1,'اثنين':2,'اثنان':2,'-three':3,'ثلاث':3,'ثلاثة':3,'اربع':4,'اربعة':4,'خمس':5,'خمسة':5,'ست':6,'ستة':6,'سبع':7,'سبعة':7,'ثمان':8,'ثمانية':8,'تسع':9,'تسعة':9,'عشر':10,'عشرة':10};
+        const arabicNums = {'واحد':1,'اثنين':2,'اثنان':2,'ثلاث':3,'ثلاثة':3,'اربع':4,'اربعة':4,'خمس':5,'خمسة':5,'ست':6,'ستة':6,'سبع':7,'سبعة':7,'ثمان':8,'ثمانية':8,'تسع':9,'تسعة':9,'عشر':10,'عشرة':10};
         // Check arabic word numbers
         for (const [word, num] of Object.entries(arabicNums)) {
             if (text.includes('ترابيزة ' + word) || text.includes('طاولة ' + word) || text.includes('table ' + word)) return num;
@@ -85,6 +85,10 @@ class AIPosEngine {
 
             // Clean up common prefixes
             name = name.replace(/^(حط|ضف|أضف|زود|اعمل|جيب| bring |add )\s*/i, '').trim();
+
+            // Clean up table references
+            name = name.replace(/\s*(?:على|في|من)\s*(?:ترابيزة|طاولة|table)\s*\d+/gi, '').trim();
+            name = name.replace(/\s*(?:ترابيزة|طاولة|table)\s*\d+/gi, '').trim();
 
             if (name && name.length > 0) {
                 items.push({ name, quantity: qty, modifier: modifier || null });
@@ -228,7 +232,8 @@ class AIPosEngine {
             let matches = products.filter(p => {
                 const name = (p.nameAr || p.name || '').toLowerCase();
                 const nameEn = (p.nameEn || '').toLowerCase();
-                return name === q || nameEn === q;
+                const baseName = (p.name || '').toLowerCase();
+                return name === q || nameEn === q || baseName === q;
             });
 
             // Partial match
@@ -236,7 +241,8 @@ class AIPosEngine {
                 matches = products.filter(p => {
                     const name = (p.nameAr || p.name || '').toLowerCase();
                     const nameEn = (p.nameEn || '').toLowerCase();
-                    return name.includes(q) || nameEn.includes(q) || q.includes(name);
+                    const baseName = (p.name || '').toLowerCase();
+                    return name.includes(q) || nameEn.includes(q) || baseName.includes(q) || q.includes(name) || q.includes(baseName);
                 });
             }
 
@@ -312,7 +318,7 @@ class AIPosEngine {
 
             // Check if table already has open order
             const orders = await window.LuccaDB.Orders.getAll();
-            const openOrder = orders.find(o => String(o.tableId) === String(tableNum) && (o.status === 'open' || o.status === 'pending' || o.paymentStatus !== 'paid'));
+            const openOrder = orders.find(o => String(o.tableId) === String(tableNum) && (o.status === 'pending' || o.status === 'open') && o.paymentStatus !== 'paid');
 
             if (openOrder) {
                 this.context.currentTable = tableNum;
@@ -332,7 +338,7 @@ class AIPosEngine {
                 orderNumber,
                 tableId: String(tableNum),
                 orderType: params.orderType || 'dine_in',
-                status: 'open',
+                status: 'pending',
                 paymentStatus: 'unpaid',
                 items: [],
                 subtotal: 0,
@@ -415,7 +421,8 @@ class AIPosEngine {
                     const unitPrice = Number(p.price) || 0;
                     addedItems.push({
                         productId: p.id,
-                        name: p.nameAr || p.name,
+                        name: p.name,
+                        nameAr: p.nameAr || p.name,
                         nameEn: p.nameEn || '',
                         quantity: item.quantity,
                         unitPrice,
@@ -995,9 +1002,12 @@ class AIPosEngine {
             const tNum = this.extractTableNumber(part);
             if (tNum) sharedTable = tNum;
 
-            // Inject shared table number if not mentioned
+            // If no verb and no table → it's product names, prefix with "حط"
             let enhancedText = part;
-            if (!tNum && sharedTable && /(حط|ضف|اضف|احذف|شيل|حساب|ادفع|الطلب)/.test(part)) {
+            const hasVerb = /(حط|حطيت|ضف|اضف|أضف|شيل|احذف|امسح|ادفع|دفع|حساب|اقفل|افتح|انقل)/.test(part);
+            if (!hasVerb && sharedTable) {
+                enhancedText = 'حط ' + part + ' على ترابيزة ' + sharedTable;
+            } else if (!tNum && sharedTable && hasVerb) {
                 enhancedText = part + ' على ترابيزة ' + sharedTable;
             }
 
