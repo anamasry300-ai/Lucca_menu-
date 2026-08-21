@@ -1,5 +1,6 @@
-const { app, BrowserWindow, Menu, globalShortcut, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, globalShortcut, dialog, ipcMain, shell, clipboard, nativeImage } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 let mainWindow;
 let updateAvailable = false;
@@ -257,6 +258,19 @@ app.whenReady().then(() => {
     ipcMain.on('open-external', (event, url) => {
         if (typeof url === 'string' && (url.startsWith('http:') || url.startsWith('https:'))) {
             shell.openExternal(url);
+        }
+    });
+
+    ipcMain.on('save-image-clipboard', (event, base64Data) => {
+        try {
+            const buffer = Buffer.from(base64Data, 'base64');
+            const img = nativeImage.createFromBuffer(buffer);
+            clipboard.writeImage(img);
+            const tempPath = path.join(app.getPath('temp'), 'lucca_invoice_' + Date.now() + '.png');
+            fs.writeFileSync(tempPath, buffer);
+            event.reply('image-saved', { tempPath, success: true });
+        } catch (e) {
+            event.reply('image-saved', { success: false, error: e.message });
         }
     });
 });

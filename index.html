@@ -2213,7 +2213,35 @@
                 const phone = normalizePhoneNumber(order.customerPhone || '');
                 const orderNum = order.orderNumber || order.id || '';
 
-                if (navigator.clipboard && window.ClipboardItem) {
+                // Try Electron native clipboard first (works in desktop app)
+                if (window.electronAPI && window.electronAPI.saveImageToClipboard) {
+                    const reader = new FileReader();
+                    reader.onload = function() {
+                        const base64 = reader.result.split(',')[1];
+                        window.electronAPI.onImageSaved(function onSaved(result) {
+                            window.electronAPI._offImageSaved && window.electronAPI._offImageSaved();
+                            if (result.success) {
+                                setOrderStatus('✅ تم نسخ الصورة! افتح واتساب والصقها (Ctrl+V)', 'success');
+                            } else {
+                                // Fallback: download
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = 'LUCCA_' + (orderNum || Date.now()) + '.png';
+                                a.click();
+                                URL.revokeObjectURL(url);
+                                setOrderStatus('✅ تم تحميل الصورة - أرفقها في واتساب', 'success');
+                            }
+                            if (phone) {
+                                setTimeout(() => { openExternalUrl('https://wa.me/' + phone); }, 300);
+                            }
+                            if (closeAndClear) closeAndClear();
+                        });
+                        window.electronAPI.saveImageToClipboard(base64);
+                    };
+                    reader.readAsDataURL(blob);
+                } else if (navigator.clipboard && window.ClipboardItem) {
+                    // Browser clipboard API
                     try {
                         await navigator.clipboard.write([
                             new ClipboardItem({ 'image/png': blob })
@@ -2223,28 +2251,29 @@
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = url;
-                        a.download = `LUCCA_${orderNum || Date.now()}.png`;
+                        a.download = 'LUCCA_' + (orderNum || Date.now()) + '.png';
                         a.click();
                         URL.revokeObjectURL(url);
                         setOrderStatus('✅ تم تحميل الصورة - أرفقها في واتساب', 'success');
                     }
+                    setTimeout(() => {
+                        if (phone) openExternalUrl('https://wa.me/' + phone);
+                        if (closeAndClear) closeAndClear();
+                    }, 500);
                 } else {
+                    // Fallback: download
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `LUCCA_${orderNum || Date.now()}.png`;
+                    a.download = 'LUCCA_' + (orderNum || Date.now()) + '.png';
                     a.click();
                     URL.revokeObjectURL(url);
                     setOrderStatus('✅ تم تحميل الصورة - أرفقها في واتساب', 'success');
+                    setTimeout(() => {
+                        if (phone) openExternalUrl('https://wa.me/' + phone);
+                        if (closeAndClear) closeAndClear();
+                    }, 500);
                 }
-
-                setTimeout(() => {
-                    if (phone) {
-                        const waUrl = `https://wa.me/${phone}`;
-                        openExternalUrl(waUrl);
-                    }
-                    if (closeAndClear) closeAndClear();
-                }, 500);
 
             } catch (error) {
                 exportContainer.style.display = 'none';
