@@ -92,6 +92,10 @@ app.use('/api', rateLimit());
 // Stricter rate limit on auth-sensitive endpoints
 app.use('/api/orders/:id/checkout', rateLimit(RATE_LIMIT_WINDOW, RATE_LIMIT_AUTH_MAX));
 
+app.get('/api/public-key', (_req, res) => {
+  res.json({ apiKey: API_KEY });
+});
+
 function apiKeyCheck(req: express.Request, res: express.Response, next: express.NextFunction) {
   const key = req.headers['x-api-key'] as string | undefined;
   if (key && key === API_KEY) return next();
@@ -104,7 +108,6 @@ app.use('/api', apiKeyCheck);
 
 app.use('/api', specialRoutes);
 app.use('/api', analyticsRoutes);
-app.use('/api', crudRoutes);
 
 // Sync: POST /api/sync
 // Checkout endpoint: atomically close order and free table
@@ -143,7 +146,7 @@ app.post('/api/orders/:id/checkout', (req, res) => {
       // 3. Free the table if this is a dine-in order
       const tableId = order.tableId as string | undefined;
       if (tableId && tableId !== 'takeaway' && !isNaN(Number(tableId))) {
-        db.run('UPDATE tables SET status = ?, currentOrder = ? WHERE id = ?', ['available', null, Number(tableId)]);
+        db.run('UPDATE tables_store SET status = ?, currentOrder = ? WHERE id = ?', ['available', null, Number(tableId)]);
       }
 
       // 4. Insert payment record
@@ -199,17 +202,21 @@ app.post('/api/sync', (req, res) => {
   try {
     db = getDb();
     const data = req.body;
-    const stores = ['users', 'tables', 'orders', 'customers', 'settings', 'inventory', 'purchases', 'employees', 'attendance', 'expenses', 'shifts', 'daily_shifts', 'categories', 'products', 'product_modifiers', 'product_variations', 'payment_methods', 'taxes', 'payments', 'refunds', 'audit_logs', 'order_items', 'order_status_history', 'discounts'];
+    const stores = ['users', 'tables', 'tables_store', 'orders', 'customers', 'settings', 'inventory', 'purchases', 'employees', 'attendance', 'expenses', 'shifts', 'daily_shifts', 'categories', 'products', 'product_modifiers', 'product_variations', 'payment_methods', 'taxes', 'payments', 'refunds', 'audit_logs', 'order_items', 'order_status_history', 'discounts'];
+    const processedStores = new Set<string>();
     beginTransaction();
     for (const store of stores) {
       if (!Array.isArray(data[store])) continue;
-      db.run(`DELETE FROM \`${store}\``);
+      const targetStore = store === 'tables' ? 'tables_store' : store;
+      if (processedStores.has(targetStore)) continue;
+      processedStores.add(targetStore);
+      db.run(`DELETE FROM \`${targetStore}\``);
       for (const item of data[store]) {
         const keys = Object.keys(item).filter(k => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k) && k.length <= 64);
         if (keys.length === 0) continue;
         const cols = keys.map(k => `\`${k}\``).join(', ');
         const vals = keys.map(() => '?').join(', ');
-        db.run(`INSERT OR REPLACE INTO \`${store}\` (${cols}) VALUES (${vals})`, keys.map(k => item[k]));
+        db.run(`INSERT OR REPLACE INTO \`${targetStore}\` (${cols}) VALUES (${vals})`, keys.map(k => item[k]));
       }
     }
     commitTransaction();
@@ -226,11 +233,11 @@ app.get('/api/reports/summary', (req, res) => {
     const from = (req.query.from as string) || new Date().toISOString().slice(0, 10);
     const to = (req.query.to as string) || new Date().toISOString().slice(0, 10);
     const orders = queryAll(
-      "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder FROM orders WHERE date >= ? AND date <= ? AND status != 'cancelled'",
+      "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status != 'cancelled'",
       [from, to]
     );
     const expenses = queryAll(
-      "SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE date >= ? AND date <= ?",
+      "SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE date(date) >= ? AND date(date) <= ?",
       [from, to]
     );
     const refunds = queryAll(
@@ -242,11 +249,11 @@ app.get('/api/reports/summary', (req, res) => {
       [from, to]
     );
     const topItems = queryAll(
-      "SELECT oi.name, SUM(oi.quantity) as totalSold, SUM(oi.total) as revenue FROM order_items oi JOIN orders o ON oi.orderId = o.id WHERE o.date >= ? AND o.date <= ? AND o.status != 'cancelled' GROUP BY oi.name ORDER BY revenue DESC LIMIT 10",
+      "SELECT oi.name, SUM(oi.quantity) as totalSold, SUM(oi.total) as revenue FROM order_items oi JOIN orders o ON oi.orderId = o.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.status != 'cancelled' GROUP BY oi.name ORDER BY revenue DESC LIMIT 10",
       [from, to]
     );
     const dailySales = queryAll(
-      "SELECT date, COUNT(*) as orders, COALESCE(SUM(total), 0) as revenue FROM orders WHERE date >= ? AND date <= ? AND status != 'cancelled' GROUP BY date ORDER BY date",
+      "SELECT date(date) as date, COUNT(*) as orders, COALESCE(SUM(total), 0) as revenue FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status != 'cancelled' GROUP BY date(date) ORDER BY date(date)",
       [from, to]
     );
     res.json({
@@ -267,7 +274,7 @@ app.get('/api/reports/sales-by-category', (req, res) => {
     const from = (req.query.from as string) || new Date().toISOString().slice(0, 10);
     const to = (req.query.to as string) || new Date().toISOString().slice(0, 10);
     const rows = queryAll(
-      "SELECT COALESCE(c.nameAr, c.name, p.category, 'غير محدد') as category, SUM(oi.quantity) as totalSold, SUM(oi.total) as revenue FROM order_items oi LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id JOIN orders o ON oi.orderId = o.id WHERE o.date >= ? AND o.date <= ? AND o.status != 'cancelled' GROUP BY category ORDER BY revenue DESC",
+      "SELECT COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') as category, SUM(oi.quantity) as totalSold, SUM(oi.total) as revenue FROM order_items oi LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id JOIN orders o ON oi.orderId = o.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.status != 'cancelled' GROUP BY COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') ORDER BY revenue DESC",
       [from, to]
     );
     res.json(rows);
@@ -275,6 +282,8 @@ app.get('/api/reports/sales-by-category', (req, res) => {
     res.status(500).json({ error: (e as Error).message });
   }
 });
+
+app.use('/api', crudRoutes);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 

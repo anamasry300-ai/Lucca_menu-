@@ -40,6 +40,7 @@
 
             --info: #2563EB;
             --info-surface: #EFF6FF;
+            --info-dark: #1D4ED8;
 
             --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
             --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
@@ -1535,7 +1536,7 @@
             <div class="sidebar-section">
                 <div class="sidebar-section-title">الرئيسية</div>
                 <a class="sidebar-link active" data-page="dashboard"><span class="icon">📊</span>لوحة التحكم</a>
-                <a class="sidebar-link" data-page="orders-page"><span class="icon">📋</span>الطاولات</a>
+                <a class="sidebar-link" data-page="orders-page"><span class="icon">📋</span>الطلبات</a>
                 <a class="sidebar-link" data-page="tables-page"><span class="icon">🪑</span>الطاولات</a>
             </div>
             <div class="sidebar-section">
@@ -2191,9 +2192,95 @@ function showToast(text, type){
 async function apiFetch(path){
     const url = getServerUrl() + '/api' + path;
     const key = localStorage.getItem('luccaApiKey') || '';
-    const res = await fetch(url, { headers:{'x-api-key':key,'Content-Type':'application/json'}, signal: AbortSignal.timeout(8000) });
-    if(!res.ok) throw new Error('API '+res.status);
-    return res.json();
+    try {
+        const res = await fetch(url, { headers:{'x-api-key':key,'Content-Type':'application/json'}, signal: AbortSignal.timeout(5000) });
+        if(!res.ok) throw new Error('API '+res.status);
+        return res.json();
+    } catch(e) {
+        return await localDashboardFallback(path);
+    }
+}
+
+async function localDashboardFallback(path){
+    const {from, to} = getDateRange();
+    try {
+        const orders = await window.LuccaDB.Orders.getAll();
+        const tables = await window.LuccaDB.Tables.getAll();
+        const products = await window.LuccaDB.Products.getActive ? await window.LuccaDB.Products.getActive() : await window.LuccaDB.Products.getAll();
+        const categories = await window.LuccaDB.Categories.getAll();
+        const payments = await window.LuccaDB.PaymentMethods.getAll();
+
+        const filteredOrders = orders.filter(o => {
+            const d = (o.date || o.createdAt || '').slice(0,10);
+            return d >= from && d <= to;
+        });
+        const completed = filteredOrders.filter(o => o.paymentStatus === 'paid' || o.status === 'completed' || o.status === 'closed');
+        const totalSales = completed.reduce((s,o) => s + (o.total || o.totalAmount || 0), 0);
+        const totalDiscounts = filteredOrders.reduce((s,o) => s + (o.discount || 0), 0);
+        const totalRefunds = filteredOrders.filter(o => o.status === 'refunded').reduce((s,o) => s + (o.total || 0), 0);
+        const avgOrder = completed.length > 0 ? Math.round(totalSales / completed.length) : 0;
+
+        if(path.startsWith('/dashboard/kpis')){
+            return { sales:{value:totalSales}, orders:{value:completed.length}, avgOrder:{value:avgOrder}, discounts:{value:totalDiscounts}, refunds:{value:totalRefunds} };
+        }
+        if(path.startsWith('/dashboard/sales-by-day')){
+            const dayMap = {};
+            completed.forEach(o => { const d = (o.date||o.createdAt||'').slice(0,10); dayMap[d] = (dayMap[d]||0) + (o.total||0); });
+            return Object.entries(dayMap).map(([date,revenue]) => ({date,revenue})).sort((a,b) => a.date.localeCompare(b.date));
+        }
+        if(path.startsWith('/dashboard/sales-by-category')){
+            const catMap = {};
+            completed.forEach(o => {
+                const items = Array.isArray(o.items) ? o.items : [];
+                items.forEach(i => {
+                    const catId = i.categoryId || 'uncategorized';
+                    if(!catMap[catId]) catMap[catId] = {categoryId:catId, revenue:0};
+                    catMap[catId].revenue += (i.total || 0);
+                });
+            });
+            const catNames = {};
+            categories.forEach(c => catNames[c.id] = c.nameAr || c.name);
+            return Object.values(catMap).map(c => ({...c, name: catNames[c.categoryId] || c.categoryId}));
+        }
+        if(path.startsWith('/dashboard/payments')){
+            const payMap = {};
+            completed.forEach(o => { const m = o.paymentMethod || 'cash'; payMap[m] = (payMap[m]||0) + (o.total||0); });
+            return Object.entries(payMap).map(([method,total]) => ({method, total, count: completed.filter(o => (o.paymentMethod||'cash')===method).length}));
+        }
+        if(path.startsWith('/dashboard/top-products')){
+            const prodMap = {};
+            completed.forEach(o => {
+                (Array.isArray(o.items)?o.items:[]).forEach(i => {
+                    const name = i.nameAr || i.name || '—';
+                    if(!prodMap[name]) prodMap[name] = {name, quantity:0, revenue:0};
+                    prodMap[name].quantity += (i.quantity||1);
+                    prodMap[name].revenue += (i.total||0);
+                });
+            });
+            return Object.values(prodMap).sort((a,b) => b.revenue - a.revenue).slice(0,8);
+        }
+        if(path.startsWith('/dashboard/live-orders')){
+            return orders.filter(o => (o.status === 'open' || o.status === 'pending' || o.status === 'preparing') && o.paymentStatus !== 'paid').slice(0,20);
+        }
+        if(path.startsWith('/dashboard/tables')){
+            return tables.map(t => ({id:t.id, number:t.number, status:t.status}));
+        }
+        if(path.startsWith('/dashboard/insights')){
+            return [];
+        }
+        if(path.startsWith('/dashboard/alerts')){
+            const alerts = [];
+            const openOrders = orders.filter(o => (o.status==='open'||o.status==='pending') && o.paymentStatus!=='paid');
+            if(openOrders.length > 5) alerts.push({type:'warning',message:'عدد الطلبات المفتوحة مرتفع: '+openOrders.length});
+            tables.filter(t => t.status==='occupied').forEach(t => {
+                alerts.push({type:'info',message:'الطاولة '+t.number+' مشغولة'});
+            });
+            return alerts;
+        }
+        return {};
+    } catch(e2) {
+        return {};
+    }
 }
 
 function getDateRange(){
@@ -2526,7 +2613,7 @@ async function loadOrders(){
 function viewOrderDetails(id){
     window.LuccaDB.db.get('orders', Number(id)||id).then(o=>{
         if(!o){ showToast('الطلب غير موجود','error'); return; }
-        const items = JSON.parse(o.items||'[]');
+        const items = Array.isArray(o.items) ? o.items : (typeof o.items === 'string' ? JSON.parse(o.items||'[]') : []);
         let msg = 'طلب #'+(o.orderNumber||o.id)+'\nالطاولة: '+(o.tableId||'—')+'\nالعميل: '+(o.customerName||'—')+'\nالحالة: '+o.status+'\nالدفع: '+(o.paymentMethod||'—')+'\n\nالمنتجات:\n';
         items.forEach(i=>{ msg += '  • '+i.name+' × '+i.quantity+' = '+formatMoney(i.total||i.quantity*(i.unitPrice||i.price||0))+'\n'; });
         msg += '\nالإجمالي: '+formatMoney(o.total);

@@ -7,6 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'lucca.db');
 
 let _db: SqlJsDatabase | null = null;
+let _inTransaction = false;
 
 export function getDb(): SqlJsDatabase {
   if (_db) return _db;
@@ -61,7 +62,7 @@ export function queryOne(sql: string, params: unknown[] = []): Record<string, un
 export function execute(sql: string, params: unknown[] = []): { changes: number; lastInsertRowid: number } {
   const db = getDb();
   db.run(sql, params);
-  saveDb();
+  if (!_inTransaction) saveDb();
   // sql.js's getRowsModified and getInsertId don't exist directly
   // We need to track them
   return { changes: 0, lastInsertRowid: 0 };
@@ -73,7 +74,7 @@ let _lastInsertId = 0;
 export function insert(sql: string, params: unknown[] = []): number {
   const db = getDb();
   db.run(sql, params);
-  saveDb();
+  if (!_inTransaction) saveDb();
   // Get the last insert id by querying sqlite_sequence or max(id)
   const tableMatch = sql.match(/INSERT\s+(?:OR\s+REPLACE\s+)?INTO\s+`?(\w+)`?/i);
   if (tableMatch) {
@@ -91,15 +92,18 @@ export function getLastInsertId(): number {
 // Transaction helpers
 export function beginTransaction(): void {
   getDb().run('BEGIN');
+  _inTransaction = true;
 }
 
 export function commitTransaction(): void {
   getDb().run('COMMIT');
+  _inTransaction = false;
   saveDb();
 }
 
 export function rollbackTransaction(): void {
   getDb().run('ROLLBACK');
+  _inTransaction = false;
 }
 
 function migrate(db: SqlJsDatabase) {
@@ -239,6 +243,7 @@ function migrate(db: SqlJsDatabase) {
       name TEXT NOT NULL,
       quantity INTEGER DEFAULT 1,
       unitPrice REAL DEFAULT 0,
+      total REAL DEFAULT 0,
       cost REAL DEFAULT 0,
       discount REAL DEFAULT 0,
       discountType TEXT DEFAULT 'percent',
@@ -477,6 +482,7 @@ function migrate(db: SqlJsDatabase) {
   try {
     try { db.run("ALTER TABLE products ADD COLUMN components TEXT DEFAULT '[]'"); } catch { /* already exists */ }
     try { db.run("ALTER TABLE products ADD COLUMN badge TEXT DEFAULT ''"); } catch { /* already exists */ }
+    try { db.run("ALTER TABLE order_items ADD COLUMN total REAL DEFAULT 0"); } catch { /* already exists */ }
   } catch { /* migrations may not be needed */ }
 
   // Performance indexes
@@ -566,8 +572,11 @@ function migrate(db: SqlJsDatabase) {
   if (prodCount.length === 0 || prodCount[0].c === 0) {
     // Get categories to map names to IDs
     const cats = queryAll('SELECT id, name_en FROM categories');
-    const catMap = {};
-    for (const c of cats) { catMap[c.name_en] = c.id; }
+    const catMap: Record<string, unknown> = {};
+    for (const c of cats) {
+      const key = String(c.name_en || '');
+      if (key) catMap[key] = c.id;
+    }
 
     // Menu data mapping - import from the embedded menu
     const menuItems = {

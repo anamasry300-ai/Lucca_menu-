@@ -22,12 +22,12 @@ router.get('/dashboard/kpis', (req: Request, res: Response) => {
     const pf = prevDateRange(from, to);
 
     const cur = queryOne(
-      "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder, COALESCE(SUM(discountAmount), 0) as discounts FROM orders WHERE date >= ? AND date <= ? AND status NOT IN ('cancelled')",
+      "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder, COALESCE(SUM(discountAmount), 0) as discounts FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status NOT IN ('cancelled')",
       [from, to]
     ) || { count: 0, revenue: 0, avgOrder: 0, discounts: 0 };
 
     const prev = queryOne(
-      "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder FROM orders WHERE date >= ? AND date <= ? AND status NOT IN ('cancelled')",
+      "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status NOT IN ('cancelled')",
       [pf.from, pf.to]
     ) || { count: 0, revenue: 0, avgOrder: 0 };
 
@@ -37,11 +37,11 @@ router.get('/dashboard/kpis', (req: Request, res: Response) => {
     const netSales = (cur.revenue as number) - (cur.discounts as number) - (refundAmt as number);
     const prevNetSales = (prev.revenue as number) - (prevRefundAmt as number);
 
-    const cancelled = (queryOne("SELECT COUNT(*) as c FROM orders WHERE date >= ? AND date <= ? AND status = 'cancelled'", [from, to]) || {}).c || 0;
+    const cancelled = (queryOne("SELECT COUNT(*) as c FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status = 'cancelled'", [from, to]) || {}).c || 0;
 
     // COGS
     const cogsRow = queryOne(
-      "SELECT COALESCE(SUM(oi.quantity * COALESCE(p.costPrice, 0)), 0) as cogs FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id WHERE o.date >= ? AND o.date <= ? AND o.status NOT IN ('cancelled')",
+      "SELECT COALESCE(SUM(oi.quantity * COALESCE(p.cost, 0)), 0) as cogs FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled')",
       [from, to]
     );
     const cogs = (cogsRow?.cogs as number) || 0;
@@ -72,7 +72,7 @@ router.get('/dashboard/sales-by-day', (req: Request, res: Response) => {
   try {
     const { from, to } = dateRange(req);
     const rows = queryAll(
-      "SELECT date, COUNT(*) as orders, COALESCE(SUM(total), 0) as revenue, COALESCE(SUM(discountAmount), 0) as discounts FROM orders WHERE date >= ? AND date <= ? AND status NOT IN ('cancelled') GROUP BY date ORDER BY date",
+      "SELECT date(date) as date, COUNT(*) as orders, COALESCE(SUM(total), 0) as revenue, COALESCE(SUM(discountAmount), 0) as discounts FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status NOT IN ('cancelled') GROUP BY date(date) ORDER BY date(date)",
       [from, to]
     );
     res.json(rows);
@@ -84,7 +84,7 @@ router.get('/dashboard/sales-by-category', (req: Request, res: Response) => {
   try {
     const { from, to } = dateRange(req);
     const rows = queryAll(
-      "SELECT COALESCE(c.nameAr, c.name, p.category, 'غير محدد') as name, SUM(oi.quantity) as quantity, SUM(oi.total) as revenue FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id WHERE o.date >= ? AND o.date <= ? AND o.status NOT IN ('cancelled') GROUP BY name ORDER BY revenue DESC",
+      "SELECT COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') as name, SUM(oi.quantity) as quantity, SUM(oi.total) as revenue FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled') GROUP BY COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') ORDER BY revenue DESC",
       [from, to]
     );
     const total = rows.reduce((s, r) => s + ((r.revenue as number) || 0), 0);
@@ -98,7 +98,7 @@ router.get('/dashboard/top-products', (req: Request, res: Response) => {
     const { from, to } = dateRange(req);
     const limit = parseInt(req.query.limit as string) || 10;
     const rows = queryAll(
-      `SELECT oi.name, p.id as productId, COALESCE(c.nameAr, c.name, p.category, 'غير محدد') as category, SUM(oi.quantity) as quantity, SUM(oi.total) as revenue, COALESCE(p.costPrice, 0) as costPrice FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id WHERE o.date >= ? AND o.date <= ? AND o.status NOT IN ('cancelled') GROUP BY oi.name ORDER BY revenue DESC LIMIT ?`,
+      `SELECT oi.name, p.id as productId, COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') as category, SUM(oi.quantity) as quantity, SUM(oi.total) as revenue, COALESCE(p.cost, 0) as costPrice FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled') GROUP BY oi.name ORDER BY revenue DESC LIMIT ?`,
       [from, to, limit]
     );
     res.json(rows.map(r => {
@@ -147,7 +147,7 @@ router.get('/dashboard/orders-summary', (req: Request, res: Response) => {
   try {
     const { from, to } = dateRange(req);
     const rows = queryAll(
-      "SELECT status, COUNT(*) as count, COALESCE(SUM(total), 0) as total FROM orders WHERE date >= ? AND date <= ? GROUP BY status",
+      "SELECT status, COUNT(*) as count, COALESCE(SUM(total), 0) as total FROM orders WHERE date(date) >= ? AND date(date) <= ? GROUP BY status",
       [from, to]
     );
     res.json(rows);
@@ -163,7 +163,7 @@ router.get('/dashboard/refunds-voids', (req: Request, res: Response) => {
       [from, to]
     );
     const voids = queryAll(
-      "SELECT id, orderNumber, tableId, total, createdBy, date FROM orders WHERE status = 'cancelled' AND date >= ? AND date <= ? ORDER BY date DESC LIMIT 50",
+      "SELECT id, orderNumber, tableId, total, createdBy, date FROM orders WHERE status = 'cancelled' AND date(date) >= ? AND date(date) <= ? ORDER BY date DESC LIMIT 50",
       [from, to]
     );
     const refundTotal = refunds.reduce((s, r) => s + ((r.amount as number) || 0), 0);
@@ -177,7 +177,7 @@ router.get('/dashboard/employees', (req: Request, res: Response) => {
   try {
     const { from, to } = dateRange(req);
     const rows = queryAll(
-      "SELECT o.createdBy as name, COUNT(*) as orders, COALESCE(SUM(o.total), 0) as sales, COALESCE(AVG(o.total), 0) as avgOrder FROM orders o WHERE o.date >= ? AND o.date <= ? AND o.status NOT IN ('cancelled') GROUP BY o.createdBy ORDER BY sales DESC",
+      "SELECT o.createdBy as name, COUNT(*) as orders, COALESCE(SUM(o.total), 0) as sales, COALESCE(AVG(o.total), 0) as avgOrder FROM orders o WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled') GROUP BY o.createdBy ORDER BY sales DESC",
       [from, to]
     );
     res.json(rows);
@@ -189,7 +189,7 @@ router.get('/dashboard/discounts', (req: Request, res: Response) => {
   try {
     const { from, to } = dateRange(req);
     const summary = queryOne(
-      "SELECT COUNT(*) as totalOrders, SUM(CASE WHEN discountAmount > 0 THEN 1 ELSE 0 END) as discountedOrders, COALESCE(SUM(discountAmount), 0) as totalDiscounts, COALESCE(SUM(total), 0) as totalSales FROM orders WHERE date >= ? AND date <= ? AND status NOT IN ('cancelled')",
+      "SELECT COUNT(*) as totalOrders, SUM(CASE WHEN discountAmount > 0 THEN 1 ELSE 0 END) as discountedOrders, COALESCE(SUM(discountAmount), 0) as totalDiscounts, COALESCE(SUM(total), 0) as totalSales FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status NOT IN ('cancelled')",
       [from, to]
     );
     res.json(summary || { totalOrders: 0, discountedOrders: 0, totalDiscounts: 0, totalSales: 0 });
@@ -199,8 +199,8 @@ router.get('/dashboard/discounts', (req: Request, res: Response) => {
 // 12. Inventory overview
 router.get('/dashboard/inventory', (_req: Request, res: Response) => {
   try {
-    const items = queryAll("SELECT id, name, quantity, unit, minStock, cost, status FROM inventory ORDER BY quantity ASC");
-    const totalValue = items.reduce((s, i) => s + ((i.quantity as number) || 0) * ((i.cost as number) || 0), 0);
+    const items = queryAll("SELECT id, name, quantity, unit, minStock, costPrice, CASE WHEN quantity <= 0 THEN 'out' WHEN quantity <= minStock THEN 'low' ELSE 'ok' END as status FROM inventory ORDER BY quantity ASC");
+    const totalValue = items.reduce((s, i) => s + ((i.quantity as number) || 0) * ((i.costPrice as number) || 0), 0);
     const lowStock = items.filter(i => (i.quantity as number) <= (i.minStock as number) && (i.quantity as number) > 0);
     const outOfStock = items.filter(i => (i.quantity as number) <= 0);
     res.json({ items, totalValue, lowStock: lowStock.length, outOfStock: outOfStock.length, totalItems: items.length });
@@ -214,15 +214,15 @@ router.get('/dashboard/insights', (req: Request, res: Response) => {
     const pf = prevDateRange(from, to);
     const insights: { type: string; message: string; severity: string }[] = [];
 
-    const curSales = ((queryOne("SELECT COALESCE(SUM(total), 0) as t FROM orders WHERE date >= ? AND date <= ? AND status NOT IN ('cancelled')", [from, to]) || {}).t as number) || 0;
-    const prevSales = ((queryOne("SELECT COALESCE(SUM(total), 0) as t FROM orders WHERE date >= ? AND date <= ? AND status NOT IN ('cancelled')", [pf.from, pf.to]) || {}).t as number) || 0;
+    const curSales = ((queryOne("SELECT COALESCE(SUM(total), 0) as t FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status NOT IN ('cancelled')", [from, to]) || {}).t as number) || 0;
+    const prevSales = ((queryOne("SELECT COALESCE(SUM(total), 0) as t FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status NOT IN ('cancelled')", [pf.from, pf.to]) || {}).t as number) || 0;
     if (prevSales > 0) {
       const ch = ((curSales - prevSales) / prevSales * 100);
       if (ch > 5) insights.push({ type: 'positive', message: `المبيعات ارتفعت ${ch.toFixed(1)}% مقارنة بالفترة السابقة`, severity: 'success' });
       else if (ch < -5) insights.push({ type: 'negative', message: `المبيعات انخفضت ${Math.abs(ch).toFixed(1)}% مقارنة بالفترة السابقة`, severity: 'danger' });
     }
 
-    const topCat = queryOne("SELECT COALESCE(c.nameAr, c.name, 'غير محدد') as name, SUM(oi.total) as rev FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id WHERE o.date >= ? AND o.date <= ? AND o.status NOT IN ('cancelled') GROUP BY name ORDER BY rev DESC LIMIT 1", [from, to]);
+    const topCat = queryOne("SELECT COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') as name, SUM(oi.total) as rev FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled') GROUP BY COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') ORDER BY rev DESC LIMIT 1", [from, to]);
     if (topCat && (topCat.rev as number) > 0) insights.push({ type: 'info', message: `قسم "${topCat.name}" حقق أعلى إيراد`, severity: 'info' });
 
     const cashPct = queryOne("SELECT COALESCE(SUM(amount), 0) as cash FROM payments WHERE method = 'cash' AND createdAt >= ? AND createdAt <= ? || 'T23:59:59'", [from, to]);
@@ -232,8 +232,8 @@ router.get('/dashboard/insights', (req: Request, res: Response) => {
       if (cp > 40) insights.push({ type: 'info', message: `الكاش يمثل ${cp.toFixed(0)}% من إجمالي المدفوعات`, severity: 'info' });
     }
 
-    const voidCount = (queryOne("SELECT COUNT(*) as c FROM orders WHERE status = 'cancelled' AND date >= ? AND date <= ?", [from, to]) || {}).c || 0;
-    const totalOrders = (queryOne("SELECT COUNT(*) as c FROM orders WHERE date >= ? AND date <= ?", [from, to]) || {}).c || 0;
+    const voidCount = Number((queryOne("SELECT COUNT(*) as c FROM orders WHERE status = 'cancelled' AND date(date) >= ? AND date(date) <= ?", [from, to]) || {}).c || 0);
+    const totalOrders = Number((queryOne("SELECT COUNT(*) as c FROM orders WHERE date(date) >= ? AND date(date) <= ?", [from, to]) || {}).c || 0);
     if (totalOrders > 0 && (voidCount as number) / (totalOrders as number) > 0.1) {
       insights.push({ type: 'warning', message: `نسبة الإلغاءات مرتفعة: ${voidCount} من ${totalOrders} طلب`, severity: 'warning' });
     }
@@ -255,7 +255,7 @@ router.get('/dashboard/alerts', (req: Request, res: Response) => {
 
     const today = new Date().toISOString().slice(0, 10);
     const highDiscounts = queryOne(
-      "SELECT COALESCE(SUM(discountAmount), 0) as total, COALESCE(SUM(total), 0) as sales FROM orders WHERE date = ? AND status NOT IN ('cancelled')",
+      "SELECT COALESCE(SUM(discountAmount), 0) as total, COALESCE(SUM(total), 0) as sales FROM orders WHERE date(date) = ? AND status NOT IN ('cancelled')",
       [today]
     );
     if ((highDiscounts?.sales as number) > 0 && ((highDiscounts?.total as number) / (highDiscounts?.sales as number) > 0.2)) {
@@ -271,12 +271,12 @@ router.get('/dashboard/products', (req: Request, res: Response) => {
   try {
     const { from, to } = dateRange(req);
     const rows = queryAll(
-      `SELECT p.id, p.name, p.price, p.costPrice, p.category, p.available, COALESCE(c.nameAr, c.name, p.category) as categoryName,
+      `SELECT p.id, p.name, p.price, p.cost as costPrice, p.available, COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') as categoryName,
        COALESCE(SUM(oi.quantity), 0) as qtySold, COALESCE(SUM(oi.total), 0) as revenue
        FROM products p
        LEFT JOIN categories c ON p.categoryId = c.id
        LEFT JOIN order_items oi ON oi.productId = p.id
-       LEFT JOIN orders o ON oi.orderId = o.id AND o.date >= ? AND o.date <= ? AND o.status NOT IN ('cancelled')
+       LEFT JOIN orders o ON oi.orderId = o.id AND date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled')
        GROUP BY p.id ORDER BY revenue DESC`,
       [from, to]
     );
@@ -289,13 +289,13 @@ router.get('/dashboard/categories', (req: Request, res: Response) => {
   try {
     const { from, to } = dateRange(req);
     const rows = queryAll(
-      `SELECT c.id, c.nameAr as name, c.nameEn, c.icon, c.active, c.sortOrder,
+      `SELECT c.id, COALESCE(NULLIF(c.name_ar, ''), c.name) as name, c.name_en as nameEn, c.icon, c.active, c.sortOrder,
        COALESCE(SUM(oi.quantity), 0) as qtySold, COALESCE(SUM(oi.total), 0) as revenue,
        (SELECT COUNT(*) FROM products WHERE categoryId = c.id) as productCount
        FROM categories c
        LEFT JOIN products p ON p.categoryId = c.id
        LEFT JOIN order_items oi ON oi.productId = p.id
-       LEFT JOIN orders o ON oi.orderId = o.id AND o.date >= ? AND o.date <= ? AND o.status NOT IN ('cancelled')
+       LEFT JOIN orders o ON oi.orderId = o.id AND date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled')
        GROUP BY c.id ORDER BY c.sortOrder`,
       [from, to]
     );

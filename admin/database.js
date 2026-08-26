@@ -2345,6 +2345,7 @@ async function initSystem() {
 
     await Tables.init();
     await Users.createDefaultAdmin();
+    await seedDefaultPaymentMethods();
     if (typeof menuData !== 'undefined' && Array.isArray(menuData) && menuData.length) {
         await MenuSync.syncFromMenuData(menuData);
     }
@@ -2359,6 +2360,21 @@ async function initSystem() {
         } catch(e) {}
     }, 500);
 
+}
+
+async function seedDefaultPaymentMethods() {
+    try {
+        const existing = await db.getAll('payment_methods');
+        if (existing && existing.length > 0) return;
+        const defaults = [
+            { name_ar: 'كاش', name_en: 'cash', type: 'cash', icon: '💵', active: 1, sortOrder: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+            { name_ar: 'فيزا', name_en: 'card', type: 'card', icon: '💳', active: 1, sortOrder: 2, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+            { name_ar: 'تحويل بنكي', name_en: 'transfer', type: 'bank', icon: '🏦', active: 1, sortOrder: 3, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+        ];
+        for (const m of defaults) {
+            await db.add('payment_methods', m);
+        }
+    } catch(e) {}
 }
 
 // ===== Bot Memory (نظام تعلم البوت) =====

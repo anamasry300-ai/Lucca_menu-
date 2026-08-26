@@ -20,7 +20,30 @@
 </head>
 <body>
     <div class="container">
+        <!-- Full-Screen Tables View (Main Screen) -->
+        <div id="tablesMainView" class="tables-main-view">
+            <div class="tables-main-header">
+                <div class="tables-main-logo">
+                    <h1>LUCCA</h1>
+                    <div class="subtitle">Caffe Italiano</div>
+                </div>
+                <div class="tables-main-actions">
+                    <span class="tables-main-clock" id="tablesMainClock"></span>
+                    <button class="kitchen-btn" onclick="openKitchenDisplay()" style="background:#e67e22;">🍳 المطبخ</button>
+                    <button class="kitchen-btn" onclick="openTableSettings()" style="background:#6B7280;">⚙️ إعداد الطاولات</button>
+                    <button class="kitchen-btn" onclick="openAdminDashboard()" style="background:#1e40af;">🛠️ إدارة</button>
+                    <button class="kitchen-btn" onclick="openAdminPanel()" style="background:#4338ca;font-size:0.75rem;">⚡ سريعة</button>
+                </div>
+            </div>
+            <div class="tables-main-status" id="tablesMainStatus"></div>
+            <div class="tables-main-zones" id="tablesMainZones"></div>
+            <div class="tables-main-grid" id="tablesMainGrid"></div>
+        </div>
+
+        <!-- Order Mode View (Hidden by default) -->
+        <div id="orderModeView" style="display:none;">
         <div class="header">
+            <button class="back-to-tables-btn" onclick="showTablesView()" title="العودة للطاولات">📋 العودة للطاولات</button>
             <div class="logo">
                 <h1>LUCCA</h1>
                 <div class="subtitle">Caffe Italiano</div>
@@ -28,7 +51,7 @@
             </div>
         </div>
 
-        <div class="specialty-intro">
+        <div class="specialty-intro" style="display:none;">
             <h2>ما هي القهوة المختصه؟</h2>
             <p>
                 في Lucca نهتم بأن تكون تجربة القهوة والطلبات كلها واضحة وسريعة. امسح الكود، اختر طلبك،
@@ -60,7 +83,7 @@
                         <button class="kitchen-btn" id="analyticsBtn" title="تحليلات المبيعات">📈 تحليلات</button>
                         <button class="kitchen-btn" id="kitchenViewBtn" title="شاشة المطبخ" onclick="openKitchenDisplay()" style="background:#e67e22;">🍳 المطبخ</button>
                         <button class="kitchen-btn" id="tableSettingsBtn" title="إدارة الطاولات" onclick="openTableSettings()" style="background:#6B7280;">⚙️ طاولات</button>
-                        <button class="kitchen-btn" id="adminPanelBtn" title="لوحة التحكم" onclick="openAdminPanel()" style="background:#1e40af;">🛠️ إدارة</button>
+                        <button class="kitchen-btn" id="adminPanelBtn" title="لوحة التحكم" onclick="openAdminDashboard()" style="background:#1e40af;">🛠️ إدارة</button>
                     </div>
                 <div class="order-count-badge" id="orderCountBadge">0 صنف</div>
                 <button class="clear-order-btn" id="clearOrderBtn">تفريغ</button>
@@ -136,6 +159,7 @@
                 <p class="order-hint">اختر الطاولة وأضف الأصناف من المنيو ثم سجل الطلب</p>
                 <div id="orderItems" class="order-items"></div>
                 <div class="order-total">الإجمالي: <span id="orderTotal">0</span> ج.م</div>
+                <div id="quickPayButtons" style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;"></div>
                 <div class="order-actions">
                     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
                         <button type="button" class="btn" onclick="openCustomItemModal()" style="flex:1;min-width:80px;padding:8px;background:#8e44ad;color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.8rem;">➕ صنف يدوي</button>
@@ -171,11 +195,12 @@
                 <div id="qrcode"></div>
             </div>
         </div>
+        </div><!-- /orderModeView -->
 
         <div class="footer">
             <p>Lucca Caffe Italiano</p>
             <p>شارع محمد علي - بجوار كلية التربية - بورسعيد</p>
-            <p class="contact">للحجز والاستفسار: 01551007413</p>
+            <p class="contact">للحجز والاستفسار: 01010058989</p>
             <p style="margin-top: 15px; font-size: 0.9rem;">Buon Appetito!</p>
         </div>
     </div>
@@ -226,6 +251,29 @@
                     <h3>📋 الطاولات الحالية</h3>
                     <div class="settings-table-list" id="settingsTableList"></div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="adminLoginModal">
+        <div class="modal-content" style="max-width:360px;">
+            <div class="modal-close" onclick="closeAdminLogin()">×</div>
+            <div style="text-align:center;padding:20px 0 10px;">
+                <div style="font-size:2.5rem;margin-bottom:8px;">🔐</div>
+                <h3 style="font-family:'Playfair Display',serif;color:var(--text);margin:0 0 4px;">لوحة التحكم</h3>
+                <p style="font-size:0.82rem;color:var(--text-secondary);">أدخل بيانات الدخول للمتابعة</p>
+            </div>
+            <div style="padding:0 16px 20px;">
+                <input type="text" id="adminLoginUser" placeholder="اسم المستخدم" autocomplete="username"
+                    style="width:100%;padding:12px;border:2px solid var(--border);border-radius:10px;font-size:0.95rem;margin-bottom:10px;text-align:center;font-family:var(--font);direction:rtl;">
+                <input type="password" id="adminLoginPass" placeholder="كلمة المرور" autocomplete="current-password"
+                    style="width:100%;padding:12px;border:2px solid var(--border);border-radius:10px;font-size:0.95rem;margin-bottom:14px;text-align:center;font-family:var(--font);direction:rtl;"
+                    onkeydown="if(event.key==='Enter')doAdminLogin()">
+                <button onclick="doAdminLogin()" id="adminLoginBtn"
+                    style="width:100%;padding:12px;background:var(--gradient-btn);color:white;border:none;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;font-family:var(--font);transition:all 0.2s;">
+                    دخول
+                </button>
+                <div id="adminLoginError" style="margin-top:10px;text-align:center;color:var(--danger);font-size:0.85rem;display:none;"></div>
             </div>
         </div>
     </div>
@@ -295,9 +343,10 @@
         <div id="invoiceExportContent"></div>
         <div style="text-align:center; margin-top:16px; padding-top:12px; border-top:2px dashed #2563EB;">
             <p style="color:#2563EB; font-weight:bold; margin:0;">Buon Appetito!</p>
-            <p style="color:#94A3B8; font-size:0.8rem; margin:4px 0;">للحجز والاستفسار: 01551007413</p>
+            <p style="color:#94A3B8; font-size:0.8rem; margin:4px 0;">للحجز والاستفسار: 01010058989</p>
         </div>
     </div>
+    <style>
         .kitchen-ticket { background:#fff; border:2px solid var(--border); border-radius:12px; padding:14px; margin-bottom:12px; }
         .kitchen-ticket-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--border); }
         .kitchen-done-btn { width:100%; padding:10px; background:var(--text-secondary); color:#fff; border:none; border-radius:8px; cursor:pointer; font-size:0.95rem; font-weight:700; transition:background 0.2s; }
@@ -397,7 +446,7 @@
                 <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--text-secondary);">العنوان على الفاتورة</label>
                 <input type="text" id="cafeAddressInput" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:8px;font-size:0.9rem;margin-bottom:10px;" placeholder="شارع محمد علي - بورسعيد">
                 <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--text-secondary);">رقم التواصل</label>
-                <input type="text" id="cafePhoneInput" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:8px;font-size:0.9rem;margin-bottom:10px;" placeholder="01551007413">
+                <input type="text" id="cafePhoneInput" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:8px;font-size:0.9rem;margin-bottom:10px;" placeholder="01010058989">
                 <button onclick="saveCafeInfo()" style="width:100%;padding:10px;background:var(--primary);color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;">💾 حفظ معلومات المقهى</button>
                 <div id="cafeStatusMsg" style="margin-top:8px;font-size:0.85rem;text-align:center;"></div>
             </div>
@@ -441,6 +490,16 @@
 
     <div class="invoice-modal" id="splitBillModal">
         <div class="invoice-content" id="splitBillContent" style="max-width:400px;">
+        </div>
+    </div>
+
+    <!-- Payment Method Selection Modal -->
+    <div class="invoice-modal" id="paymentSelectModal">
+        <div class="invoice-content" style="max-width:420px;">
+            <h3 style="color:var(--primary);font-family:'Playfair Display',serif;margin-bottom:8px;text-align:center;">💳 اختر طريقة الدفع</h3>
+            <div id="paymentSelectTotal" style="text-align:center;font-size:1.8rem;font-weight:900;color:var(--primary);margin-bottom:20px;">0 ج.م</div>
+            <div id="paymentSelectButtons" style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px;"></div>
+            <button onclick="document.getElementById('paymentSelectModal').classList.remove('show')" style="width:100%;padding:12px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:0.95rem;">رجوع</button>
         </div>
     </div>
 
@@ -701,6 +760,8 @@
                     if (_tableSearchTerm) {
                         tables = tables.filter(t => String(t.number).includes(_tableSearchTerm));
                     }
+                    // Fixed order by table number
+                    tables.sort((a, b) => a.number - b.number);
 
                     await updateStatusBar(tables, pendingOrders);
                     await renderZoneTabs(await window.LuccaDB.Tables.getAll());
@@ -899,7 +960,169 @@
         }
 
         // ==================== لوحة التحكم السريعة ====================
+        function openAdminDashboard() {
+            if (window.electronAPI && window.electronAPI.isElectron) {
+                window.electronAPI.openExternal('file://' + __dirname + '/admin/index.html');
+            } else {
+                window.open('admin/index.html', '_blank');
+            }
+        }
+
+        // ==================== VIEW SWITCHING (Tables Main / Order Mode) ====================
+        let _currentView = 'tables'; // 'tables' | 'order'
+
+        function showTablesView() {
+            _currentView = 'tables';
+            document.getElementById('tablesMainView').style.display = '';
+            document.getElementById('orderModeView').style.display = 'none';
+            document.getElementById('specialtyIntroSection')?.style && (document.getElementById('specialtyIntroSection').style.display = 'none');
+            loadTablesMainView();
+        }
+
+        function showOrderMode() {
+            _currentView = 'order';
+            document.getElementById('tablesMainView').style.display = 'none';
+            document.getElementById('orderModeView').style.display = '';
+        }
+
+        async function loadTablesMainView() {
+            const grid = document.getElementById('tablesMainGrid');
+            const statusEl = document.getElementById('tablesMainStatus');
+            const zonesEl = document.getElementById('tablesMainZones');
+            if (!grid) return;
+            grid.innerHTML = '';
+
+            // Clock
+            const clockEl = document.getElementById('tablesMainClock');
+            if (clockEl) {
+                const updateClock = () => {
+                    const now = new Date();
+                    clockEl.textContent = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+                };
+                updateClock();
+                if (window._mainClockInterval) clearInterval(window._mainClockInterval);
+                window._mainClockInterval = setInterval(updateClock, 10000);
+            }
+
+            let pendingOrders = [];
+            if (window.LuccaDB && window.LuccaDB.Orders) {
+                try { pendingOrders = await LuccaDB.Orders.getAll().then(orders => orders.filter(o => o.status === 'pending')); } catch(e) {}
+            }
+
+            if (!window.LuccaDB || !window.LuccaDB.Tables) return;
+            try {
+                let tables = await window.LuccaDB.Tables.getAll();
+                const allTables = [...tables];
+
+                // Status pills
+                const counts = { available: 0, occupied: 0, reserved: 0 };
+                allTables.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
+                statusEl.innerHTML = `
+                    <div class="status-pill available"><span class="dot"></span> متاح (${counts.available})</div>
+                    <div class="status-pill occupied"><span class="dot"></span> مشغول (${counts.occupied})</div>
+                    <div class="status-pill reserved"><span class="dot"></span> محجوز (${counts.reserved})</div>
+                `;
+
+                // Zones
+                const zones = ['الكل', ...new Set(allTables.map(t => t.zone || 'صالة'))];
+                zonesEl.innerHTML = zones.map(z => `<div class="zone-pill ${z === 'الكل' ? 'active' : ''}" onclick="filterMainTables('${z}')">${z}</div>`).join('');
+
+                // Render all tables
+                renderMainTableCards(allTables, pendingOrders);
+
+            } catch(e) {
+                grid.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:40px;">لا توجدطاولات</div>';
+            }
+        }
+
+        let _mainTableFilter = 'الكل';
+
+        function filterMainTables(zone) {
+            _mainTableFilter = zone;
+            document.querySelectorAll('.tables-main-zones .zone-pill').forEach(p => {
+                p.classList.toggle('active', p.textContent === zone);
+            });
+            loadTablesMainView();
+        }
+
+        async function renderMainTableCards(tables, pendingOrders) {
+            const grid = document.getElementById('tablesMainGrid');
+            if (_mainTableFilter !== 'الكل') {
+                tables = tables.filter(t => (t.zone || 'صالة') === _mainTableFilter);
+            }
+            tables.sort((a, b) => a.number - b.number);
+            tables.forEach(table => {
+                const card = document.createElement('div');
+                card.className = `table-card ${table.status}`;
+                card.dataset.table = table.number;
+                card.innerHTML = buildTableHTML(table, pendingOrders);
+                card.addEventListener('click', () => enterOrderForTable(table.number));
+                grid.appendChild(card);
+            });
+        }
+
+        function enterOrderForTable(tableNum) {
+            showOrderMode();
+            selectTable(tableNum);
+        }
+
+        function _startTablesMainAutoRefresh() {
+            if (window._tablesMainRefreshInterval) clearInterval(window._tablesMainRefreshInterval);
+            window._tablesMainRefreshInterval = setInterval(() => {
+                if (_currentView === 'tables') loadTablesMainView();
+            }, 30000);
+        }
+
+        // ==================== ADMIN LOGIN GATE ====================
         async function openAdminPanel() {
+            // Check if already authenticated as admin in this session
+            const authed = sessionStorage.getItem('posAdminAuthed');
+            if (authed === '1') {
+                _showAdminPanelContent();
+                return;
+            }
+            // Show login modal
+            document.getElementById('adminLoginModal')?.classList.add('show');
+            document.getElementById('adminLoginUser').value = '';
+            document.getElementById('adminLoginPass').value = '';
+            document.getElementById('adminLoginError').style.display = 'none';
+            document.getElementById('adminLoginUser').focus();
+        }
+
+        function closeAdminLogin() {
+            document.getElementById('adminLoginModal')?.classList.remove('show');
+        }
+
+        async function doAdminLogin() {
+            const user = document.getElementById('adminLoginUser').value.trim();
+            const pass = document.getElementById('adminLoginPass').value;
+            const errEl = document.getElementById('adminLoginError');
+            const btn = document.getElementById('adminLoginBtn');
+            if (!user || !pass) { errEl.textContent = 'أدخل اسم المستخدم وكلمة المرور'; errEl.style.display = ''; return; }
+            btn.textContent = 'جاري التحقق...';
+            btn.disabled = true;
+            try {
+                await window.LuccaDB.Users.login(user, pass);
+                const currentUser = window.LuccaDB.Users.getCurrentUser();
+                if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'manager')) {
+                    sessionStorage.setItem('posAdminAuthed', '1');
+                    closeAdminLogin();
+                    _showAdminPanelContent();
+                } else {
+                    errEl.textContent = 'ليس لديك صلاحية الدخول لهذه المنطقة';
+                    errEl.style.display = '';
+                    window.LuccaDB.Users.logout();
+                }
+            } catch(e) {
+                errEl.textContent = e.message || 'بيانات الدخول غير صحيحة';
+                errEl.style.display = '';
+            } finally {
+                btn.textContent = 'دخول';
+                btn.disabled = false;
+            }
+        }
+
+        function _showAdminPanelContent() {
             const modal = document.getElementById('adminPanelModal');
             if (modal) { modal.classList.add('show'); posLoadCategories(); posLoadProducts(); posLoadPaymentMethods(); }
         }
@@ -1865,6 +2088,7 @@
 
         async function loadPaymentMethodsPOS() {
             const select = document.getElementById('paymentMethod');
+            const quickBtns = document.getElementById('quickPayButtons');
             if (!select) return;
             try {
                 if (window.LuccaDB && window.LuccaDB.PaymentMethods) {
@@ -1873,11 +2097,54 @@
                         select.innerHTML = methods.map(m =>
                             `<option value="${m.name_en || m.name_ar || m.name}">${m.name_ar || m.name} ${m.type === 'cash' ? '💰' : m.type === 'card' ? '💳' : m.type === 'wallet' ? '📱' : m.type === 'bank' ? '🏦' : ''}</option>`
                         ).join('');
+                        if (quickBtns) {
+                            const colorMap = { cash: '#27ae60', card: '#3B82F6', bank: '#F59E0B', wallet: '#8B5CF6', digital: '#8B5CF6' };
+                            quickBtns.innerHTML = methods.map(m => {
+                                const type = m.type || 'cash';
+                                const color = colorMap[type] || '#27ae60';
+                                const icon = m.icon || (type === 'cash' ? '💵' : type === 'card' ? '💳' : type === 'bank' ? '🏦' : '💰');
+                                return `<button type="button" onclick="quickPay('${m.name_en || m.name_ar || m.name}','${type}')" style="flex:1;min-width:90px;padding:10px 6px;background:${color};color:white;border:none;border-radius:10px;cursor:pointer;font-size:0.9rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:4px;transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">${icon} ${m.name_ar || m.name}</button>`;
+                            }).join('');
+                        }
                         return;
                     }
                 }
             } catch(e) {}
             select.innerHTML = '<option value="cash">💰 كاش</option><option value="visa">💳 فيزا</option>';
+            if (quickBtns) {
+                quickBtns.innerHTML = `
+                    <button type="button" onclick="quickPay('cash','cash')" style="flex:1;min-width:90px;padding:10px 6px;background:#27ae60;color:white;border:none;border-radius:10px;cursor:pointer;font-size:0.9rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:4px;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">💵 كاش</button>
+                    <button type="button" onclick="quickPay('card','card')" style="flex:1;min-width:90px;padding:10px 6px;background:#3B82F6;color:white;border:none;border-radius:10px;cursor:pointer;font-size:0.9rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:4px;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">💳 فيزا</button>
+                    <button type="button" onclick="quickPay('transfer','bank')" style="flex:1;min-width:90px;padding:10px 6px;background:#F59E0B;color:white;border:none;border-radius:10px;cursor:pointer;font-size:0.9rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:4px;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">🏦 تحويل</button>
+                `;
+            }
+        }
+
+        async function quickPay(method, type) {
+            const pmSelect = document.getElementById('paymentMethod');
+            if (pmSelect) {
+                let found = false;
+                for (let opt of pmSelect.options) {
+                    if (opt.value === method) { opt.selected = true; found = true; break; }
+                }
+                if (!found) {
+                    const opt = document.createElement('option');
+                    opt.value = method;
+                    opt.textContent = method;
+                    opt.selected = true;
+                    pmSelect.appendChild(opt);
+                }
+            }
+            if (!currentOrderId) {
+                const items = buildOrderPayload();
+                if (items.length === 0) { setOrderStatus('أضف أصنافاً أولاً.', 'error'); return; }
+                const tableNum = document.getElementById('tableSelect').value;
+                if (!tableNum) { setOrderStatus('اختر الطاولة أولاً.', 'error'); return; }
+                setOrderStatus('جارٍ حفظ الطلب...', 'neutral');
+                const saved = await autoSave();
+                if (!saved) { setOrderStatus('❌ فشل حفظ الطلب', 'error'); return; }
+            }
+            selectPaymentAndClose(method, type);
         }
 
         async function loadCustomerSelect() {
@@ -2002,7 +2269,7 @@
             const { subtotal, discountAmount, afterDiscount: total } = calcOrderTotals(items, formData.discount || 0);
 
             const exportData = {
-                cafe: { name: 'LUCCA', phone: '01551007413' },
+                cafe: { name: 'LUCCA', phone: '01010058989' },
                 order: {
                     id: Date.now(),
                     tableId: document.getElementById('tableSelect').value,
@@ -2040,62 +2307,114 @@
             const discountAmount = subtotal * (discount / 100);
             const total = subtotal - discountAmount;
 
-            // Use dynamic cafe info (async fetch cached)
-            const cafeInfo = window._cachedCafeInfo || { name: 'LUCCA', address: 'شارع محمد علي - بورسعيد', phone: '01551007413' };
+            const cafeInfo = window._cachedCafeInfo || { name: 'LUCCA', address: 'شارع محمد علي - بورسعيد', phone: '01010058989' };
             const currency = localStorage.getItem('luccaCurrency') || 'ج.م';
+            const _pm = (formData.paymentMethod || '').toLowerCase();
+            const payMethod = /card|فيزا|كارت|visa/i.test(_pm) ? '💳 فيزا' : /transfer|تحويل|بنك/i.test(_pm) ? '🏦 تحويل' : /whatsapp|واتساب/i.test(_pm) ? '📱 واتساب' : '💵 كاش';
+            const tableLabel = order.tableId === 'takeaway' || order.tableId == 0 ? '🛵 سفري' : '🪑 طاولة ' + (order.tableId || '-');
 
             return `
-                <div style="margin-bottom:15px; text-align:center;">
-                    <strong style="color:#3E2723; font-size:1.1rem;">فاتورة رقم #${String(order.id || Date.now()).padStart(4, '0')}</strong>
-                </div>
-                <div style="display:flex; justify-content:space-between; margin-bottom:10px; font-size:0.9rem; color:#666;">
-                    <span>التاريخ: ${dateStr}</span>
-                    <span>الوقت: ${timeStr}</span>
-                </div>
-                <div style="margin-bottom:10px; font-size:0.9rem; color:#666;">
-                    <div>رقم الطاولة: ${order.tableId || '-'}</div>
-                    ${formData.customerName ? `<div>اسم العميل: ${formData.customerName}</div>` : ''}
-                    ${formData.customerPhone ? `<div>رقم الموبايل: ${formData.customerPhone}</div>` : ''}
-                </div>
-                <div style="border-top:1px solid #eee; margin:15px 0;"></div>
-                <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
-                    <thead>
-                        <tr style="background:#F5F1E8;">
-                            <th style="padding:10px 5px; text-align:right;">الصنف</th>
-                            <th style="padding:10px 5px; text-align:center; width:50px;">الكمية</th>
-                            <th style="padding:10px 5px; text-align:left; width:80px;">السعر</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${order.items.map(item => `
-                            <tr style="border-bottom:1px solid #f0f0f0;">
-                                <td style="padding:10px 5px;">${item.name}${item._note ? `<br><small style="color:#8e44ad;">📝 ${item._note}</small>` : ''}</td>
-                                <td style="padding:10px 5px; text-align:center;">${item.quantity}</td>
-                                <td style="padding:10px 5px; text-align:left;">${(item.price * item.quantity).toFixed(2)} ${currency}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-                <div style="border-top:2px solid #C85A3E; margin-top:15px; padding-top:15px;">
-                    <div style="display:flex; justify-content:space-between; margin:8px 0; font-size:1rem; color:#666;">
-                        <span>المجموع:</span>
-                        <span>${subtotal.toFixed(2)} ج.م</span>
+                <div style="max-width:400px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);font-family:'Tajawal',Tahoma,sans-serif;color:#1a1a1a;">
+                    <!-- Brand Header -->
+                    <div style="background:linear-gradient(135deg,#1a1a1a 0%,#2d2d2d 100%);padding:28px 24px;text-align:center;">
+                        <div style="font-size:32px;font-weight:900;color:#fff;letter-spacing:6px;">LUCCA</div>
+                        <div style="font-size:11px;color:#c9a227;letter-spacing:4px;margin-top:4px;text-transform:uppercase;">SPECIALTY COFFEE</div>
+                        <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:6px;font-style:italic;">"Art in every cup"</div>
+                        <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:10px;line-height:1.6;">
+                            📍 ${cafeInfo.address}<br>📞 ${cafeInfo.phone}
+                        </div>
                     </div>
-                    ${discount > 0 ? `
-                    <div style="display:flex; justify-content:space-between; margin:8px 0; font-size:1rem; color:#e67e22;">
-                        <span>الخصم (${discount}%):</span>
-                        <span>-${discountAmount.toFixed(2)} ج.م</span>
+
+                    <!-- Invoice Info -->
+                    <div style="padding:16px 24px 0;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:2px solid #f0f0f0;">
+                            <div>
+                                <div style="font-size:18px;font-weight:800;color:#1a1a1a;">فاتورة</div>
+                                <div style="font-size:11px;color:#888;margin-top:2px;">#${String(order.id || Date.now()).slice(-6)}</div>
+                            </div>
+                            <div style="text-align:left;">
+                                <div style="font-size:11px;color:#666;">${dateStr}</div>
+                                <div style="font-size:11px;color:#888;">${timeStr}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Table / Customer Info -->
+                    <div style="padding:12px 24px;display:flex;gap:16px;font-size:12px;">
+                        <div style="background:#f8f8f8;padding:8px 14px;border-radius:8px;">
+                            <span style="color:#888;">الطاولة:</span>
+                            <span style="font-weight:700;margin-right:4px;">${tableLabel}</span>
+                        </div>
+                        ${formData.customerName ? `<div style="background:#f8f8f8;padding:8px 14px;border-radius:8px;">
+                            <span style="color:#888;">العميل:</span>
+                            <span style="font-weight:700;margin-right:4px;">${formData.customerName}</span>
+                        </div>` : ''}
+                        <div style="background:#f8f8f8;padding:8px 14px;border-radius:8px;">
+                            <span style="color:#888;">الدفع:</span>
+                            <span style="font-weight:700;margin-right:4px;">${payMethod}</span>
+                        </div>
+                    </div>
+
+                    <!-- Items Table -->
+                    <div style="padding:12px 24px;">
+                        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                            <thead>
+                                <tr style="border-bottom:2px solid #1a1a1a;">
+                                    <th style="padding:10px 4px;text-align:right;font-weight:700;color:#666;font-size:10px;text-transform:uppercase;letter-spacing:1px;">الصنف</th>
+                                    <th style="padding:10px 4px;text-align:center;width:40px;font-weight:700;color:#666;font-size:10px;">الكمية</th>
+                                    <th style="padding:10px 4px;text-align:left;width:80px;font-weight:700;color:#666;font-size:10px;">المبلغ</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${order.items.map(item => `
+                                    <tr style="border-bottom:1px solid #f0f0f0;">
+                                        <td style="padding:12px 4px;font-weight:600;">
+                                            ${item.nameAr || item.name}
+                                            ${item._note ? `<br><span style="color:#8e44ad;font-size:10px;">📝 ${item._note}</span>` : ''}
+                                        </td>
+                                        <td style="padding:12px 4px;text-align:center;color:#666;">×${item.quantity}</td>
+                                        <td style="padding:12px 4px;text-align:left;font-weight:700;">${((item.price || 0) * item.quantity).toFixed(0)} ${currency}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Totals -->
+                    <div style="padding:0 24px 24px;">
+                        <div style="border-top:1px solid #eee;padding-top:16px;">
+                            <div style="display:flex;justify-content:space-between;margin:6px 0;font-size:13px;color:#666;">
+                                <span>المجموع الفرعي</span>
+                                <span>${subtotal.toFixed(0)} ${currency}</span>
+                            </div>
+                            ${discount > 0 ? `
+                            <div style="display:flex;justify-content:space-between;margin:6px 0;font-size:13px;color:#e67e22;">
+                                <span>خصم (${discount}%)</span>
+                                <span>-${discountAmount.toFixed(0)} ${currency}</span>
+                            </div>` : ''}
+                            <div style="display:flex;justify-content:space-between;margin:12px 0 0;padding-top:12px;border-top:2px solid #1a1a1a;font-size:20px;font-weight:900;color:#1a1a1a;">
+                                <span>الإجمالي</span>
+                                <span>${total.toFixed(0)} ${currency}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    ${formData.customerNotes ? `
+                    <div style="padding:0 24px 20px;">
+                        <div style="background:#FFF9F0;padding:12px;border-radius:8px;font-size:12px;color:#666;">
+                            <strong>📝 ملاحظات:</strong> ${formData.customerNotes}
+                        </div>
                     </div>` : ''}
-                    <div style="display:flex; justify-content:space-between; margin:8px 0; font-size:1.2rem; font-weight:bold; color:#C85A3E;">
-                        <span>الإجمالي:</span>
-                        <span>${total.toFixed(2)} ج.م</span>
+
+                    <!-- Footer -->
+                    <div style="background:#f8f8f8;padding:20px 24px;text-align:center;border-top:1px solid #eee;">
+                        <div style="font-size:20px;margin-bottom:6px;">☕️ ❤️</div>
+                        <div style="font-size:14px;font-weight:700;color:#1a1a1a;">شكرًا لزيارتكم!</div>
+                        <div style="font-size:11px;color:#888;margin-top:4px;">هنستناك تاني 😊</div>
+                        <div style="font-size:9px;color:#bbb;margin-top:8px;letter-spacing:2px;">* * * * *</div>
+                        <div style="font-size:9px;color:#aaa;margin-top:4px;font-style:italic;">Buon Appetito!</div>
                     </div>
                 </div>
-                ${formData.customerNotes ? `
-                    <div style="margin-top:15px; padding:10px; background:#FFF9F0; border-radius:8px; font-size:0.9rem;">
-                        <strong>ملاحظات:</strong> ${formData.customerNotes}
-                    </div>
-                ` : ''}
             `;
         }
 
@@ -2370,7 +2689,7 @@
                 doc.setFontSize(8);
                 doc.setTextColor(200, 90, 62);
                 doc.text('شكراً لزيارتكم!', pageWidth / 2, y, { align: 'center' });
-                doc.text('01551007413', pageWidth / 2, y + 4, { align: 'center' });
+                doc.text('01010058989', pageWidth / 2, y + 4, { align: 'center' });
 
                 doc.save(`LUCCA_Invoice_${new Date().toISOString().slice(0,10)}.pdf`);
                 setOrderStatus('تم إنشاء PDF ✓', 'success');
@@ -2663,6 +2982,86 @@
                     return;
                 }
             }
+            openPaymentSelectModal();
+        }
+
+        async function openPaymentSelectModal() {
+            if (!currentOrderId) { setOrderStatus('لا يوجد طلب نشط', 'error'); return; }
+
+            let total = 0;
+            try {
+                const orders = await LuccaDB.Orders.getAll();
+                const order = orders.find(o => o.id === currentOrderId);
+                if (!order) { setOrderStatus('الطلب غير موجود', 'error'); return; }
+                total = order.total || order.totalAmount || 0;
+            } catch(e) {}
+
+            document.getElementById('paymentSelectTotal').textContent = total.toFixed(0) + ' ج.م';
+
+            let methods = [];
+            try {
+                if (window.LuccaDB && window.LuccaDB.PaymentMethods) {
+                    methods = await window.LuccaDB.PaymentMethods.getActive();
+                }
+            } catch(e) {}
+
+            const btns = document.getElementById('paymentSelectButtons');
+            if (methods.length > 0) {
+                const colorMap = { cash: '#27ae60', card: '#3B82F6', wallet: '#8B5CF6', bank: '#F59E0B', digital: '#8B5CF6', other: '#6B7280' };
+                const iconMap = { cash: '💵', card: '💳', wallet: '📱', bank: '🏦', digital: '📱', other: '💰' };
+                btns.innerHTML = methods.map(m => {
+                    const type = m.type || 'cash';
+                    const color = colorMap[type] || '#27ae60';
+                    const icon = iconMap[type] || '💰';
+                    return `<button onclick="selectPaymentAndClose('${m.name_en || m.name_ar || m.name}', '${type}')" style="display:flex;align-items:center;gap:12px;width:100%;padding:16px;background:${color};color:white;border:none;border-radius:12px;cursor:pointer;font-size:1.1rem;font-weight:700;transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+                        <span style="font-size:1.6rem;">${icon}</span>
+                        <span style="flex:1;text-align:right;">${m.name_ar || m.name}</span>
+                        <span style="font-size:0.8rem;opacity:0.8;">${type}</span>
+                    </button>`;
+                }).join('');
+            } else {
+                btns.innerHTML = `
+                    <button onclick="selectPaymentAndClose('cash', 'cash')" style="display:flex;align-items:center;gap:12px;width:100%;padding:18px;background:#27ae60;color:white;border:none;border-radius:12px;cursor:pointer;font-size:1.2rem;font-weight:700;transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+                        <span style="font-size:1.8rem;">💵</span>
+                        <span style="flex:1;text-align:right;">كاش</span>
+                        <span style="font-size:0.8rem;opacity:0.8;">Cash</span>
+                    </button>
+                    <button onclick="selectPaymentAndClose('card', 'card')" style="display:flex;align-items:center;gap:12px;width:100%;padding:18px;background:#3B82F6;color:white;border:none;border-radius:12px;cursor:pointer;font-size:1.2rem;font-weight:700;transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+                        <span style="font-size:1.8rem;">💳</span>
+                        <span style="flex:1;text-align:right;">فيزا</span>
+                        <span style="font-size:0.8rem;opacity:0.8;">Visa / Card</span>
+                    </button>
+                    <button onclick="selectPaymentAndClose('transfer', 'bank')" style="display:flex;align-items:center;gap:12px;width:100%;padding:18px;background:#F59E0B;color:white;border:none;border-radius:12px;cursor:pointer;font-size:1.2rem;font-weight:700;transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+                        <span style="font-size:1.8rem;">🏦</span>
+                        <span style="flex:1;text-align:right;">تحويل بنكي</span>
+                        <span style="font-size:0.8rem;opacity:0.8;">Transfer</span>
+                    </button>
+                `;
+            }
+            document.getElementById('paymentSelectModal').classList.add('show');
+        }
+
+        async function selectPaymentAndClose(method, type) {
+            document.getElementById('paymentSelectModal').classList.remove('show');
+
+            // Update the hidden select
+            const pmSelect = document.getElementById('paymentMethod');
+            if (pmSelect) {
+                // Try to find matching option
+                let found = false;
+                for (let opt of pmSelect.options) {
+                    if (opt.value === method) { opt.selected = true; found = true; break; }
+                }
+                if (!found) {
+                    const opt = document.createElement('option');
+                    opt.value = method;
+                    opt.textContent = method;
+                    opt.selected = true;
+                    pmSelect.appendChild(opt);
+                }
+            }
+
+            // Process checkout
             openInvoiceModal();
         }
 
@@ -2704,7 +3103,8 @@
                     customerName: (order && order.customerName) || '',
                     customerPhone: (order && order.customerPhone) || '',
                     customerNotes: (order && order.customerNotes) || '',
-                    discount: (order && order.discount) || 0
+                    discount: (order && order.discount) || 0,
+                    paymentMethod: paymentMethod || 'cash'
                 };
                 const subtotal = items.reduce((s, i) => s + ((i.price || 0) * (i.quantity || 1)), 0);
                 const discount = formData.discount || 0;
@@ -2770,14 +3170,10 @@
 
         function printInvoiceContent(html) {
             const w = window.open('', '_blank', 'width=400,height=600');
-            w.document.write(`<html><head><meta charset="utf-8"><style>
+            w.document.write(`<html><head><meta charset="utf-8"><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap" rel="stylesheet"><style>
                 *{margin:0;padding:0;box-sizing:border-box;}
-                body{font-family:Tahoma,sans-serif;font-size:12px;padding:15px;direction:rtl;}
-                table{width:100%;border-collapse:collapse;margin:10px 0;}
-                th,td{padding:6px;text-align:center;border-bottom:1px solid #ddd;}
-                th{background:#f5f1e8;}
-                .total{font-size:16px;font-weight:bold;border-top:2px solid #C85A3E;padding-top:10px;margin-top:10px;}
-                @media print{body{print-color-adjust:exact;}}
+                body{font-family:'Tajawal',Tahoma,sans-serif;font-size:12px;padding:0;direction:rtl;background:#fff;color:#1a1a1a;}
+                @media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact;}}
             </style></head><body>${html}</body></html>`);
             w.document.close();
             w.print();
@@ -2791,86 +3187,378 @@
             const discountAmount = subtotal * (discount / 100);
             const total = subtotal - discountAmount;
             const items = order.items || [];
+            const _pm2 = (formData.paymentMethod || '').toLowerCase();
+            const payMethod = /card|فيزا|كارت|visa/i.test(_pm2) ? '💳 فيزا' : /transfer|تحويل|بنك/i.test(_pm2) ? '🏦 تحويل' : /whatsapp|واتساب/i.test(_pm2) ? '📱 واتساب' : '💵 كاش';
+            const payLabel = /card|فيزا|كارت|visa/i.test(_pm2) ? 'فيزا / كارت' : /transfer|تحويل|بنك/i.test(_pm2) ? 'تحويل بنكي' : /whatsapp|واتساب/i.test(_pm2) ? 'واتساب باي' : 'نقدي';
+            const orderNum = String(order.orderNumber || order.id || Date.now()).slice(-6);
+            const itemCount = items.reduce((s, i) => s + (i.quantity || 1), 0);
 
             const itemRows = items.map(i => {
-                const line = i.name.substring(0, 28);
+                const name = (i.nameAr || i.name || '').substring(0, 24);
                 const qty = i.quantity || 1;
-                const price = (i.price || 0) * qty;
-                return `<tr><td style="padding:3px 4px;text-align:right;">${line}</td><td style="padding:3px 4px;text-align:center;width:30px;">${qty}</td><td style="padding:3px 4px;text-align:left;width:60px;">${price.toFixed(0)}</td></tr>`;
+                const unitPrice = i.price || 0;
+                const lineTotal = unitPrice * qty;
+                const priceLine = qty > 1 ? `${qty} × ${unitPrice}` : `${unitPrice}`;
+                return `<div class="item-row">
+                    <div class="item-name">${name}</div>
+                    <div class="item-detail">${priceLine}</div>
+                    <div class="item-total">${lineTotal.toFixed(0)}</div>
+                </div>`;
             }).join('');
 
-            const tableLabel = order.tableId === 'takeaway' || order.tableId == 0 ? '🛵 تيك أواي' : 'طاولة ' + (order.tableId || '-');
+            const tableLabel = order.tableId === 'takeaway' || order.tableId == 0 ? '🛵 سفري' : '🪑 طاولة ' + (order.tableId || '-');
 
             const thermalHtml = `
                 <!DOCTYPE html>
                 <html dir="rtl">
                 <head>
                     <meta charset="utf-8">
-                    <title>فاتورة ${order.id}</title>
+                    <title>فاتورة LUCCA #${orderNum}</title>
                     <style>
                         @page { size: 80mm auto; margin: 0; }
                         * { margin: 0; padding: 0; box-sizing: border-box; }
                         body {
-                            font-family: 'Courier New', 'Tajawal', monospace;
+                            font-family: 'Courier New', 'Lucida Console', monospace;
                             font-size: 11px;
-                            padding: 10px 8px;
+                            padding: 6px 4px;
                             direction: rtl;
-                            color: #000;
+                            color: #1a1a1a;
                             width: 72mm;
+                            background: #fff;
+                            line-height: 1.5;
                         }
-                        .header { text-align: center; margin-bottom: 8px; }
-                        .header h1 { font-size: 20px; font-weight: 900; letter-spacing: 2px; }
-                        .header .sub { font-size: 10px; margin: 2px 0; }
-                        .header .addr { font-size: 8px; color: #555; }
-                        .divider { border-top: 1px dashed #000; margin: 6px 0; }
-                        .info-row { display: flex; justify-content: space-between; font-size: 10px; margin: 3px 0; }
-                        table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 10px; }
-                        th { border-bottom: 1px solid #000; padding: 4px 4px; text-align: right; font-size: 10px; }
-                        th:last-child, td:last-child { text-align: left; }
-                        th:nth-child(2), td:nth-child(2) { text-align: center; }
-                        .total-row { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; margin: 4px 0; }
-                        .footer { text-align: center; margin-top: 8px; font-size: 9px; }
-                        .barcode { text-align: center; font-family: 'Courier New', monospace; font-size: 14px; letter-spacing: 2px; margin: 6px 0; }
-                        @media print { body { print-color-adjust: exact; } }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>LUCCA</h1>
-        <div class="sub">Caffe Italiano</div>
-        <div class="addr">بورسعيد - شارع محمد علي</div>
-        <div class="addr">01551007413</div>
-    </div>
-    <div class="divider"></div>
-    <div class="info-row"><span>فاتورة #${String(order.id || '').padStart(4, '0')}</span><span>${dateStr}</span></div>
-    <div class="info-row"><span>${tableLabel}</span><span>${timeStr}</span></div>
-    ${formData.customerName ? `<div class="info-row"><span>عميل: ${formData.customerName}</span></div>` : ''}
-    ${formData.customerPhone ? `<div class="info-row"><span>موبايل: ${formData.customerPhone}</span></div>` : ''}
-    <div class="divider"></div>
-    <table>
-        <thead><tr><th>الصنف</th><th>ع</th><th>السعر</th></tr></thead>
-        <tbody>${itemRows}</tbody>
-    </table>
-    <div class="divider"></div>
-    <div class="total-row"><span>المجموع:</span><span>${subtotal.toFixed(0)} ج.م</span></div>
-    ${discount > 0 ? `<div class="info-row"><span>خصم ${discount}%:</span><span>-${discountAmount.toFixed(0)} ج.م</span></div>` : ''}
-    <div class="total-row" style="font-size:14px;border-top:1px solid #000;padding-top:4px;">
-        <span>الإجمالي:</span><span>${total.toFixed(0)} ج.م</span>
-    </div>
-    ${formData.customerNotes ? `<div class="info-row" style="margin-top:4px;"><span>📝 ${formData.customerNotes}</span></div>` : ''}
-    <div class="barcode">* * *</div>
-    <div class="footer">
-        <div>شكراً لزيارتكم!</div>
-        <div>Buon Appetito!</div>
-    </div>
-</body></html>`;
+                        .receipt { padding: 2px; }
 
-const w = window.open('', '_blank', 'width=380,height=600');
-w.document.write(thermalHtml);
-w.document.close();
-// Small delay to let content render before print
-setTimeout(() => { w.focus(); w.print(); }, 300);
-}
+                        /* ===== BRAND HEADER ===== */
+                        .brand {
+                            text-align: center;
+                            padding-bottom: 8px;
+                            margin-bottom: 2px;
+                        }
+                        .brand-line {
+                            width: 100%;
+                            height: 3px;
+                            background: #000;
+                            margin-bottom: 8px;
+                        }
+                        .brand-name {
+                            font-size: 28px;
+                            font-weight: 900;
+                            letter-spacing: 8px;
+                            color: #000;
+                            line-height: 1;
+                        }
+                        .brand-sub {
+                            font-size: 8px;
+                            letter-spacing: 4px;
+                            color: #555;
+                            margin-top: 2px;
+                            text-transform: uppercase;
+                        }
+                        .brand-tagline {
+                            font-size: 8px;
+                            color: #999;
+                            margin-top: 3px;
+                            font-style: italic;
+                        }
+                        .brand-contact {
+                            font-size: 8px;
+                            color: #777;
+                            margin-top: 6px;
+                            line-height: 1.6;
+                        }
+                        .brand-line-bottom {
+                            width: 100%;
+                            height: 1px;
+                            background: #000;
+                            margin-top: 8px;
+                        }
+
+                        /* ===== RECEIPT NUMBER BAR ===== */
+                        .receipt-number {
+                            text-align: center;
+                            font-size: 10px;
+                            font-weight: 700;
+                            letter-spacing: 2px;
+                            padding: 6px 0;
+                            margin: 4px 0;
+                            background: #f5f5f5;
+                            border: 1px dashed #ccc;
+                        }
+
+                        /* ===== INFO SECTION ===== */
+                        .info-row {
+                            display: flex;
+                            justify-content: space-between;
+                            font-size: 9px;
+                            padding: 2px 0;
+                        }
+                        .info-row .lbl { color: #888; }
+                        .info-row .val { font-weight: 700; color: #000; }
+
+                        /* ===== DIVIDERS ===== */
+                        .sep { border: none; border-top: 1px dashed #ccc; margin: 6px 0; }
+                        .sep-thick { border: none; border-top: 2px solid #000; margin: 6px 0; }
+                        .sep-dots { border: none; border-top: 1px dotted #ddd; margin: 4px 0; }
+
+                        /* ===== ITEMS ===== */
+                        .items-header {
+                            display: flex;
+                            justify-content: space-between;
+                            font-size: 8px;
+                            color: #888;
+                            padding: 4px 0 2px;
+                            border-bottom: 1px solid #000;
+                            text-transform: uppercase;
+                            letter-spacing: 1px;
+                        }
+                        .item-row {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: baseline;
+                            padding: 4px 0;
+                            border-bottom: 1px dotted #eee;
+                            font-size: 10px;
+                            line-height: 1.4;
+                        }
+                        .item-name {
+                            flex: 1;
+                            text-align: right;
+                            font-weight: 600;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                        }
+                        .item-detail {
+                            width: 80px;
+                            text-align: center;
+                            font-size: 9px;
+                            color: #888;
+                        }
+                        .item-total {
+                            width: 50px;
+                            text-align: left;
+                            font-weight: 700;
+                        }
+
+                        /* ===== TOTALS ===== */
+                        .totals { margin-top: 4px; }
+                        .total-line {
+                            display: flex;
+                            justify-content: space-between;
+                            font-size: 9px;
+                            padding: 2px 0;
+                            color: #555;
+                        }
+                        .total-line.discount { color: #e67e22; font-weight: 600; }
+                        .total-line.final {
+                            font-size: 15px;
+                            font-weight: 900;
+                            color: #000;
+                            padding: 6px 0 2px;
+                            margin-top: 4px;
+                            border-top: 2px solid #000;
+                            border-bottom: 2px solid #000;
+                        }
+                        .total-line.final .total-label { letter-spacing: 1px; }
+
+                        /* ===== PAYMENT ===== */
+                        .payment-info {
+                            display: flex;
+                            justify-content: space-between;
+                            font-size: 9px;
+                            padding: 4px 0;
+                            color: #555;
+                        }
+                        .payment-badge {
+                            font-weight: 700;
+                            color: #000;
+                        }
+
+                        /* ===== NOTES ===== */
+                        .notes {
+                            margin-top: 6px;
+                            padding: 6px;
+                            background: #fafafa;
+                            border: 1px dashed #ddd;
+                            font-size: 8px;
+                            color: #666;
+                            line-height: 1.5;
+                        }
+
+                        /* ===== FOOTER ===== */
+                        .footer {
+                            text-align: center;
+                            margin-top: 10px;
+                            padding-top: 6px;
+                        }
+                        .footer-stars {
+                            font-size: 10px;
+                            letter-spacing: 4px;
+                            color: #ccc;
+                            margin-bottom: 6px;
+                        }
+                        .footer-thanks {
+                            font-size: 11px;
+                            font-weight: 900;
+                            color: #000;
+                            margin-bottom: 2px;
+                        }
+                        .footer-sub {
+                            font-size: 8px;
+                            color: #999;
+                            line-height: 1.6;
+                        }
+                        .footer-emoji {
+                            font-size: 12px;
+                            margin: 4px 0;
+                        }
+
+                        /* ===== BARCODE ===== */
+                        .barcode {
+                            text-align: center;
+                            margin: 8px 0;
+                        }
+                        .barcode-lines {
+                            display: flex;
+                            justify-content: center;
+                            gap: 1px;
+                            margin-bottom: 4px;
+                        }
+                        .barcode-lines span {
+                            display: inline-block;
+                            height: 20px;
+                            background: #000;
+                        }
+                        .barcode-text {
+                            font-size: 9px;
+                            letter-spacing: 3px;
+                            color: #000;
+                            font-weight: 600;
+                        }
+
+                        @media print {
+                            body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+                        }
+                    </style>
+                </head>
+                <body>
+                <div class="receipt">
+
+                    <!-- ===== BRAND ===== -->
+                    <div class="brand">
+                        <div class="brand-line"></div>
+                        <div class="brand-name">LUCCA</div>
+                        <div class="brand-sub">SPECIALTY COFFEE</div>
+                        <div class="brand-tagline">"Art in every cup"</div>
+                        <div class="brand-contact">
+                            📍 بورسعيد — شارع محمد علي<br>
+                            📞 01010058989
+                        </div>
+                        <div class="brand-line-bottom"></div>
+                    </div>
+
+                    <!-- ===== RECEIPT NUMBER ===== -->
+                    <div class="receipt-number">
+                        فاتورة رقم #${orderNum}
+                    </div>
+
+                    <!-- ===== INFO ===== -->
+                    <div class="info-row">
+                        <span class="lbl">التاريخ</span>
+                        <span class="val">${dateStr}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="lbl">الوقت</span>
+                        <span class="val">${timeStr}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="lbl">الطاولة</span>
+                        <span class="val">${tableLabel}</span>
+                    </div>
+                    ${formData.customerName ? `<div class="info-row"><span class="lbl">العميل</span><span class="val">${formData.customerName}</span></div>` : ''}
+                    ${formData.customerPhone ? `<div class="info-row"><span class="lbl">الموبايل</span><span class="val">${formData.customerPhone}</span></div>` : ''}
+                    <div class="info-row">
+                        <span class="lbl">عدد الأصناف</span>
+                        <span class="val">${itemCount} صنف</span>
+                    </div>
+
+                    <hr class="sep-thick">
+
+                    <!-- ===== ITEMS ===== -->
+                    <div class="items-header">
+                        <span>الصنف</span>
+                        <span>التفاصيل</span>
+                        <span>المبلغ</span>
+                    </div>
+                    ${itemRows}
+
+                    <hr class="sep-thick">
+
+                    <!-- ===== TOTALS ===== -->
+                    <div class="totals">
+                        <div class="total-line">
+                            <span>المجموع الفرعي</span>
+                            <span>${subtotal.toFixed(0)} ج.م</span>
+                        </div>
+                        ${discount > 0 ? `<div class="total-line discount">
+                            <span>خصم ${discount}%</span>
+                            <span>-${discountAmount.toFixed(0)} ج.م</span>
+                        </div>` : ''}
+                        <div class="total-line final">
+                            <span class="total-label">الإجمالي</span>
+                            <span>${total.toFixed(0)} ج.م</span>
+                        </div>
+                    </div>
+
+                    <!-- ===== PAYMENT ===== -->
+                    <div class="payment-info">
+                        <span>طريقة الدفع</span>
+                        <span class="payment-badge">${payMethod} ${payLabel}</span>
+                    </div>
+
+                    ${formData.customerNotes ? `
+                    <div class="notes">
+                        📝 ملاحظات: ${formData.customerNotes}
+                    </div>` : ''}
+
+                    <!-- ===== BARCODE ===== -->
+                    <div class="barcode">
+                        <div class="barcode-lines">
+                            <span style="width:2px"></span><span style="width:1px"></span><span style="width:3px"></span>
+                            <span style="width:1px"></span><span style="width:2px"></span><span style="width:1px"></span>
+                            <span style="width:2px"></span><span style="width:3px"></span><span style="width:1px"></span>
+                            <span style="width:1px"></span><span style="width:2px"></span><span style="width:3px"></span>
+                            <span style="width:1px"></span><span style="width:2px"></span><span style="width:1px"></span>
+                            <span style="width:3px"></span><span style="width:1px"></span><span style="width:2px"></span>
+                            <span style="width:1px"></span><span style="width:3px"></span><span style="width:2px"></span>
+                            <span style="width:1px"></span><span style="width:2px"></span><span style="width:1px"></span>
+                            <span style="width:3px"></span><span style="width:1px"></span><span style="width:2px"></span>
+                            <span style="width:1px"></span><span style="width:1px"></span><span style="width:2px"></span>
+                            <span style="width:3px"></span><span style="width:1px"></span><span style="width:2px"></span>
+                            <span style="width:1px"></span><span style="width:2px"></span>
+                        </div>
+                        <div class="barcode-text">#${orderNum}</div>
+                    </div>
+
+                    <!-- ===== FOOTER ===== -->
+                    <div class="footer">
+                        <div class="footer-stars">* * * * * * * * *</div>
+                        <div class="footer-emoji">☕️ ❤️</div>
+                        <div class="footer-thanks">شكرًا لزيارتكم!</div>
+                        <div class="footer-sub">
+                            هنستناك تاني إن شاء الله 😊<br>
+                            Buon Appetito!
+                        </div>
+                    </div>
+
+                </div>
+                </body></html>`;
+
+            const w = window.open('', '_blank', 'width=380,height=600');
+            w.document.write(thermalHtml);
+            w.document.close();
+            setTimeout(() => { w.focus(); w.print(); }, 300);
+        }
 
         async function kitchenPrint() {
             // Items are already auto-saved — just read from DB
@@ -3028,10 +3716,11 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
         } catch(e) {}
 
         document.addEventListener('DOMContentLoaded', async function() {
+            showTablesView();
+            _startTablesMainAutoRefresh();
             generateQuickNav();
             generateMenu();
 
-            // Show tables immediately (fallback), then upgrade when DB is ready
             fallbackTables(document.getElementById('tableSelect'));
 
             // Start DB init BEFORE any await — so onTableChange can wait for it
@@ -3065,6 +3754,7 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
                             }
                         } catch(e) {}
                         await loadTables();
+                        await loadTablesMainView();
                         await loadPaymentMethodsPOS();
                         loadCustomerSelect();
                     })
@@ -3366,7 +4056,7 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
                 r.push(center + boldOn + 'LUCCA' + boldOff + nl);
                 r.push(center + 'Caffe Italiano' + nl);
                 r.push(center + 'بورسعيد - شارع محمد علي' + nl);
-                r.push(center + '01551007413' + nl);
+                r.push(center + '01010058989' + nl);
                 r.push(div + nl);
                 r.push('فاتورة #' + String(order.id || '').padStart(4, '0') + w('') + dateStr + nl);
                 r.push(tableLabel + w('') + timeStr + nl);
@@ -3444,7 +4134,7 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
                     document.getElementById('currencyInput').value = currency || 'ج.م';
                     document.getElementById('cafeNameInput').value = cafeName || 'LUCCA';
                     document.getElementById('cafeAddressInput').value = cafeAddress || 'شارع محمد علي - بورسعيد';
-                    document.getElementById('cafePhoneInput').value = cafePhone || '01551007413';
+                    document.getElementById('cafePhoneInput').value = cafePhone || '01010058989';
                 }
                 document.getElementById('serverUrlInput').value = localStorage.getItem('luccaServerUrl') || 'http://192.168.1.100:3000';
                 document.getElementById('serverStatusMsg').textContent = '';
@@ -3493,7 +4183,7 @@ setTimeout(() => { w.focus(); w.print(); }, 300);
         };
 
         async function getCafeInfo() {
-            const info = { name: 'LUCCA', address: 'شارع محمد علي - بورسعيد', phone: '01551007413' };
+            const info = { name: 'LUCCA', address: 'شارع محمد علي - بورسعيد', phone: '01010058989' };
             try {
                 if (window.LuccaDB && window.LuccaDB.Settings) {
                     info.name = (await LuccaDB.Settings.get('cafeName')) || info.name;
@@ -4405,13 +5095,13 @@ function toggleAiChat(){
     document.getElementById('aiChatWindow').classList.toggle('open', aiChatOpen);
     document.getElementById('aiBotBadge').style.display = 'none';
     if(aiChatOpen && aiHistory.length===0){
-        aiBotReply('⚡ **BATMAN — Command Center**\n\nمرحباً! أنا باتمان، مساعدك الذكي.\n\nأقدر أساعدك في:\n• 🛒 **تحكم بالـ POS** بالعربي\n• 📊 **تقارير المبيعات** والمصروفات\n• 👥 **إدارة الموظفين** والحضور\n• 📦 **تفاصيل المنتجات** (اسأل عن أي منتج)\n• 🧠 **أتعلم منك** — علّمني معلومات جديدة',[
+        aiBotReply('⚡ **BATMAN — Command Center**\n\nمرحباً! أنا باتمان، مساعدك الذكي.\n\nأقدر أساعدك فعلياً:\n• 🪑 **افتح طاولة** — "افتح طاولة 5"\n• 🛒 **حط أصناف** — "حط قهوة ومياه على 5"\n• 💰 **الحساب** — "حساب ترابيزة 5"\n• 📊 **تقارير و مبيعات**\n• 👥 **الموظفين والحضور**\n• 🛠️ **افتح لوحة التحكم**',[
+            {text:'🪑 افتح طاولة',cmd:'افتح طاولة 1'},
+            {text:'🛒 حط طلب',cmd:'حط قهوة على ترابيزة 1'},
             {text:'📊 مبيعات اليوم',cmd:'today_sales'},
-            {text:'📄 تقرير يومي',cmd:'daily_report'},
-            {text:'📦 تفاصيل منتج',cmd:'show_products'},
             {text:'👥 الموظفين',cmd:'manage_employees'},
-            {text:'🧠 علّمني معلومة',cmd:'علّمني'},
-            {text:'💡 كيف أستخدم النظام؟',cmd:'tutorial'}
+            {text:'🛠️ لوحة التحكم',cmd:'open_admin'},
+            {text:'🪑 شوف الطاولات',cmd:'الطاولات'}
         ]);
     }
     document.getElementById('aiInput').focus();
@@ -4507,13 +5197,17 @@ async function processAiCommand(text){
 
     // ===== AI POS ENGINE INTEGRATION =====
     // Route POS commands through the AI engine first
-    const posKeywords = ['افتح','فتح','اقفل','قفل','حط','حطيت','ضف','اضف','زود','شيل','امسح','احذف','حساب','ادفع','دفع','انقل','ادمج','قسم','اطبع','ابعت','خلي','غير','المطبخ','الطلب','الطلبات','ترابيزة','طاولة','table','كاش','فيزا','transfer','merge','split','print','pay','close','open'];
+    const posKeywords = ['افتح','فتح','اقفل','قفل','حط','حطيت','ضف','اضف','أضف','زود','شيل','امسح','احذف','حساب','ادفع','دفع','انقل','ادمج','قسم','اطبع','ابعت','خلي','غير','المطبخ','الطلب','الطلبات','ترابيزة','طاولة','table','كاش','فيزا','transfer','merge','split','print','pay','close','open','مبيعات','تقرير','الموظفين','حضور','انصراف','وردية','مصروف','مخزون','الطاولات','تعديل سعر','اضف منتج','المنتجات'];
     const isPosCommand = posKeywords.some(kw => t.includes(kw)) && window.aiPosEngine;
 
     if(isPosCommand) {
         try {
             const result = await window.aiPosEngine.process(text);
             if(result.success) {
+                // Switch to order mode if bot opened/modified a table
+                if(result.table) {
+                    showOrderMode();
+                }
                 // Refresh POS UI after any successful action
                 await loadTables();
                 if(result.table && typeof selectTable === 'function') {
@@ -4540,11 +5234,13 @@ async function processAiCommand(text){
                 }
                 return aiBotReply(result.message, actions.length ? actions : undefined);
             } else {
-                // Engine returned failure - show error
                 return aiBotReply(result.message);
             }
         } catch(e) {
-            // Engine error - fall through to existing handlers
+            console.error('[Batman AI] Engine error:', e);
+            return aiBotReply('⚠️ حصلت مشكلة أثناء تنفيذ الأمر. جرّب مرة تانية.\n\n' + e.message, [
+                {text:'حاول مجدداً', cmd: text}
+            ]);
         }
     }
 
@@ -4872,7 +5568,7 @@ async function processAiCommand(text){
             
             // Learn this correction
             try{
-                await window.LuccaDB.BotMemory.add({type:'correction',question:'سعر '+found.nameAr,answer:String(newPrice),keywords:'سعر '+found.nameAr+' correction price'});
+                await window.LuccaDB.BotMemory.add('correction',{question:'سعر '+found.nameAr,answer:String(newPrice),keywords:'سعر '+found.nameAr+' correction price'});
             }catch(e){}
             
             return aiBotReply('✅ **تم تعديل السعر!**\n\n📦 '+found.nameAr+'\n💰 السعر القديم: '+Number(found.price||0).toLocaleString()+' ل.س\n💰 السعر الجديد: **'+newPrice.toLocaleString()+' ل.س**\n\n✅ تم الحفظ في الداتابيز.',[
@@ -4902,7 +5598,7 @@ async function processAiCommand(text){
             
             // Learn this correction
             try{
-                await window.LuccaDB.BotMemory.add({type:'correction',question:'تكوين '+found.nameAr,answer:compText,keywords:'تكوين '+found.nameAr+' correction components'});
+                await window.LuccaDB.BotMemory.add('correction',{question:'تكوين '+found.nameAr,answer:compText,keywords:'تكوين '+found.nameAr+' correction components'});
             }catch(e){}
             
             return aiBotReply('✅ **تم تعديل المكونات!**\n\n📦 '+found.nameAr+'\n🔧 المكونات الجديدة:\n'+components.map(c=>'  • '+c.name+' × '+c.qty).join('\n')+'\n\n✅ تم الحفظ في الداتابيز.',[
@@ -5138,9 +5834,28 @@ async function processAiCommand(text){
 
     // ===== OPEN ADMIN =====
     if(matchAny(t,['لوحة التحكم','admin','افتح الادمن','افتح لوحة','فتح لوحة','control panel','admin panel'])){
-        window.open('admin/index.html','_blank');
+        openAdminDashboard();
         return aiBotReply('✅ **تم فتح لوحة التحكم في نافذة جديدة**',[
             {text:'العودة للنظام',cmd:'back_pos'}
+        ]);
+    }
+
+    // ===== BACK TO TABLES =====
+    if(matchAny(t,['back_pos','العودة','النظام','الطاولات','رجوع للطاولات','back','القائمة الرئيسية'])){
+        showTablesView();
+        return aiBotReply('✅ **تمت العودة لشاشة الطاولات**',[
+            {text:'فتح طاولة',cmd:'افتح طاولة'},
+            {text:'المطبخ',cmd:'open_kitchen'},
+            {text:'لوحة التحكم',cmd:'open_admin'}
+        ]);
+    }
+
+    // ===== SHOW TABLES =====
+    if(matchAny(t,['الطاولة','الطاولات','tables','table','شوف الطاولات'])){
+        showTablesView();
+        return aiBotReply('✅ **شاشة الطاولات**',[
+            {text:'فتح طاولة 1',cmd:'افتح طاولة 1'},
+            {text:'فتح طاولة 2',cmd:'افتح طاولة 2'}
         ]);
     }
 
@@ -5760,6 +6475,8 @@ async function processAiCommand(text){
         {text:'الفواتير',cmd:'invoices_list'}
     ]);
 }
+
+function formatMoney(n){ return (Number(n)||0).toLocaleString('ar-EG',{maximumFractionDigits:0}); }
 
 function matchAny(text, keywords){
     return keywords.some(k => text.includes(k));

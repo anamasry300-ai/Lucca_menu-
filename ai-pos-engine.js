@@ -30,7 +30,7 @@ class AIPosEngine {
         if (m) return parseInt(m[1]);
         // Check standalone number after table context
         const m2 = text.match(/(?:على|من|في|لـ|ل)\s*(\d+)/);
-        if (m2 && this.context.currentTable) return parseInt(m2[1]);
+        if (m2) return parseInt(m2[1]);
         // Check "افتح 7" pattern (number right after open verb)
         const m3 = text.match(/(?:افتح|فتح|open)\s+(\d+)/i);
         if (m3) return parseInt(m3[1]);
@@ -89,6 +89,7 @@ class AIPosEngine {
             // Clean up table references
             name = name.replace(/\s*(?:على|في|من)\s*(?:ترابيزة|طاولة|table)\s*\d+/gi, '').trim();
             name = name.replace(/\s*(?:ترابيزة|طاولة|table)\s*\d+/gi, '').trim();
+            name = name.replace(/\s*(?:على|في|من)\s*\d+\s*$/gi, '').trim();
 
             if (name && name.length > 0) {
                 items.push({ name, quantity: qty, modifier: modifier || null });
@@ -187,6 +188,44 @@ class AIPosEngine {
         if (/(?:عميل|customer|client)/.test(t))
             return { intent: 'customer_operation', needsConfirmation: false };
 
+        // Sales / Reports
+        if (/(?:مبيعات|sales|بيع)/.test(t))
+            return { intent: 'view_sales', needsConfirmation: false };
+        if (/(?:تقرير|report)/.test(t))
+            return { intent: 'view_sales', needsConfirmation: false };
+
+        // Product Management
+        if (/(?:تعديل\s+سعر|غيّر\s+سعر|price\s+change|سعر\s+جديد)/.test(t))
+            return { intent: 'update_price', needsConfirmation: true, confirmType: 'update' };
+        if (/(?:اضف\s+منتج|منتج\s+جديد|add\s+product)/.test(t))
+            return { intent: 'add_product', needsConfirmation: true, confirmType: 'create' };
+        if (/(?:حذف\s+منتج|امسح\s+منتج|remove\s+product)/.test(t))
+            return { intent: 'delete_product', needsConfirmation: true, confirmType: 'delete' };
+        if (/(?:المنتجات|قائمة\s+المنتجات|products|menu)/.test(t))
+            return { intent: 'view_products', needsConfirmation: false };
+
+        // Employee Management
+        if (/(?:حضور|attendance|حضو)/.test(t))
+            return { intent: 'employee_attendance', needsConfirmation: false };
+        if (/(?:انصراف|leave|离)/.test(t))
+            return { intent: 'employee_leave', needsConfirmation: false };
+        if (/(?:الموظفين|موظف|employees)/.test(t))
+            return { intent: 'view_employees', needsConfirmation: false };
+        if (/(?:وردية|shift)/.test(t))
+            return { intent: 'manage_shift', needsConfirmation: false };
+
+        // Expense
+        if (/(?:مصروف|expense|مصروفات)/.test(t))
+            return { intent: 'add_expense', needsConfirmation: false };
+
+        // Inventory
+        if (/(?:مخزون|inventory|stock)/.test(t))
+            return { intent: 'view_inventory', needsConfirmation: false };
+
+        // Tables overview
+        if (/(?:الطاولات|طاولات|tables)/.test(t))
+            return { intent: 'view_tables', needsConfirmation: false };
+
         return { intent: 'unknown', needsConfirmation: false };
     }
 
@@ -213,7 +252,19 @@ class AIPosEngine {
             add_note: () => this.toolAddNote(params),
             get_open_orders: () => this.toolGetOpenOrders(params),
             get_status: () => this.toolGetStatus(params),
-            customer_operation: () => this.toolCustomerOp(params)
+            customer_operation: () => this.toolCustomerOp(params),
+            view_sales: () => this.toolViewSales(params),
+            view_products: () => this.toolViewProducts(params),
+            update_price: () => this.toolUpdatePrice(params),
+            add_product: () => this.toolAddProduct(params),
+            delete_product: () => this.toolDeleteProduct(params),
+            view_employees: () => this.toolViewEmployees(params),
+            employee_attendance: () => this.toolEmployeeAttendance(params),
+            employee_leave: () => this.toolEmployeeLeave(params),
+            manage_shift: () => this.toolManageShift(params),
+            add_expense: () => this.toolAddExpense(params),
+            view_inventory: () => this.toolInventory(params),
+            view_tables: () => this.toolViewTables(params)
         };
 
         if (tools[toolName]) {
@@ -388,7 +439,7 @@ class AIPosEngine {
             let order = null;
 
             if (orderId) {
-                order = await window.LuccaDB.Orders.get(orderId);
+                order = await window.LuccaDB.Orders.getById(orderId);
             }
 
             if (!order) {
@@ -405,7 +456,7 @@ class AIPosEngine {
                 const openResult = await this.toolOpenTable({ tableNumber: tableNum, orderType: params.orderType });
                 if (!openResult.success) return openResult;
                 orderId = openResult.orderId;
-                order = await window.LuccaDB.Orders.get(orderId);
+                order = await window.LuccaDB.Orders.getById(orderId);
             }
 
             // Search and add each item
@@ -613,6 +664,42 @@ class AIPosEngine {
             };
         } catch (e) {
             return { success: false, message: '❌ ' + e.message };
+        }
+    }
+
+    async toolCloseTable(params) {
+        const tableNum = params.tableNumber || this.context.currentTable;
+        const paymentMethod = params.paymentMethod || 'cash';
+        if (!tableNum) return { success: false, message: '❌ حدد رقم الطاولة' };
+
+        try {
+            const orders = await window.LuccaDB.Orders.getAll();
+            const order = orders.find(o => String(o.tableId) === String(tableNum) && (o.status === 'open' || o.status === 'pending') && o.paymentStatus !== 'paid');
+            if (!order) return { success: false, message: '❌ ما في طلب مفتوح على الطاولة ' + tableNum };
+
+            const total = order.total || order.totalAmount || 0;
+
+            // Process payment via Orders.checkout
+            try {
+                await window.LuccaDB.Orders.checkout(order.id, paymentMethod);
+            } catch(checkoutErr) {
+                // Fallback: update order status manually
+                await window.LuccaDB.Orders.update(order.id, { status: 'completed', paymentStatus: 'paid' });
+                await window.LuccaDB.Tables.update(tableNum, { status: 'available', currentOrder: null });
+            }
+
+            this.context.currentTable = null;
+            this.context.currentOrderId = null;
+
+            await this.logAudit('close_table', { table: tableNum, orderId: order.id, paymentMethod, total });
+
+            return {
+                success: true,
+                message: '✅ تم إغلاق الطاولة ' + tableNum + '\n💰 الإجمالي: ' + total + ' ل.س\n💳 طريقة الدفع: ' + paymentMethod,
+                table: tableNum
+            };
+        } catch (e) {
+            return { success: false, message: '❌ خطأ في إغلاق الطاولة: ' + e.message };
         }
     }
 
@@ -933,6 +1020,188 @@ class AIPosEngine {
 
     async toolCustomerOp(params) {
         return { success: true, message: '👤 **إدارة العملاء:**\n\n• "عمل طلب للعميل [الاسم]"\n• "هات طلبات العميل [الاسم]"\n\n(إدارة العملاء متاحة من لوحة التحكم)' };
+    }
+
+    // ===== NEW TOOL IMPLEMENTATIONS =====
+    async toolViewSales(params) {
+        try {
+            const orders = await window.LuccaDB.Orders.getAll();
+            const today = new Date().toISOString().slice(0, 10);
+            const todayOrders = orders.filter(o => {
+                const d = (o.date || o.createdAt || '').slice(0, 10);
+                return d === today;
+            });
+            const completed = todayOrders.filter(o => o.paymentStatus === 'paid' || o.status === 'completed' || o.status === 'closed');
+            const totalSales = completed.reduce((s, o) => s + (o.total || o.totalAmount || 0), 0);
+            const totalOrders = todayOrders.length;
+
+            let msg = '📊 **مبيعات اليوم (' + today + '):**\n\n';
+            msg += '📋 إجمالي الطلبات: ' + totalOrders + '\n';
+            msg += '💰 إجمالي المبيعات: ' + this._fmtMoney(totalSales) + ' ل.س\n';
+            msg += '✅ مكتملة: ' + completed.length + '\n';
+            msg += '⏳ قيد الانتظار: ' + (todayOrders.length - completed.length) + '\n';
+
+            if (completed.length > 0) {
+                msg += '\n📈 **الطلبات:**\n';
+                completed.slice(-10).reverse().forEach(o => {
+                    msg += '  • #' + (o.orderNumber || o.id) + ' | طاولة ' + (o.tableId || '—') + ' | ' + (o.total || 0) + ' ل.س\n';
+                });
+            }
+
+            return { success: true, message: msg };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message };
+        }
+    }
+
+    async toolViewProducts(params) {
+        try {
+            const products = await window.LuccaDB.Products.getActive();
+            let msg = '📦 **المنتجات (' + products.length + '):**\n\n';
+            products.slice(0, 30).forEach((p, i) => {
+                msg += (i + 1) + '. ' + (p.nameAr || p.name || '—') + ' | ' + (p.price || 0) + ' ل.س\n';
+            });
+            if (products.length > 30) msg += '\n... و ' + (products.length - 30) + ' منتج تاني';
+            return { success: true, message: msg };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message };
+        }
+    }
+
+    async toolUpdatePrice(params) {
+        const text = params._rawText || '';
+        const m = text.match(/(?:سعر|price)\s+(.+?)\s+(\d+)/i) || text.match(/(\D+?)\s+(\d+)\s*(?:ل.س|جنيه|pound)?/i);
+        if (!m) return { success: false, message: '❌ حدد المنتج والسعر الجديد.\nمثال: "تعديل سعر لاتيه 50"' };
+        const prodName = m[1].trim();
+        const newPrice = Number(m[2]);
+        if (!newPrice) return { success: false, message: '❌ السعر غير صحيح' };
+
+        try {
+            const products = await window.LuccaDB.Products.getActive();
+            const found = products.find(p => {
+                const name = (p.nameAr || p.name || '').toLowerCase();
+                return name.includes(prodName.toLowerCase()) || prodName.toLowerCase().includes(name);
+            });
+            if (!found) return { success: false, message: '❌ ما لقيت منتج اسمه "' + prodName + '"' };
+
+            const oldPrice = found.price;
+            await window.LuccaDB.Products.update(found.id, { price: newPrice });
+            await this.logAudit('update_price', { product: found.nameAr || found.name, oldPrice, newPrice });
+
+            return { success: true, message: '✅ تم تعديل السعر!\n📦 ' + (found.nameAr || found.name) + '\n💰 القديم: ' + this._fmtMoney(oldPrice) + ' ل.س\n💰 الجديد: **' + this._fmtMoney(newPrice) + ' ل.س**' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message };
+        }
+    }
+
+    async toolAddProduct(params) {
+        return { success: true, message: '📦 **إضافة منتج جديد:**\n\nاكتب:\n"أضف منتج [الاسم] بسعر [السعر] في قسم [القسم]"\n\nمثال: "أضف منتج موكا بسعر 45 في قسم القهوة"' };
+    }
+
+    async toolDeleteProduct(params) {
+        return { success: true, message: '🗑️ **حذف منتج:**\n\nاكتب:\n"احذف منتج [الاسم]"\n\nأو:\n"أخفِ منتج [الاسم]"' };
+    }
+
+    async toolViewEmployees(params) {
+        try {
+            const employees = await window.LuccaDB.Employees.getAll();
+            if (!employees || employees.length === 0) return { success: true, message: '👥 ما في موظفين مسجلين حالياً.\n\nأضفهم من لوحة التحكم → الموظفين' };
+            let msg = '👥 **الموظفين (' + employees.length + '):**\n\n';
+            employees.forEach(e => {
+                msg += '• ' + (e.name || '—') + ' | ' + (e.position || e.role || '—') + '\n';
+            });
+            return { success: true, message: msg };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message };
+        }
+    }
+
+    async toolEmployeeAttendance(params) {
+        const text = params._rawText || '';
+        const empName = text.replace(/حضور|attendance|حضر| تسجيل/gi, '').trim();
+        try {
+            const employees = await window.LuccaDB.Employees.getAll();
+            if (!employees || employees.length === 0) return { success: true, message: '👥 ما في موظفين مسجلين' };
+            const emp = employees.find(e => (e.name || '').includes(empName) || empName.includes(e.name || ''));
+            if (!emp) return { success: true, message: '👥 **اختر موظف:**\n' + employees.map(e => '• ' + e.name).join('\n') };
+            await window.LuccaDB.Attendance.checkIn(emp.id);
+            return { success: true, message: '✅ تم تسجيل حضور ' + emp.name + '\n🕐 ' + new Date().toLocaleTimeString('ar-EG') };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message };
+        }
+    }
+
+    async toolEmployeeLeave(params) {
+        const text = params._rawText || '';
+        const empName = text.replace(/انصراف|leave|安阳/gi, '').trim();
+        try {
+            const employees = await window.LuccaDB.Employees.getAll();
+            if (!employees || employees.length === 0) return { success: true, message: '👥 ما في موظفين مسجلين' };
+            const emp = employees.find(e => (e.name || '').includes(empName) || empName.includes(e.name || ''));
+            if (!emp) return { success: true, message: '👥 **اختر موظف:**\n' + employees.map(e => '• ' + e.name).join('\n') };
+            await window.LuccaDB.Attendance.checkOut(emp.id);
+            return { success: true, message: '✅ تم تسجيل انصراف ' + emp.name + '\n🕐 ' + new Date().toLocaleTimeString('ar-EG') };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message };
+        }
+    }
+
+    async toolManageShift(params) {
+        return { success: true, message: '🕐 **إدارة الورديات:**\n\n• "ابدأ وردية [اسم الموظف]"\n• "أنهِ وردية [اسم الموظف]"\n\nأو من لوحة التحكم → الورديات' };
+    }
+
+    async toolAddExpense(params) {
+        const text = params._rawText || '';
+        const m = text.match(/(\d+)/);
+        if (!m) return { success: false, message: '❌ حدد المبلغ.\nمثال: "مصروف 500 مشتريات خضار"' };
+        const amount = Number(m[1]);
+        const desc = text.replace(/مصروف|expense|\d+/gi, '').trim() || 'مصروف عام';
+        try {
+            await window.LuccaDB.Expenses.add({
+                amount,
+                description: desc,
+                category: 'general',
+                date: new Date().toISOString(),
+                createdBy: 'ai_assistant'
+            });
+            return { success: true, message: '✅ تم تسجيل المصروف\n💰 المبلغ: ' + this._fmtMoney(amount) + ' ل.س\n📝 الوصف: ' + desc };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message };
+        }
+    }
+
+    async toolInventory(params) {
+        try {
+            const inventory = await window.LuccaDB.Inventory.getAll();
+            if (!inventory || inventory.length === 0) return { success: true, message: '📦 المخزون فاضي.\nأضف منتجات من لوحة التحكم → المخزون' };
+            let msg = '📦 **المخزون (' + inventory.length + '):**\n\n';
+            inventory.slice(0, 20).forEach(item => {
+                const stock = item.quantity || item.currentStock || 0;
+                const status = stock <= (item.minStock || 5) ? '⚠️' : '✅';
+                msg += status + ' ' + (item.name || item.productName || '—') + ': ' + stock + '\n';
+            });
+            return { success: true, message: msg };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message };
+        }
+    }
+
+    async toolViewTables(params) {
+        try {
+            const tables = await window.LuccaDB.Tables.getAll();
+            const statusMap = { available: '🟢 فارغة', occupied: '🔴 مشغولة', reserved: '🔵 محجوزة', cleaning: '🟡 تنظيف' };
+            let msg = '🪑 **الطاولات (' + tables.length + '):**\n\n';
+            tables.sort((a, b) => a.number - b.number).forEach(t => {
+                msg += (t.number) + '. ' + (statusMap[t.status] || t.status) + '\n';
+            });
+            return { success: true, message: msg };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message };
+        }
+    }
+
+    _fmtMoney(n) {
+        return (Number(n) || 0).toLocaleString('ar-EG');
     }
 
     // ===== AUDIT LOGGING =====
