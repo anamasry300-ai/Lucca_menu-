@@ -58,11 +58,29 @@ const SAFE_TABLES = new Set([
   'order_items', 'order_status_history', 'audit_logs', 'discounts'
 ]);
 
+const STORE_TABLE_MAP: Record<string, string> = {
+  tables: 'tables_store'
+};
+
+const STORE_ORDER_BY: Record<string, string> = {
+  daily_shifts: 'date DESC',
+  settings: 'key'
+};
+
+function tableNameForStore(store: string): string {
+  return STORE_TABLE_MAP[store] || store;
+}
+
+function orderByForStore(store: string): string {
+  return STORE_ORDER_BY[store] || 'id';
+}
+
 router.get('/:store', (req: Request, res: Response) => {
   const store = req.params.store as string;
   if (!SAFE_TABLES.has(store)) { res.status(400).json({ error: 'Invalid store' }); return; }
   try {
-    const rows = queryAll(`SELECT * FROM \`${store}\` ORDER BY id`);
+    const table = tableNameForStore(store);
+    const rows = queryAll(`SELECT * FROM \`${table}\` ORDER BY ${orderByForStore(store)}`);
     res.json(rows.map(parseRow));
   } catch (e: unknown) {
     res.status(500).json({ error: (e as Error).message });
@@ -74,7 +92,8 @@ router.get('/:store/:id', (req: Request, res: Response) => {
   const id = req.params.id as string;
   if (!SAFE_TABLES.has(store)) { res.status(400).json({ error: 'Invalid store' }); return; }
   try {
-    const row = queryOne(`SELECT * FROM \`${store}\` WHERE id = ?`, [id]);
+    const table = tableNameForStore(store);
+    const row = queryOne(`SELECT * FROM \`${table}\` WHERE id = ?`, [id]);
     if (!row) { res.status(404).json({ error: 'Not found' }); return; }
     res.json(parseRow(row));
   } catch (e: unknown) {
@@ -89,14 +108,15 @@ router.post('/:store', (req: Request, res: Response) => {
   if (store === 'users') { res.status(403).json({ error: 'Cannot create users via generic endpoint' }); return; }
   try {
     const data = serializeRow(req.body);
+    const table = tableNameForStore(store);
 
     // Validation for orders: check for duplicate active orders on same table
     if (store === 'orders' && data.status === 'pending') {
       const tableId = data.tableId;
       if (tableId && tableId !== 'takeaway' && !isNaN(Number(tableId))) {
         const existing = queryAll(
-          'SELECT id FROM orders WHERE tableId = ? AND status = ?',
-          [String(tableId), 'pending']
+          "SELECT id FROM orders WHERE tableId = ? AND status IN ('pending', 'in_preparation', 'ready', 'served')",
+          [String(tableId)]
         );
         if (existing.length > 0) {
           res.status(409).json({ error: 'Table already has an active order', existingOrderId: existing[0].id });
@@ -131,7 +151,7 @@ router.post('/:store', (req: Request, res: Response) => {
         if (data.tableId && data.tableId !== 'takeaway' && !isNaN(Number(data.tableId)) && data.status === 'pending') {
           const db = getDb();
           db.run(
-            'UPDATE tables SET status = ?, currentOrder = ? WHERE id = ?',
+            'UPDATE tables_store SET status = ?, currentOrder = ? WHERE id = ?',
             ['occupied', id, Number(data.tableId)]
           );
         }
@@ -147,7 +167,7 @@ router.post('/:store', (req: Request, res: Response) => {
         const db = getDb();
         const placeholders = safeKeys.map(() => '?').join(', ');
         db.run(
-          `INSERT OR REPLACE INTO \`${store}\` (${cols}) VALUES (${placeholders})`,
+          `INSERT OR REPLACE INTO \`${table}\` (${cols}) VALUES (${placeholders})`,
           safeKeys.map(k => data[k])
         );
         saveDb();
@@ -158,10 +178,10 @@ router.post('/:store', (req: Request, res: Response) => {
         throw e;
       }
     } else {
-      id = insert(`INSERT INTO \`${store}\` (${cols}) VALUES (${vals})`, safeKeys.map(k => data[k]));
+      id = insert(`INSERT INTO \`${table}\` (${cols}) VALUES (${vals})`, safeKeys.map(k => data[k]));
     }
 
-    const created = queryOne(`SELECT * FROM \`${store}\` WHERE id = ?`, [id || getLastInsertId()]);
+    const created = queryOne(`SELECT * FROM \`${table}\` WHERE id = ?`, [id || getLastInsertId()]);
     recordAuditLog('create', store, id || getLastInsertId(), created);
     res.status(201).json(created ? parseRow(created) : { id });
   } catch (e: unknown) {
@@ -175,6 +195,7 @@ router.put('/:store/:id', (req: Request, res: Response) => {
   if (!SAFE_TABLES.has(store)) { res.status(400).json({ error: 'Invalid store' }); return; }
   try {
     const data = serializeRow(req.body);
+    const table = tableNameForStore(store);
     const allKeys = Object.keys(data);
     const keys = allKeys.filter(k => VALID_COL_RE.test(k) && k.length <= 64);
     if (keys.length === 0) { res.json({ success: true }); return; }
@@ -196,10 +217,10 @@ router.put('/:store/:id', (req: Request, res: Response) => {
     if (store === 'orders' && (data.status === 'completed' || data.status === 'cancelled' || data.status === 'closed')) {
       beginTransaction();
       try {
-        db.run(`UPDATE \`${store}\` SET ${sets} WHERE id = ?`, [...keys.map(k => data[k]), id]);
+        db.run(`UPDATE \`${table}\` SET ${sets} WHERE id = ?`, [...keys.map(k => data[k]), id]);
         const order = queryOne('SELECT tableId FROM orders WHERE id = ?', [id]);
         if (order && order.tableId && order.tableId !== 'takeaway' && !isNaN(Number(order.tableId))) {
-          db.run('UPDATE tables SET status = ?, currentOrder = ? WHERE id = ?', ['available', null, Number(order.tableId)]);
+          db.run('UPDATE tables_store SET status = ?, currentOrder = ? WHERE id = ?', ['available', null, Number(order.tableId)]);
         }
         commitTransaction();
       } catch (e) {
@@ -207,7 +228,7 @@ router.put('/:store/:id', (req: Request, res: Response) => {
         throw e;
       }
     } else {
-      db.run(`UPDATE \`${store}\` SET ${sets} WHERE id = ?`, [...keys.map(k => data[k]), id]);
+      db.run(`UPDATE \`${table}\` SET ${sets} WHERE id = ?`, [...keys.map(k => data[k]), id]);
       saveDb();
     }
 
@@ -223,7 +244,8 @@ router.delete('/:store/:id', (req: Request, res: Response) => {
   if (!SAFE_TABLES.has(store)) { res.status(400).json({ error: 'Invalid store' }); return; }
   try {
     const db = getDb();
-    db.run(`DELETE FROM \`${store}\` WHERE id = ?`, [id]);
+    const table = tableNameForStore(store);
+    db.run(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
     saveDb();
     res.json({ success: true });
   } catch (e: unknown) {
