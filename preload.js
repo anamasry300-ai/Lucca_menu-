@@ -13,16 +13,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onImageSaved: (callback) => ipcRenderer.on('image-saved', (e, data) => callback(data)),
     isElectron: true,
 
-    // Update system
     getVersion: () => ipcRenderer.invoke('get-version'),
     checkForUpdates: () => ipcRenderer.send('check-for-updates'),
-    downloadUpdate: () => ipcRenderer.send('download-update'),
-    installUpdate: () => ipcRenderer.send('install-update'),
+    startUpdate: () => ipcRenderer.send('start-update'),
     checkRemoteVersion: () => ipcRenderer.invoke('check-remote-version'),
 
-    // Update events
     onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (e, data) => callback(data)),
-    onUpdateDownloading: (callback) => ipcRenderer.on('update-downloading', () => callback()),
-    onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (e, data) => callback(data)),
-    onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (e, data) => callback(data))
+    onUpdateStatus: (callback) => ipcRenderer.on('update-status', (e, status) => callback(status)),
+    onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (e, data) => callback(data))
 });
