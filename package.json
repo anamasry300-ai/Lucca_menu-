@@ -1,6 +1,6 @@
 {
   "name": "lucca-caffe-pos",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Lucca Caffè - نظام إدارة المقهى",
   "main": "main.js",
   "author": "Lucca Caffè",
