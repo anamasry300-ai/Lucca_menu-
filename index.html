@@ -3234,7 +3234,7 @@
                             width: 72mm;
                             background: #fff;
                             line-height: 1.45;
-                            font-weight: 500;
+                            font-weight: 700;
                         }
                         .receipt { padding: 1px; }
 
@@ -3464,6 +3464,11 @@
                             letter-spacing: 4px;
                             color: #000;
                             font-weight: 700;
+                        }
+
+                        /* ===== FORCE ALL TEXT BOLD (thermal printers) ===== */
+                        .receipt, .receipt * {
+                            font-weight: 700 !important;
                         }
                     </style>
                 </head>
@@ -4095,10 +4100,10 @@
                 };
 
                 const r = [];
-                r.push(init + utf8);
+                r.push(init + utf8 + boldOn);
                 // BRAND - double height, centered
-                r.push(modeTall + center + boldOn + 'LUCCA' + boldOff + modeReset + nl);
-                r.push(center + boldOn + 'Caffe Italiano' + boldOff + nl);
+                r.push(modeTall + center + 'LUCCA' + modeReset + nl);
+                r.push(center + 'Caffe Italiano' + nl);
                 r.push(modeReset + center + 'بورسعيد - شارع محمد علي' + nl);
                 r.push(center + '01010058989' + nl);
                 r.push(div + nl);
@@ -4125,12 +4130,12 @@
                 if (discount > 0) {
                     r.push('خصم ' + discount + '%:' + w('') + '-' + String(discountAmount.toFixed(0)) + ' ج.م' + nl);
                 }
-                // TOTAL - double height, bold
-                r.push(modeTall + boldOn + 'الإجمالي:' + w('') + String(total.toFixed(0)) + ' ج.م' + boldOff + modeReset + nl);
+                // TOTAL - double height
+                r.push(modeTall + 'الإجمالي:' + w('') + String(total.toFixed(0)) + ' ج.م' + modeReset + nl);
                 if (formData.customerNotes) r.push(nl + 'ملاحظات: ' + formData.customerNotes + nl);
                 r.push(nl + center + 'شكراً لزيارتكم!' + nl);
                 r.push(center + 'Buon Appetito!' + nl);
-                r.push(feed + cut);
+                r.push(boldOff + feed + cut);
                 return r.join('');
             },
 
