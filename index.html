@@ -3170,9 +3170,9 @@
 
         function printInvoiceContent(html) {
             const w = window.open('', '_blank', 'width=400,height=600');
-            w.document.write(`<html><head><meta charset="utf-8"><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap" rel="stylesheet"><style>
+            w.document.write(`<html><head><meta charset="utf-8"><style>
                 *{margin:0;padding:0;box-sizing:border-box;}
-                body{font-family:'Tajawal',Tahoma,sans-serif;font-size:12px;padding:0;direction:rtl;background:#fff;color:#1a1a1a;}
+                body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:15px;padding:0;direction:rtl;background:#fff;color:#1a1a1a;font-weight:500;}
                 @media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact;}}
             </style></head><body>${html}</body></html>`);
             w.document.close();
@@ -3194,15 +3194,19 @@
             const itemCount = items.reduce((s, i) => s + (i.quantity || 1), 0);
 
             const itemRows = items.map(i => {
-                const name = (i.nameAr || i.name || '').substring(0, 24);
+                const name = (i.nameAr || i.name || '');
                 const qty = i.quantity || 1;
                 const unitPrice = i.price || 0;
                 const lineTotal = unitPrice * qty;
-                const priceLine = qty > 1 ? `${qty} × ${unitPrice}` : `${unitPrice}`;
+                const priceLine = qty > 1 ? `${qty} × ${Number(unitPrice).toFixed(0)}` : `${Number(unitPrice).toFixed(0)}`;
                 return `<div class="item-row">
-                    <div class="item-name">${name}</div>
-                    <div class="item-detail">${priceLine}</div>
-                    <div class="item-total">${lineTotal.toFixed(0)}</div>
+                    <div class="item-name">${String(name).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+                        ${i._note ? `<span class="item-note">📝 ${String(i._note).replace(/</g,'&lt;')}</span>` : ''}
+                    </div>
+                    <div class="item-right">
+                        <div class="item-detail">${priceLine} ج.م</div>
+                        <div class="item-total">${lineTotal.toFixed(0)} ج.م</div>
+                    </div>
                 </div>`;
             }).join('');
 
@@ -3216,18 +3220,23 @@
                     <title>فاتورة LUCCA #${orderNum}</title>
                     <style>
                         @page { size: 80mm auto; margin: 0; }
+                        @media print {
+                            html { zoom: 1; }
+                            body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+                        }
                         * { margin: 0; padding: 0; box-sizing: border-box; }
                         body {
-                            font-family: 'Courier New', 'Lucida Console', monospace;
-                            font-size: 11px;
-                            padding: 6px 4px;
+                            font-family: 'Segoe UI', Tahoma, 'Arial', sans-serif;
+                            font-size: 14px;
+                            padding: 4px 3px;
                             direction: rtl;
-                            color: #1a1a1a;
+                            color: #000;
                             width: 72mm;
                             background: #fff;
-                            line-height: 1.5;
+                            line-height: 1.45;
+                            font-weight: 500;
                         }
-                        .receipt { padding: 2px; }
+                        .receipt { padding: 1px; }
 
                         /* ===== BRAND HEADER ===== */
                         .brand {
@@ -3237,127 +3246,145 @@
                         }
                         .brand-line {
                             width: 100%;
-                            height: 3px;
+                            height: 4px;
                             background: #000;
-                            margin-bottom: 8px;
+                            margin-bottom: 10px;
                         }
                         .brand-name {
-                            font-size: 28px;
-                            font-weight: 900;
-                            letter-spacing: 8px;
+                            font-size: 34px;
+                            font-weight: 800;
+                            letter-spacing: 10px;
                             color: #000;
-                            line-height: 1;
+                            line-height: 1.05;
                         }
                         .brand-sub {
-                            font-size: 8px;
-                            letter-spacing: 4px;
-                            color: #555;
-                            margin-top: 2px;
+                            font-size: 12px;
+                            font-weight: 700;
+                            letter-spacing: 5px;
+                            color: #000;
+                            margin-top: 4px;
                             text-transform: uppercase;
                         }
                         .brand-tagline {
-                            font-size: 8px;
-                            color: #999;
-                            margin-top: 3px;
-                            font-style: italic;
+                            font-size: 10px;
+                            font-weight: 500;
+                            color: #444;
+                            margin-top: 4px;
                         }
                         .brand-contact {
-                            font-size: 8px;
-                            color: #777;
-                            margin-top: 6px;
-                            line-height: 1.6;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: #000;
+                            margin-top: 8px;
+                            line-height: 1.7;
                         }
                         .brand-line-bottom {
                             width: 100%;
-                            height: 1px;
+                            height: 2px;
                             background: #000;
-                            margin-top: 8px;
+                            margin-top: 10px;
                         }
 
                         /* ===== RECEIPT NUMBER BAR ===== */
                         .receipt-number {
                             text-align: center;
-                            font-size: 10px;
+                            font-size: 13px;
                             font-weight: 700;
                             letter-spacing: 2px;
                             padding: 6px 0;
-                            margin: 4px 0;
-                            background: #f5f5f5;
-                            border: 1px dashed #ccc;
+                            margin: 5px 0;
+                            background: #eee;
+                            border: 1px solid #000;
                         }
 
                         /* ===== INFO SECTION ===== */
                         .info-row {
                             display: flex;
                             justify-content: space-between;
-                            font-size: 9px;
-                            padding: 2px 0;
+                            font-size: 12px;
+                            padding: 3px 0;
                         }
-                        .info-row .lbl { color: #888; }
+                        .info-row .lbl { color: #333; }
                         .info-row .val { font-weight: 700; color: #000; }
 
                         /* ===== DIVIDERS ===== */
-                        .sep { border: none; border-top: 1px dashed #ccc; margin: 6px 0; }
-                        .sep-thick { border: none; border-top: 2px solid #000; margin: 6px 0; }
-                        .sep-dots { border: none; border-top: 1px dotted #ddd; margin: 4px 0; }
+                        .sep { border: none; border-top: 1px dashed #000; margin: 7px 0; }
+                        .sep-thick { border: none; border-top: 3px solid #000; margin: 7px 0; }
+                        .sep-dots { border: none; border-top: 1px dotted #777; margin: 5px 0; }
 
                         /* ===== ITEMS ===== */
                         .items-header {
                             display: flex;
                             justify-content: space-between;
-                            font-size: 8px;
-                            color: #888;
-                            padding: 4px 0 2px;
-                            border-bottom: 1px solid #000;
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: #000;
+                            padding: 5px 0 3px;
+                            border-bottom: 2px solid #000;
                             text-transform: uppercase;
                             letter-spacing: 1px;
                         }
                         .item-row {
                             display: flex;
                             justify-content: space-between;
-                            align-items: baseline;
-                            padding: 4px 0;
-                            border-bottom: 1px dotted #eee;
-                            font-size: 10px;
+                            align-items: flex-start;
+                            padding: 5px 0;
+                            border-bottom: 1px dotted #999;
+                            font-size: 13px;
                             line-height: 1.4;
                         }
                         .item-name {
                             flex: 1;
                             text-align: right;
-                            font-weight: 600;
-                            overflow: hidden;
-                            text-overflow: ellipsis;
+                            font-weight: 700;
+                            word-wrap: break-word;
+                            overflow-wrap: break-word;
+                            word-break: break-word;
+                            padding-left: 8px;
+                        }
+                        .item-note {
+                            display: block;
+                            font-size: 11px;
+                            font-weight: 500;
+                            color: #333;
+                            margin-top: 1px;
+                        }
+                        .item-right {
+                            flex-shrink: 0;
+                            text-align: left;
+                            white-space: nowrap;
                         }
                         .item-detail {
-                            width: 80px;
-                            text-align: center;
-                            font-size: 9px;
-                            color: #888;
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: #333;
+                            text-align: left;
                         }
                         .item-total {
-                            width: 50px;
+                            font-size: 13px;
+                            font-weight: 800;
                             text-align: left;
-                            font-weight: 700;
                         }
 
                         /* ===== TOTALS ===== */
-                        .totals { margin-top: 4px; }
+                        .totals { margin-top: 5px; }
                         .total-line {
                             display: flex;
                             justify-content: space-between;
-                            font-size: 9px;
-                            padding: 2px 0;
-                            color: #555;
+                            font-size: 13px;
+                            padding: 3px 0;
+                            color: #000;
+                            font-weight: 600;
                         }
-                        .total-line.discount { color: #e67e22; font-weight: 600; }
+                        .total-line.discount { color: #000; font-weight: 700; }
                         .total-line.final {
-                            font-size: 15px;
+                            font-size: 26px;
                             font-weight: 900;
                             color: #000;
-                            padding: 6px 0 2px;
-                            margin-top: 4px;
-                            border-top: 2px solid #000;
-                            border-bottom: 2px solid #000;
+                            padding: 8px 2px;
+                            margin-top: 6px;
+                            border-top: 3px solid #000;
+                            border-bottom: 3px solid #000;
                         }
                         .total-line.final .total-label { letter-spacing: 1px; }
 
@@ -3365,79 +3392,78 @@
                         .payment-info {
                             display: flex;
                             justify-content: space-between;
-                            font-size: 9px;
-                            padding: 4px 0;
-                            color: #555;
+                            font-size: 12px;
+                            font-weight: 600;
+                            padding: 5px 0;
+                            color: #000;
                         }
                         .payment-badge {
-                            font-weight: 700;
+                            font-weight: 800;
                             color: #000;
                         }
 
                         /* ===== NOTES ===== */
                         .notes {
-                            margin-top: 6px;
-                            padding: 6px;
-                            background: #fafafa;
-                            border: 1px dashed #ddd;
-                            font-size: 8px;
-                            color: #666;
+                            margin-top: 7px;
+                            padding: 7px;
+                            background: #f0f0f0;
+                            border: 1px dashed #000;
+                            font-size: 12px;
+                            color: #000;
+                            font-weight: 500;
                             line-height: 1.5;
                         }
 
                         /* ===== FOOTER ===== */
                         .footer {
                             text-align: center;
-                            margin-top: 10px;
-                            padding-top: 6px;
+                            margin-top: 12px;
+                            padding-top: 8px;
                         }
                         .footer-stars {
-                            font-size: 10px;
+                            font-size: 12px;
                             letter-spacing: 4px;
-                            color: #ccc;
+                            color: #000;
                             margin-bottom: 6px;
                         }
                         .footer-thanks {
-                            font-size: 11px;
+                            font-size: 15px;
                             font-weight: 900;
                             color: #000;
-                            margin-bottom: 2px;
+                            margin-bottom: 3px;
                         }
                         .footer-sub {
-                            font-size: 8px;
-                            color: #999;
+                            font-size: 11px;
+                            color: #333;
+                            font-weight: 500;
                             line-height: 1.6;
                         }
                         .footer-emoji {
-                            font-size: 12px;
-                            margin: 4px 0;
+                            font-size: 14px;
+                            margin: 5px 0;
                         }
 
                         /* ===== BARCODE ===== */
                         .barcode {
                             text-align: center;
-                            margin: 8px 0;
+                            margin: 10px 0;
                         }
                         .barcode-lines {
                             display: flex;
                             justify-content: center;
                             gap: 1px;
-                            margin-bottom: 4px;
+                            margin-bottom: 5px;
                         }
                         .barcode-lines span {
                             display: inline-block;
-                            height: 20px;
+                            height: 26px;
                             background: #000;
                         }
                         .barcode-text {
-                            font-size: 9px;
-                            letter-spacing: 3px;
+                            font-size: 12px;
+                            letter-spacing: 4px;
                             color: #000;
-                            font-weight: 600;
-                        }
-
-                        @media print {
-                            body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+                            font-weight: 700;
                         }
                     </style>
                 </head>
@@ -3487,8 +3513,8 @@
                     <!-- ===== ITEMS ===== -->
                     <div class="items-header">
                         <span>الصنف</span>
-                        <span>التفاصيل</span>
-                        <span>المبلغ</span>
+                        <span>الكمية × السعر</span>
+                        <span>الإجمالي</span>
                     </div>
                     ${itemRows}
 
@@ -4037,46 +4063,70 @@
                 const total = subtotal - discountAmount;
                 const items = order.items || [];
                 const tableLabel = order.tableId === 'takeaway' || order.tableId == 0 ? 'تيك أواي' : 'طاولة ' + (order.tableId || '-');
+                const itemCount = items.reduce((s, i) => s + (i.quantity || 1), 0);
 
-                const w = (s, len=32) => String(s || '').padEnd(len, ' ');
-                const div = '─'.repeat(32);
                 const ESC = '\x1b', GS = '\x1d';
                 const init = ESC + '\x40';
                 const center = ESC + '\x61\x01';
                 const left = ESC + '\x61\x00';
                 const boldOn = ESC + '\x45\x01';
                 const boldOff = ESC + '\x45\x00';
+                // Print mode select (ESC ! n): 0x00 normal, 0x10 double-height, 0x20 double-width, 0x30 both
+                const modeNormal = ESC + '\x21\x00';
+                const modeTall = ESC + '\x21\x10';
+                const modeBig = ESC + '\x21\x30';
+                const modeReset = ESC + '\x21\x00';
                 const nl = '\x0a';
                 const cut = GS + '\x56\x00';
-                const feed = ESC + '\x64\x03';
+                const feed = ESC + '\x64\x04';
                 const utf8 = ESC + '\x74\x11';
+
+                const w = (s, len=32) => String(s || '').padEnd(len, ' ');
+                const div = '─'.repeat(32);
+
+                // Wrap a name across multiple lines (max chars per line for RTL fixed space)
+                const wrapName = (name) => {
+                    const max = 18;
+                    const str = String(name || '');
+                    if (str.length <= max) return [str];
+                    const lines = [];
+                    for (let i = 0; i < str.length; i += max) lines.push(str.slice(i, i + max));
+                    return lines;
+                };
 
                 const r = [];
                 r.push(init + utf8);
-                r.push(center + boldOn + 'LUCCA' + boldOff + nl);
-                r.push(center + 'Caffe Italiano' + nl);
-                r.push(center + 'بورسعيد - شارع محمد علي' + nl);
+                // BRAND - double height, centered
+                r.push(modeTall + center + boldOn + 'LUCCA' + boldOff + modeReset + nl);
+                r.push(center + boldOn + 'Caffe Italiano' + boldOff + nl);
+                r.push(modeReset + center + 'بورسعيد - شارع محمد علي' + nl);
                 r.push(center + '01010058989' + nl);
                 r.push(div + nl);
                 r.push('فاتورة #' + String(order.id || '').padStart(4, '0') + w('') + dateStr + nl);
                 r.push(tableLabel + w('') + timeStr + nl);
                 if (formData.customerName) r.push('عميل: ' + formData.customerName + nl);
                 if (formData.customerPhone) r.push('موبايل: ' + formData.customerPhone + nl);
+                r.push('أصناف: ' + itemCount + w('') + nl);
                 r.push(div + nl);
-                r.push('الصنف' + w('') + ' ع  السعر' + nl);
-                r.push('─'.repeat(32) + nl);
                 for (const item of items) {
-                    const name = (item.name || '').substring(0, 16);
                     const qty = item.quantity || 1;
                     const price = (item.price || 0) * qty;
-                    r.push(name + w('', 16 - name.length) + ' ' + String(qty).padStart(2) + ' ' + String(price.toFixed(0)).padStart(6) + nl);
+                    const nameLines = wrapName(item.name || (item.nameAr || ''));
+                    nameLines.forEach((line, idx) => {
+                        if (idx === 0) {
+                            r.push(left + line + w('', Math.max(8 - line.length, 2)) + String(qty).padStart(2) + ' ' + String(price.toFixed(0)).padStart(6) + nl);
+                        } else {
+                            r.push(left + '  ' + line + nl);
+                        }
+                    });
                 }
                 r.push(div + nl);
                 r.push('المجموع:' + w('') + String(subtotal.toFixed(0)) + ' ج.م' + nl);
                 if (discount > 0) {
                     r.push('خصم ' + discount + '%:' + w('') + '-' + String(discountAmount.toFixed(0)) + ' ج.م' + nl);
                 }
-                r.push(boldOn + 'الإجمالي:' + w('') + String(total.toFixed(0)) + ' ج.م' + boldOff + nl);
+                // TOTAL - double height, bold
+                r.push(modeTall + boldOn + 'الإجمالي:' + w('') + String(total.toFixed(0)) + ' ج.م' + boldOff + modeReset + nl);
                 if (formData.customerNotes) r.push(nl + 'ملاحظات: ' + formData.customerNotes + nl);
                 r.push(nl + center + 'شكراً لزيارتكم!' + nl);
                 r.push(center + 'Buon Appetito!' + nl);
