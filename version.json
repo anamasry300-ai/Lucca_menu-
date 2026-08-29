@@ -1,7 +1,7 @@
 {
-    "version": "1.2.0",
+    "version": "1.2.1",
     "releaseDate": "2026-08-29",
-    "releaseNotes": "Professional thermal receipt redesign: larger clear fonts, premium layout, fixed item-name truncation, stronger visual hierarchy",
+    "releaseNotes": "Thermal receipt: all text now bold for clear visibility on thermal printers (some thin lines were not showing)",
     "minVersion": "1.0.0",
     "forceUpdate": false,
     "downloadUrl": "https://github.com/anamasry300-ai/Lucca_menu-/releases"
