@@ -108,10 +108,21 @@ C:\Users\Acer\OneDrive\Desktop\Lucca_menu-\dist\LuccaPOS-win32-x64\LuccaPOS.exe
 ```
 C:\Users\Acer\OneDrive\Desktop\Lucca_menu-    ← المصدر الرئيسي الوحيد
  └─ dist\
-     ├─ LuccaPOS-win32-x64\LuccaPOS.exe      ← التطبيق النهائي (1.3.0)
-     ├─ LuccaPOS Setup 1.3.0.exe (+blockmap) ← المثبّت
+     ├─ LuccaPOS-win32-x64\LuccaPOS.exe      ← التطبيق النهائي (1.3.1)
+     ├─ LuccaPOS Setup 1.3.1.exe (+blockmap) ← المثبّت
      └─ latest.yml                           ← بيانات التحديث
 ```
+
+---
+
+## 10) Hotfix 1.3.1 — إصلاح زرار شاشة المطبخ في الحزمة المبنية
+
+- عند فحص الواجهات أتضح أن `kitchen.html` لم يكن مضمنًا في ملفات بناء 1.3.0 (حقل `files` في `package.json`).
+- أُضيف `"kitchen.html"` إلى `build.files` ورُفع الإصدار إلى **1.3.1** في `package.json` + `version.json`.
+- أُعيد البناء وحُلّل الـ asar آليًا: `\kitchen.html` موجود ✅ (+ index.html، admin/index.html، database.js، vendor/xlsx).
+- تمت ترقية المسار الرسمي `dist\LuccaPOS-win32-x64\LuccaPOS.exe` إلى 1.3.1، وأُزيل مثبّت 1.3.0 القديم وبقيت `Setup 1.3.1.exe` + `latest.yml` (1.3.1).
+- Smoke test: الـ exe الجديد اشتغل وبقى حيّاً (pid 17620).
+- كل واجهات الطلب متحققة الآن في الحزمة: **ترتيب الطاولات** (tables-grid في index.html) + **شاشة المطبخ** (kitchen.html) + **لوحة التحكم** (admin/index.html).
 
 ---
 
