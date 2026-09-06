@@ -22,8 +22,11 @@ function showToast(text, type){
 
 async function apiFetch(path){
     const url = getServerUrl() + '/api' + path;
-    const key = localStorage.getItem('luccaApiKey') || '';
-    const res = await fetch(url, { headers:{'x-api-key':key,'Content-Type':'application/json'}, signal: AbortSignal.timeout(8000) });
+    const headers = { 'Content-Type':'application/json' };
+    const token = sessionStorage.getItem('luccaToken') || '';
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    else headers['x-api-key'] = localStorage.getItem('luccaApiKey') || '';
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
     if(!res.ok) throw new Error('API '+res.status);
     return res.json();
 }

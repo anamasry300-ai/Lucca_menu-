@@ -112,10 +112,12 @@ function migrate(db: SqlJsDatabase) {
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
+      email TEXT UNIQUE,
       password TEXT NOT NULL,
       name TEXT DEFAULT '',
       role TEXT DEFAULT 'cashier',
       active INTEGER DEFAULT 1,
+      employeeId INTEGER,
       createdAt TEXT DEFAULT (datetime('now'))
     );
 
@@ -233,7 +235,12 @@ function migrate(db: SqlJsDatabase) {
       date TEXT DEFAULT (datetime('now')),
       createdBy TEXT DEFAULT 'unknown',
       createdAt TEXT DEFAULT (datetime('now')),
-      updatedAt TEXT DEFAULT (datetime('now'))
+      updatedAt TEXT DEFAULT (datetime('now')),
+      voidReason TEXT DEFAULT '',
+      voidNote TEXT DEFAULT '',
+      voidedAt TEXT,
+      voidedBy TEXT DEFAULT '',
+      refundAmount REAL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS order_items (
@@ -289,6 +296,9 @@ function migrate(db: SqlJsDatabase) {
       type TEXT DEFAULT 'full' CHECK(type IN ('full','partial','item')),
       createdBy TEXT DEFAULT '',
       createdAt TEXT DEFAULT (datetime('now')),
+      voidedBy TEXT DEFAULT '',
+      note TEXT DEFAULT '',
+      refundMethod TEXT DEFAULT 'cash',
       FOREIGN KEY (orderId) REFERENCES orders(id)
     );
 
@@ -424,6 +434,70 @@ function migrate(db: SqlJsDatabase) {
       notes TEXT DEFAULT ''
     );
 
+    -- ===== F4: cash_registers (الصندوق النقدي / ورديات الكاش) — صندوق افتراضي واحد لكل جهاز =====
+    CREATE TABLE IF NOT EXISTS cash_registers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      syncId TEXT,
+      updatedAt TEXT DEFAULT (datetime('now')),
+      status TEXT DEFAULT 'open',
+      startingCash REAL DEFAULT 0,
+      currentCash REAL DEFAULT 0,
+      openingCash REAL DEFAULT 0,
+      employeeId INTEGER DEFAULT NULL,
+      openedBy TEXT DEFAULT '',
+      openedByUser INTEGER DEFAULT NULL,
+      closedBy TEXT DEFAULT '',
+      closedByUser INTEGER DEFAULT NULL,
+      openedAt TEXT,
+      closedAt TEXT,
+      closingCash REAL,
+      expectedCash REAL DEFAULT 0,
+      difference REAL DEFAULT 0,
+      differenceType TEXT DEFAULT 'balanced',
+      totalCashSales REAL DEFAULT 0,
+      totalCardSales REAL DEFAULT 0,
+      totalWalletSales REAL DEFAULT 0,
+      totalExpenses REAL DEFAULT 0,
+      totalRefunds REAL DEFAULT 0,
+      transactionCount INTEGER DEFAULT 0,
+      notes TEXT DEFAULT '',
+      version INTEGER DEFAULT 1
+    );
+
+    -- ===== C2: invoices (فواتير) + sync_log (سجل المزامنة) =====
+    CREATE TABLE IF NOT EXISTS invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      syncId TEXT,
+      invoiceNumber TEXT DEFAULT '',
+      orderId INTEGER,
+      orderSyncId TEXT,
+      subtotal REAL DEFAULT 0,
+      discount REAL DEFAULT 0,
+      tax REAL DEFAULT 0,
+      total REAL DEFAULT 0,
+      paymentStatus TEXT DEFAULT 'unpaid' CHECK(paymentStatus IN ('unpaid','partial','paid','refunded')),
+      paymentMethod TEXT DEFAULT 'cash',
+      customerName TEXT DEFAULT '',
+      customerPhone TEXT DEFAULT '',
+      customersId INTEGER DEFAULT NULL,
+      createdBy TEXT DEFAULT 'unknown',
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      direction TEXT DEFAULT '',
+      startedAt TEXT DEFAULT (datetime('now')),
+      inserted INTEGER DEFAULT 0,
+      updated INTEGER DEFAULT 0,
+      skipped INTEGER DEFAULT 0,
+      conflicts INTEGER DEFAULT 0,
+      errors INTEGER DEFAULT 0,
+      conflictDetail TEXT DEFAULT '[]',
+      note TEXT DEFAULT ''
+    );
+
     -- Backward compatibility: rename old tables_store references
     -- The old 'tables' table name is preserved via a view for backward compatibility
   `);
@@ -485,6 +559,139 @@ function migrate(db: SqlJsDatabase) {
     try { db.run("ALTER TABLE order_items ADD COLUMN total REAL DEFAULT 0"); } catch { /* already exists */ }
   } catch { /* migrations may not be needed */ }
 
+  // ===== C2: إضافة أعمدة الهوية المستقرة (syncId/updatedAt/orderSyncId) =====
+  // لكل الجداول القابلة للمزامنة — يجب أن تطابق مخازن IndexedDB في العميل.
+  const syncColumnTables: Array<[string, string[]]> = [
+    ['users', ['syncId', 'updatedAt']],
+    ['invitations', ['syncId', 'updatedAt']],
+    ['tables', ['syncId', 'updatedAt']],
+    ['tables_store', ['syncId', 'updatedAt']],
+    ['orders', ['syncId', 'updatedAt']],
+    ['order_items', ['syncId', 'orderSyncId', 'updatedAt']],
+    ['invoices', ['syncId', 'orderSyncId', 'updatedAt']],
+    ['payments', ['syncId', 'orderSyncId', 'updatedAt']],
+    ['refunds', ['syncId', 'orderSyncId', 'updatedAt']],
+    ['audit_logs', ['syncId', 'updatedAt']],
+    ['order_status_history', ['syncId', 'updatedAt']],
+    ['customers', ['syncId', 'updatedAt']],
+    ['inventory', ['syncId', 'updatedAt']],
+    ['purchases', ['syncId', 'updatedAt']],
+    ['employees', ['syncId', 'updatedAt']],
+    ['attendance', ['syncId', 'updatedAt']],
+    ['expenses', ['syncId', 'updatedAt']],
+    ['shifts', ['syncId', 'updatedAt']],
+    ['categories', ['syncId', 'updatedAt']],
+    ['products', ['syncId', 'updatedAt']],
+    ['product_modifiers', ['syncId', 'updatedAt']],
+    ['product_variations', ['syncId', 'updatedAt']],
+    ['payment_methods', ['syncId', 'updatedAt']],
+    ['taxes', ['syncId', 'updatedAt']],
+    ['discounts', ['syncId', 'updatedAt']],
+    ['stock_movements', ['syncId', 'updatedAt']],
+    ['suppliers', ['syncId', 'updatedAt']],
+    ['product_recipes', ['syncId', 'updatedAt']],
+    ['waste_log', ['syncId', 'updatedAt']],
+    ['inventory_alerts', ['syncId', 'updatedAt']],
+    ['cash_registers', ['syncId', 'updatedAt']],
+  ];
+  for (const [table, cols] of syncColumnTables) {
+    try {
+      const exists = queryAll("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [table]);
+      if (exists.length === 0) continue;
+      for (const col of cols) {
+        try {
+          const type = col === 'orderSyncId' ? 'TEXT' : col === 'updatedAt' ? 'TEXT' : 'TEXT';
+          db.run(`ALTER TABLE \`${table}\` ADD COLUMN \`${col}\` ${type} DEFAULT NULL`);
+        } catch { /* column already exists */ }
+      }
+    } catch { /* table may not exist */ }
+  }
+
+  // ترحيل أعمدة التحصيل (حالة الدفع/المدفوع/الباقي) للجداول القديمة:
+  // بدونها يفشل POST /checkout (no such column: paymentStatus) ويصدر تقارير الإيرادات صفراً دائماً
+  // لأن الاستعلامات تصفية WHERE paymentStatus = 'paid'.
+  try {
+    const hasOrders = queryAll("SELECT name FROM sqlite_master WHERE type='table' AND name='orders'");
+    if (hasOrders.length > 0) {
+      const existingCols = new Set(queryAll("PRAGMA table_info(orders)").map((r) => r.name));
+      const settleCols: Array<[string, string]> = [
+        ['orderNumber', "TEXT DEFAULT ''"],
+        ['orderType', "TEXT DEFAULT 'dine_in'"],
+        ['paymentMethodId', 'INTEGER DEFAULT NULL'],
+        ['paymentStatus', "TEXT DEFAULT 'unpaid'"],
+        ['totalPaid', 'REAL DEFAULT 0'],
+        ['changeAmount', 'REAL DEFAULT 0'],
+        ['discountBy', "TEXT DEFAULT ''"],
+        ['updatedAt', "TEXT DEFAULT (datetime('now'))"]
+      ];
+      for (const [col, type] of settleCols) {
+        if (existingCols.has(col)) continue;
+        try { db.run(`ALTER TABLE orders ADD COLUMN \`${col}\` ${type}`); } catch { /* قد يُضاف بالضبط متزامناً */ }
+      }
+      try { db.run("CREATE INDEX IF NOT EXISTS idx_orders_paymentStatus ON orders(paymentStatus)"); } catch { /* ignored */ }
+      try { db.run("CREATE INDEX IF NOT EXISTS idx_orders_orderNumber ON orders(orderNumber)"); } catch { /* ignored */ }
+    }
+  } catch { /* orders may not exist */ }
+
+  // إضافة أعمدة الإلغاء/الاسترداد (Void/Refund + المسؤول عن الإلغاء) للجداول الموجودة قديماً.
+  // مطلوبة لتسجيل: من ألغى (voidedBy)، السبب (voidReason)، وقيمة الاسترداد (refundAmount).
+  try {
+    const ordersCols = ['voidReason', 'voidNote', 'voidedAt', 'voidedBy', 'refundAmount'];
+    for (const col of ordersCols) {
+      try { db.run(`ALTER TABLE orders ADD COLUMN \`${col}\` TEXT DEFAULT NULL`); } catch {}
+    }
+  } catch { /* orders may not exist */ }
+  try {
+    const refundCols = ['voidedBy', 'note', 'refundMethod'];
+    for (const col of refundCols) {
+      try { db.run(`ALTER TABLE refunds ADD COLUMN \`${col}\` TEXT DEFAULT NULL`); } catch {}
+    }
+  } catch { /* refunds may not exist */ }
+
+  // إنشاء جدول stock/suppliers/الوصفات إذا لم تكن موجودة (يدفع العميل هذه المخازن أحياناً)
+  try {
+    db.run(`CREATE TABLE IF NOT EXISTS suppliers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      syncId TEXT, name TEXT DEFAULT '', updatedAt TEXT DEFAULT (datetime('now'))
+    )`);
+    db.run(`CREATE TABLE IF NOT EXISTS stock_movements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      syncId TEXT, productId INTEGER, productSyncId TEXT, quantity REAL DEFAULT 0,
+      type TEXT DEFAULT '', notes TEXT DEFAULT '', createdAt TEXT DEFAULT (datetime('now')), updatedAt TEXT DEFAULT (datetime('now'))
+    )`);
+    db.run(`CREATE TABLE IF NOT EXISTS product_recipes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      syncId TEXT, productId INTEGER, productSyncId TEXT, ingredient TEXT DEFAULT '',
+      quantity REAL DEFAULT 0, unit TEXT DEFAULT '', createdAt TEXT DEFAULT (datetime('now')), updatedAt TEXT DEFAULT (datetime('now'))
+    )`);
+    db.run(`CREATE TABLE IF NOT EXISTS waste_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      syncId TEXT, productId INTEGER, productSyncId TEXT, quantity REAL DEFAULT 0,
+      reason TEXT DEFAULT '', createdAt TEXT DEFAULT (datetime('now')), updatedAt TEXT DEFAULT (datetime('now'))
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS inventory_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      syncId TEXT,
+      ingredientId INTEGER,
+      name TEXT DEFAULT '',
+      quantity REAL DEFAULT 0,
+      minStock REAL DEFAULT 0,
+      cause TEXT DEFAULT '',
+      status TEXT DEFAULT 'active',
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now')),
+      resolvedAt TEXT
+    )`);
+  } catch { /* may already exist */ }
+
+  // فهارس لدعم مزامنة آمنة حسب syncId
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_orders_syncId ON orders(syncId)'); } catch {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_order_items_syncId ON order_items(syncId)'); } catch {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_order_items_orderSyncId ON order_items(orderSyncId)'); } catch {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_invoices_syncId ON invoices(syncId)'); } catch {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_payments_syncId ON payments(syncId)'); } catch {}
+
   // Performance indexes
   try { db.run('CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)'); } catch {}
   try { db.run('CREATE INDEX IF NOT EXISTS idx_orders_tableId ON orders(tableId)'); } catch {}
@@ -501,11 +708,50 @@ function migrate(db: SqlJsDatabase) {
   try { db.run('CREATE INDEX IF NOT EXISTS idx_audit_logs_objectType ON audit_logs(objectType)'); } catch {}
   try { db.run('CREATE INDEX IF NOT EXISTS idx_inventory_name ON inventory(name)'); } catch {}
 
+  // H2: تأمين — عمود "يجب تغيير كلمة المرور" لإجبار المدير ذي الكلمة الافتراضية على تغييرها
+  try { db.run("ALTER TABLE users ADD COLUMN mustChangePassword INTEGER DEFAULT 0"); } catch { /* موجودة مسبقاً */ }
+
+  // ===== Anti-Batman Phase 1: إدارة الموظفين بالبريد + الدعوات =====
+  // هجرة إضافية بسيطة (نفس نمط mustChangePassword): بريد فريد + ربط موظف لحساب المستخدم.
+  try { db.run("ALTER TABLE users ADD COLUMN email TEXT"); } catch { /* موجودة مسبقاً */ }
+  try { db.run("ALTER TABLE users ADD COLUMN employeeId INTEGER"); } catch { /* موجودة مسبقاً */ }
+  try { db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL AND email <> ''"); } catch { /* قد تكون موجودة */ }
+
+  // جدول الدعوات (invitations) — رمز يُسند للموظف نفسه، منتهي الصلاحية، قابل للاستخدام مرة واحدة.
+  // لا يحتوي على كلمة مرور؛ الموظف يختار بريده وكلمته عند "إنشاء الحساب"، والدور يُحدَّد بالنظام لا باختياره.
+  try {
+    db.run(`CREATE TABLE IF NOT EXISTS invitations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      syncId TEXT,
+      token TEXT,
+      email TEXT,
+      employeeId INTEGER,
+      role TEXT DEFAULT 'cashier',
+      name TEXT DEFAULT '',
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','used','revoked','expired')),
+      expiresAt TEXT,
+      createdBy INTEGER,
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    )`);
+    db.run("CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token)");
+    db.run("CREATE INDEX IF NOT EXISTS idx_invitations_email ON invitations(email)");
+  } catch { /* قد تكون موجودة */ }
+
+  // ربط الموظف بحساب المستخدم/بريده (للعرض ونسب الأعمال في التقارير).
+  try { db.run("ALTER TABLE employees ADD COLUMN email TEXT"); } catch { /* موجودة مسبقاً */ }
+  try { db.run("ALTER TABLE employees ADD COLUMN userId INTEGER"); } catch { /* موجودة مسبقاً */ }
+
   // Seed default admin user
   const users = queryAll('SELECT COUNT(*) as c FROM users');
   if (users.length === 0 || users[0].c === 0) {
-    db.run('INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, ?)', ['admin', '123456', 'مدير النظام', 'admin']);
+    db.run('INSERT INTO users (username, password, name, role, mustChangePassword) VALUES (?, ?, ?, ?, ?)', ['admin', '123456', 'مدير النظام', 'admin', 1]);
   }
+
+  // تعليم حساب المدير ذي كلمة افتراضية (123456) كي يُجبَر على تغييرها عند أول دخول (بصيغة أي قاعدة قائمة)
+  try {
+    db.run("UPDATE users SET mustChangePassword = 1 WHERE username = 'admin' AND password = '123456'");
+  } catch { /* تجاهل */ }
 
   // Seed default tables (1-14)
   const storeCheck = queryAll("SELECT name FROM sqlite_master WHERE type='table' AND name='tables_store'");

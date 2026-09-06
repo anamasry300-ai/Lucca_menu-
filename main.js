@@ -1,8 +1,6 @@
 const { app, BrowserWindow, Menu, globalShortcut, dialog, ipcMain, shell, clipboard, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const https = require('https');
-const http = require('http');
 
 let mainWindow;
 
@@ -11,154 +9,19 @@ const GITHUB_OWNER = 'anamasry300-ai';
 const GITHUB_REPO = 'Lucca_menu-';
 const GITHUB_BRANCH = 'main';
 const LOCAL_VERSION = app.getVersion();
-const APP_DIR = path.dirname(app.getPath('exe'));
 
-// Files to update (relative to app root)
-const UPDATE_FILES = [
-    'index.html',
-    'styles.css',
-    'main.js',
-    'preload.js',
-    'ai-pos-engine.js',
-    'supabase-db.js',
-    'sync-engine.js',
-    'forecasting.js',
-    'knowledge-base.js',
-    'report-export.js',
-    'package.json',
-    'version.json',
-    'admin/database.js',
-    'admin/index.html'
-];
+// ===== REAL PRODUCTION AUTO-UPDATE (electron-updater + GitHub Releases) =====
+const updateEngine = require('./update-engine');
 
-function httpsGet(url) {
-    return new Promise((resolve, reject) => {
-        const client = url.startsWith('https') ? https : http;
-        client.get(url, (res) => {
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                return httpsGet(res.headers.location).then(resolve).catch(reject);
-            }
-            let data = '';
-            res.on('data', (chunk) => data += chunk);
-            res.on('end', () => resolve({ status: res.statusCode, data }));
-        }).on('error', reject);
-    });
+function sendToRenderer(channel, payload) {
+    try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload); } catch (e) { }
 }
 
-function httpsGetBinary(url) {
-    return new Promise((resolve, reject) => {
-        const client = url.startsWith('https') ? https : http;
-        client.get(url, (res) => {
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                return httpsGetBinary(res.headers.location).then(resolve).catch(reject);
-            }
-            const chunks = [];
-            res.on('data', (chunk) => chunks.push(chunk));
-            res.on('end', () => resolve(Buffer.concat(chunks)));
-        }).on('error', reject);
-    });
-}
-
-// ===== VERSION CHECK =====
-async function checkRemoteVersion() {
-    try {
-        const url = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/version.json`;
-        const res = await httpsGet(url);
-        if (res.status === 200) return JSON.parse(res.data);
-    } catch (e) { }
-    return null;
-}
-
-function compareVersions(local, remote) {
-    const lp = local.split('.').map(Number);
-    const rp = remote.split('.').map(Number);
-    for (let i = 0; i < 3; i++) {
-        if ((rp[i] || 0) > (lp[i] || 0)) return 1;
-        if ((rp[i] || 0) < (lp[i] || 0)) return -1;
-    }
-    return 0;
-}
-
-// ===== SELF UPDATER =====
-async function performSelfUpdate() {
-    if (mainWindow) mainWindow.webContents.send('update-status', 'checking');
-
-    const remote = await checkRemoteVersion();
-    if (!remote) {
-        if (mainWindow) mainWindow.webContents.send('update-status', 'no-update');
-        return;
-    }
-
-    if (compareVersions(LOCAL_VERSION, remote.version) <= 0) {
-        if (mainWindow) mainWindow.webContents.send('update-status', 'up-to-date');
-        return;
-    }
-
-    if (mainWindow) {
-        mainWindow.webContents.send('update-available', {
-            version: remote.version,
-            releaseNotes: remote.releaseNotes || ''
-        });
-    }
-
-    const response = dialog.showMessageBoxSync(mainWindow, {
-        type: 'info',
-        title: 'تحديث جديد متاح',
-        message: `إصدار جديد ${remote.version} متاح!\n\n${remote.releaseNotes || ''}\n\nهل تريد تحميل التحديث الآن؟`,
-        buttons: ['تحميل التحديث', 'لاحقاً'],
-        defaultId: 0,
-        cancelId: 1
-    });
-
-    if (response !== 0) return;
-
-    if (mainWindow) mainWindow.webContents.send('update-status', 'downloading');
-
-    let downloaded = 0;
-    for (const file of UPDATE_FILES) {
-        try {
-            downloaded++;
-            if (mainWindow) {
-                mainWindow.webContents.send('update-progress', {
-                    file,
-                    current: downloaded,
-                    total: UPDATE_FILES.length,
-                    percent: Math.round((downloaded / UPDATE_FILES.length) * 100)
-                });
-            }
-
-            const rawUrl = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${file}`;
-            const res = await httpsGet(rawUrl);
-            if (res.status === 200) {
-                const filePath = path.join(APP_DIR, file);
-                const dir = path.dirname(filePath);
-                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-                fs.writeFileSync(filePath, res.data, 'utf8');
-            }
-        } catch (e) {
-            console.error(`Failed to update ${file}:`, e.message);
-        }
-    }
-
-    // Update local version.json
-    try {
-        fs.writeFileSync(path.join(APP_DIR, 'version.json'), JSON.stringify(remote, null, 4), 'utf8');
-    } catch (e) { }
-
-    if (mainWindow) mainWindow.webContents.send('update-status', 'completed');
-
-    const restart = dialog.showMessageBoxSync(mainWindow, {
-        type: 'info',
-        title: 'تم التحديث بنجاح',
-        message: `تم تحديث التطبيق إلى الإصدار ${remote.version}!\n\nيجب إعادة تشغيل التطبيق لتطبيق التحديث.`,
-        buttons: ['إعادة التشغيل الآن', 'إعادة التشغيل لاحقاً'],
-        defaultId: 0,
-        cancelId: 1
-    });
-
-    if (restart === 0) {
-        app.relaunch();
-        app.exit(0);
+function sendUpdateState(payload) {
+    // payload = { state, currentVersion, targetVersion, error, percent? }
+    sendToRenderer('update-state', payload);
+    if (payload && payload.percent !== undefined) {
+        sendToRenderer('update-progress', { percent: payload.percent });
     }
 }
 
@@ -191,13 +54,24 @@ function createWindow() {
     mainWindow.on('closed', () => { mainWindow = null; });
     mainWindow.on('page-title-updated', (e) => { e.preventDefault(); });
 
-    ipcMain.on('check-for-updates', () => performSelfUpdate());
-    ipcMain.on('start-update', () => performSelfUpdate());
+    // ---- Real update IPC (checked / downloaded / installed via engine) ----
+    ipcMain.handle('update-check', async () => {
+        const r = await updateEngine.check();
+        return { ok: r.offline ? false : r.ok, offline: !!r.offline, ...updateEngine.getState() };
+    });
+    ipcMain.handle('update-download', async () => {
+        const r = await updateEngine.download();
+        return { ...r, ...updateEngine.getState() };
+    });
+    ipcMain.handle('update-install', () => {
+        const r = updateEngine.installAndRestart();
+        return r;
+    });
+    ipcMain.handle('get-update-state', () => updateEngine.getState());
     ipcMain.handle('get-version', () => ({ version: LOCAL_VERSION, platform: process.platform }));
     ipcMain.handle('check-remote-version', async () => {
-        const remote = await checkRemoteVersion();
-        if (remote && compareVersions(LOCAL_VERSION, remote.version) > 0) return remote;
-        return null;
+        const remote = await updateEngine.target;
+        return remote ? { version: remote } : null;
     });
 
     const menuTemplate = [
@@ -218,7 +92,7 @@ function createWindow() {
             submenu: [
                 {
                     label: 'التحقق من تحديثات',
-                    click: () => performSelfUpdate()
+                    click: () => updateEngine.check()
                 },
                 {
                     label: 'حول النظام',
@@ -236,12 +110,15 @@ function createWindow() {
 
     mainWindow.setMenu(Menu.buildFromTemplate(menuTemplate));
 
-    // Auto-check for updates on startup (after 10 seconds)
-    setTimeout(() => performSelfUpdate(), 10000);
+    // Auto-check for updates on startup (check only; offline-safe, no false positives)
+    setTimeout(() => updateEngine.check(), 15000);
 }
 
 app.whenReady().then(() => {
     createWindow();
+
+    // Initialize the real update engine (logs to userData, crash/rollback detect)
+    updateEngine.init({ app, currentVersion: LOCAL_VERSION, send: sendUpdateState });
 
     ipcMain.on('open-admin', () => {
         const adminWin = new BrowserWindow({

@@ -16,6 +16,7 @@ class AIPosEngine {
             conversationHistory: []
         };
         this.pendingAction = null;
+        this.pendingPurchaseDraft = null;
     }
 
     // ===== ENTITY EXTRACTION =====
@@ -216,11 +217,15 @@ class AIPosEngine {
 
         // Expense
         if (/(?:مصروف|expense|مصروفات)/.test(t))
-            return { intent: 'add_expense', needsConfirmation: false };
+            return { intent: 'add_expense', needsConfirmation: true, confirmType: 'expense' };
 
         // Inventory
         if (/(?:مخزون|inventory|stock)/.test(t))
             return { intent: 'view_inventory', needsConfirmation: false };
+
+        // Purchase
+        if (/(?:اشتر(?:يت|ى|ي)|شراء|مشتريات|فاتورة\s+مورد|purchase|inv(?:oice)?)\s/.test(t) || /(?:اشتر(?:يت|ى|ي)|شراء|مشتريات)\s+(?:.+\s+)?بـ?\s*\d/.test(t) || /(?:اشتر(?:يت|ى|ي)|شراء|مشتريات)/.test(t))
+            return { intent: 'add_purchase', needsConfirmation: false };
 
         // Tables overview
         if (/(?:الطاولات|طاولات|tables)/.test(t))
@@ -263,6 +268,7 @@ class AIPosEngine {
             employee_leave: () => this.toolEmployeeLeave(params),
             manage_shift: () => this.toolManageShift(params),
             add_expense: () => this.toolAddExpense(params),
+            add_purchase: () => this.toolAddPurchase(params),
             view_inventory: () => this.toolInventory(params),
             view_tables: () => this.toolViewTables(params)
         };
@@ -384,9 +390,7 @@ class AIPosEngine {
             }
 
             // Create new order
-            const orderNumber = 'ORD-' + Date.now();
             const newOrder = {
-                orderNumber,
                 tableId: String(tableNum),
                 orderType: params.orderType || 'dine_in',
                 status: 'pending',
@@ -403,7 +407,9 @@ class AIPosEngine {
                 date: new Date().toISOString()
             };
 
-            const orderId = await window.LuccaDB.Orders.add(newOrder);
+            const created = await window.LuccaDB.Orders.create(newOrder.tableId, [], '', '', { orderType: newOrder.orderType });
+            const orderId = created.id;
+            const orderNumber = created.orderNumber;
 
             // Update table status
             await window.LuccaDB.Tables.update(table.id || tableNum, { status: 'occupied' });
@@ -1032,7 +1038,9 @@ class AIPosEngine {
                 return d === today;
             });
             const completed = todayOrders.filter(o => o.paymentStatus === 'paid' || o.status === 'completed' || o.status === 'closed');
-            const totalSales = completed.reduce((s, o) => s + (o.total || o.totalAmount || 0), 0);
+            const totalSalesGross = completed.reduce((s, o) => s + (o.total || o.totalAmount || 0), 0);
+            const todayRefunds = (await window.LuccaDB.db.getAll('refunds')).filter(r => (r.date||r.createdAt||r.updatedAt||'').slice(0,10) === today).reduce((s,r) => s + Number(r.amount||0), 0);
+            const totalSales = totalSalesGross - todayRefunds;
             const totalOrders = todayOrders.length;
 
             let msg = '📊 **مبيعات اليوم (' + today + '):**\n\n';
@@ -1152,23 +1160,390 @@ class AIPosEngine {
 
     async toolAddExpense(params) {
         const text = params._rawText || '';
-        const m = text.match(/(\d+)/);
+        const m = text.match(/(\d+(?:[.,]\d+)?)/);
         if (!m) return { success: false, message: '❌ حدد المبلغ.\nمثال: "مصروف 500 مشتريات خضار"' };
-        const amount = Number(m[1]);
-        const desc = text.replace(/مصروف|expense|\d+/gi, '').trim() || 'مصروف عام';
+        const amount = Number(m[1].replace(',', '.'));
+        // نزيل المبلغ وكلمات الأمر (سجل/مصروف/بمبلغ ...) لنبقي الوصف النظيف فقط،
+        // فلا يتبقى فعل الأمر في الوصف (مثل "سجل حليب").
+        const desc = text
+            .replace(/سجلت|سجّل|سجل|سجّلت|تسجيل|مصروف|expense|بمبلغ|\d+/gi, ' ')
+            .replace(/\s+/g, ' ').trim() || 'مصروف عام';
         try {
+            // الهوية تُنبثق من مستخدم الجلسة داخل Expenses.add (createdBy/userId/employeeId)،
+            // لا `ai_assistant` — فلا نتحكم فيها من نص المستخدم هنا.
             await window.LuccaDB.Expenses.add({
                 amount,
                 description: desc,
                 category: 'general',
-                date: new Date().toISOString(),
-                createdBy: 'ai_assistant'
+                date: new Date().toISOString()
             });
-            return { success: true, message: '✅ تم تسجيل المصروف\n💰 المبلغ: ' + this._fmtMoney(amount) + ' ل.س\n📝 الوصف: ' + desc };
+            let by = '—';
+            try {
+                const cu = window.LuccaDB && window.LuccaDB.Users && window.LuccaDB.Users.getCurrentUser && window.LuccaDB.Users.getCurrentUser();
+                if (cu) by = (cu.name || cu.username || '—');
+            } catch (e) { /* non-critical */ }
+            return { success: true, message: '✅ تم تسجيل المصروف\n💰 المبلغ: ' + this._fmtMoney(amount) + ' ل.س\n📝 الوصف: ' + desc + '\n👤 بواسطة: ' + by };
         } catch (e) {
             return { success: false, message: '❌ ' + e.message };
         }
     }
+
+    // ===== PURCHASE SYSTEM (Feature 5) =====
+
+    async toolAddPurchase(params) {
+        const text = params._rawText || '';
+        if (!text || !text.trim()) {
+            return { success: true, message: '🛒 **تسجيل مشتريات:**\n\nاكتب مثل:\n• "اشتريت لبن بـ210"\n• "اشتريت 10 كيلو لبن من شركة الأمل بـ2100"\n• "فاتورة مشتريات: لبن 10 × 210"' };
+        }
+
+        // Parse the purchase text
+        const parseResult = await window.InvoiceScanner.parsePurchaseText(text);
+        if (!parseResult || !parseResult.ok) {
+            return { success: false, message: '❌ ' + (parseResult ? parseResult.error : 'لم أفهم المشتريات. حاول مثل: "اشتريت لبن بـ210"') };
+        }
+
+        const extracted = parseResult.data;
+
+        // Validate items
+        const validation = this._validatePurchaseItems(extracted.items);
+        if (!validation.ok) {
+            return { success: false, message: '❌ ' + validation.error };
+        }
+
+        // Look up supplier if mentioned
+        let supplierInfo = null;
+        if (extracted.supplier) {
+            supplierInfo = await this._findSupplier(extracted.supplier);
+        }
+
+        // Infer category for each item
+        for (const item of extracted.items) {
+            item.category = item.category || this._inferPurchaseCategory(item.name);
+        }
+
+        // Resolve inventory item by name so Purchases.add can adjust stock on confirm
+        let inventoryList = [];
+        try {
+            inventoryList = (await window.LuccaDB.Inventory.getAll()) || [];
+        } catch (e) {
+            console.error('[Batman] Failed to load inventory for purchase:', e);
+        }
+        const norm = s => String(s || '').trim().toLowerCase();
+        for (const item of extracted.items) {
+            if (!item.inventoryItemId) {
+                const target = norm(item.name);
+                const match = inventoryList.find(iv => norm(iv.name) === target) || inventoryList.find(iv => target && norm(iv.name).includes(target));
+                if (match) item.inventoryItemId = match.id;
+            }
+        }
+
+        // Check main category from first item (for display)
+        const mainCategory = (extracted.items[0] && extracted.items[0].category) || 'أخرى';
+
+        // Compute independent per-line totals: calculatedTotal = qty × unitPrice (financial rounding)
+        // Never trust item.total as the sole truth; keep the invoice value as reportedTotal.
+        const round2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+        let sumCalculated = 0;
+        let sumReported = 0;
+        const mismatchItems = [];
+        for (const item of extracted.items) {
+            const qty = Number(item.quantity) || 0;
+            const price = Number(item.unitPrice) || 0;
+            const calc = round2(qty * price);
+            const rawReported = Number(item.total);
+            const reported = (item.total != null && !isNaN(rawReported)) ? round2(rawReported) : calc;
+            item.reportedTotal = reported;
+            item.calculatedTotal = calc;
+            sumCalculated += calc;
+            sumReported += reported;
+            const diff = round2(Math.abs(reported - calc));
+            if (diff > 0.01) {
+                item.totalDiscrepancy = true;
+                item.diff = diff;
+                mismatchItems.push({ name: item.name, qty, price, reported, calc, diff });
+            }
+        }
+
+        // Build draft — final total is based on calculated totals, not reported.
+        const draft = {
+            type: 'purchase',
+            items: extracted.items,
+            supplier: extracted.supplier,
+            supplierId: supplierInfo ? supplierInfo.id : null,
+            supplierExists: supplierInfo ? true : false,
+            invoiceNumber: extracted.invoiceNumber || null,
+            invoiceDate: extracted.invoiceDate || null,
+            tax: extracted.tax || 0,
+            discount: extracted.discount || 0,
+            total: round2(sumCalculated),
+            reportedTotal: round2(sumReported),
+            category: mainCategory,
+            notes: extracted.notes || null,
+            originalText: text,
+            parseSource: parseResult.source || 'regex',
+            createdAt: new Date().toISOString()
+        };
+
+        // Discrepancy review — a mismatch means the draft needs explicit review before saving.
+        draft.needsReview = mismatchItems.length > 0;
+        if (draft.needsReview) {
+            let note = '⚠️ **يوجد تناقض في الفاتورة (NEEDS_REVIEW):**\n\n';
+            for (const m of mismatchItems) {
+                note += '• ' + m.name + ' × ' + m.qty + ' بسعر ' + this._fmtMoney(m.price) + '\n';
+                note += '  — بالفاتورة: ' + this._fmtMoney(m.reported) + ' ل.س\n';
+                note += '  — المحسوب (qty×price): ' + this._fmtMoney(m.calc) + ' ل.س\n';
+                note += '  — فرق: ' + this._fmtMoney(m.diff) + ' ل.س\n';
+            }
+            note += '\nسيتم الحفظ بالإجمالي المحسوب (' + this._fmtMoney(draft.total) + ' ل.س) وليس المذكور (' + this._fmtMoney(draft.reportedTotal) + ' ل.س).';
+            note += '\nأكّد صراحةً (نعم) للمتابعة أو (لا) للإلغاء.';
+            draft.discrepancyNote = note;
+            draft.hasDiscrepancy = true;
+        }
+
+        // Check if supplier needs creation prompt
+        if (extracted.supplier && !supplierInfo) {
+            draft.needsSupplierCreation = true;
+        }
+
+        // Manager approval for large purchases (>500)
+        const cu = this._getCurrentUser();
+        if (draft.total > 500 && cu && cu.role !== 'admin' && cu.role !== 'manager') {
+            draft.needsManagerApproval = true;
+        }
+
+        // Log draft
+        await this._logPurchaseAudit('BATMAN_PURCHASE_DRAFT', draft, 'draft');
+
+        // Store draft and show confirmation
+        this.pendingPurchaseDraft = draft;
+
+        return this._formatPurchaseDraft(draft);
+    }
+
+    _formatPurchaseDraft(draft) {
+        let msg = '📝 **مسودة مشتريات**\n\n';
+
+        // Items — always show the calculated total (qty × price)
+        for (const item of draft.items) {
+            msg += '• ' + item.name;
+            if (item.quantity > 1) msg += ' × ' + item.quantity;
+            if (item.unit && item.unit !== 'قطعة') msg += ' (' + item.unit + ')';
+            const shownTotal = (item.calculatedTotal != null && !isNaN(Number(item.calculatedTotal)))
+                ? Number(item.calculatedTotal) : Number(item.total);
+            msg += ' = ' + this._fmtMoney(shownTotal) + ' ل.س\n';
+        }
+
+        // Supplier
+        if (draft.supplier) {
+            if (draft.needsSupplierCreation) {
+                msg += '\n🏭 المورد: **' + draft.supplier + '** (غير موجود — أنشئه عند التأكيد)';
+            } else {
+                msg += '\n🏭 المورد: **' + draft.supplier + '**';
+            }
+        } else {
+            msg += '\n🏭 المورد: غير محدد';
+        }
+
+        // Category
+        msg += '\n📂 التصنيف: ' + draft.category;
+
+        // Invoice number
+        if (draft.invoiceNumber) msg += '\n📋 رقم الفاتورة: ' + draft.invoiceNumber;
+
+        // Discrepancy warning
+        if (draft.needsReview) {
+            msg += '\n\n🔻 **الحالة: NEEDS_REVIEW** (فارق غير متطابق)';
+        }
+        if (draft.hasDiscrepancy && draft.discrepancyNote) {
+            msg += '\n\n' + draft.discrepancyNote;
+        }
+
+        // Manager approval needed
+        if (draft.needsManagerApproval) {
+            msg += '\n\n🔒 **هذه العملية تحتاج موافقة المدير.**';
+        }
+
+        msg += '\n\n💰 الإجمالي: **' + this._fmtMoney(draft.total) + ' ل.س**';
+        msg += '\n\nهل أسجل المشتريات؟';
+
+        return { success: true, message: msg, needsConfirmation: true, draftType: 'purchase' };
+    }
+
+    async _executePurchaseDraft(draft) {
+        try {
+            // Permission check
+            const cu = this._getCurrentUser();
+            if (!cu) {
+                return { success: false, message: '❌ لا يوجد مستخدم مسجل. سجّل دخولك أولاً.' };
+            }
+
+            // Manager approval check
+            if (draft.needsManagerApproval) {
+                const canApprove = cu.role === 'admin' || cu.role === 'manager';
+                if (!canApprove) {
+                    await this._logPurchaseAudit('BATMAN_PURCHASE_CANCELLED', draft, 'manager_required');
+                    return { success: true, message: '🔒 هذه العملية تحتاج موافقة المدير. تم حفظ المسودة للمراجعة.' };
+                }
+            }
+
+            // Create supplier if needed
+            if (draft.needsSupplierCreation && draft.supplier) {
+                try {
+                    const newSupplier = await window.LuccaDB.Suppliers.add({
+                        name: draft.supplier,
+                        active: 1,
+                        createdBy: cu.name || 'batman'
+                    });
+                    draft.supplierId = newSupplier;
+                    await this._logAudit('purchase_supplier_created', { supplier: draft.supplier, id: newSupplier });
+                } catch (e) {
+                    console.error('[Batman] Failed to create supplier:', e);
+                }
+            }
+
+            // Execute purchase via Purchases.add (which handles inventory adjustment)
+            // Final per-line total must be the CALCULATED total (qty × price), matching draft.total.
+            const purchaseIds = [];
+            for (const item of draft.items) {
+                const calcTotal = (item.calculatedTotal != null && !isNaN(Number(item.calculatedTotal)))
+                    ? Number(item.calculatedTotal)
+                    : (Number(item.quantity) || 1) * (Number(item.unitPrice) || 0);
+                const purchaseData = {
+                    name: item.name,
+                    item: item.name,
+                    quantity: item.quantity,
+                    costPrice: item.unitPrice,
+                    total: calcTotal,
+                    supplier: draft.supplier || '',
+                    supplierId: draft.supplierId || null,
+                    category: item.category || draft.category || 'أخرى',
+                    notes: (draft.notes || '') + (draft.invoiceNumber ? ' فاتورة #' + draft.invoiceNumber : ''),
+                    inventoryItemId: item.inventoryItemId || null,
+                    syncId: this._newSyncId()
+                };
+                const id = await window.LuccaDB.Purchases.add(purchaseData);
+                purchaseIds.push(id);
+            }
+
+            // Log confirmation audit
+            await this._logPurchaseAudit('BATMAN_PURCHASE_CONFIRMED', {
+                ...draft,
+                purchaseIds,
+                confirmedBy: cu.name,
+                userId: cu.userId || cu.id,
+                employeeId: cu.employeeId
+            }, 'confirmed');
+
+            // Build success message (reflect the calculated totals actually saved)
+            let msg = '✅ **تم تسجيل المشتريات**\n\n';
+            for (const item of draft.items) {
+                const calcTotal = (item.calculatedTotal != null && !isNaN(Number(item.calculatedTotal)))
+                    ? Number(item.calculatedTotal) : Number(item.total);
+                msg += '• ' + item.name + ' × ' + item.quantity + ' = ' + this._fmtMoney(calcTotal) + ' ل.س\n';
+            }
+            if (draft.supplier) msg += '\n🏭 المورد: ' + draft.supplier;
+            msg += '\n💰 الإجمالي: **' + this._fmtMoney(draft.total) + ' ل.س**';
+            msg += '\n📦 تم تحديث المخزون';
+
+            return { success: true, message: msg };
+        } catch (e) {
+            console.error('[Batman] Purchase execution error:', e);
+            return { success: false, message: '❌ فشل تسجيل المشتريات: ' + e.message };
+        }
+    }
+
+    async _findSupplier(name) {
+        try {
+            const suppliers = await window.LuccaDB.Suppliers.getAll();
+            const q = (name || '').toLowerCase();
+            return suppliers.find(s => (s.name || '').toLowerCase().includes(q) || q.includes((s.name || '').toLowerCase()));
+        } catch (e) { return null; }
+    }
+
+    _inferPurchaseCategory(itemName) {
+        const name = (itemName || '').toLowerCase();
+        const categories = {
+            'خامات': ['لبن', 'حليب', 'قهوة', 'سكر', 'شاي', 'قمح', 'دقيق', 'بيض', 'زبدة', 'جبنة', 'كريمة', 'فراولة', 'مانجو', 'موز', 'تفاح', 'ليمون', 'نعناع', 'فواكه', 'خضار', 'لحوم', 'دجاج', 'سمك'],
+            'مواد غذائية': ['أرز', 'معجون', 'صلصة', 'زيت', 'خل', 'ملح', 'فلفل', 'بهارات', 'تونة', 'عسل', 'مربى', 'شيبس', 'بسكويت', 'شوكولاتة', 'جبن'],
+            'مشروبات': ['بيبسي', 'سفن', 'ماء', 'عصير', 'كولا', 'ميرندا', 'فيمتو', 'مشروب'],
+            'مستلزمات تشغيل': ['أكياس', 'كلينكس', 'مناديل', 'صابون', 'معقم', 'قفازات', 'ورق', 'لفاف'],
+        };
+        for (const [cat, keywords] of Object.entries(categories)) {
+            for (const kw of keywords) {
+                if (name.includes(kw)) return cat;
+            }
+        }
+        return 'خامات';
+    }
+
+    _validatePurchaseItems(items) {
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return { ok: false, error: 'لا توجد أصناف في المشتريات' };
+        }
+        for (const item of items) {
+            if (!item.name || !item.name.trim()) {
+                return { ok: false, error: 'اسم الصنف فارغ' };
+            }
+            if (Number(item.quantity) <= 0) {
+                return { ok: false, error: 'الكمية يجب أن تكون أكبر من صفر: ' + item.name };
+            }
+            if (Number(item.unitPrice) < 0) {
+                return { ok: false, error: 'السعر لا يمكن أن يكون سالبًا: ' + item.name };
+            }
+            // Verify total = qty × price (warn, don't hide the difference)
+            const expected = Number(item.quantity) * Number(item.unitPrice);
+            if (Number(item.total) > 0 && Math.abs(Number(item.total) - expected) > 0.01) {
+                item.totalDiscrepancy = true;
+                item.reportedTotal = Number(item.total);
+                item.calculatedTotal = expected;
+            } else if (Number(item.total) <= 0) {
+                item.total = expected;
+            }
+        }
+        return { ok: true };
+    }
+
+    _getCurrentUser() {
+        try {
+            const cu = window.LuccaDB && window.LuccaDB.Users && window.LuccaDB.Users.getCurrentUser && window.LuccaDB.Users.getCurrentUser();
+            return cu || null;
+        } catch (e) { return null; }
+    }
+
+    _newSyncId() {
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+    }
+
+    async _logAudit(action, data) {
+        await this._logPurchaseAudit(action, data, '');
+    }
+
+    async _logPurchaseAudit(action, data, status) {
+        try {
+            const cu = this._getCurrentUser();
+            const ld = window.LuccaDB && window.LuccaDB.AuditLogs;
+            if (ld && typeof ld.log === 'function') {
+                await ld.log(action, 'purchases', null, null, { ...data, status }, (cu && cu.name) || 'system');
+            } else if (ld && typeof ld.add === 'function') {
+                await ld.add({
+                    userId: (cu && (cu.userId != null ? cu.userId : cu.id)) || null,
+                    action: action,
+                    objectType: 'purchases',
+                    objectId: null,
+                    oldValue: null,
+                    newValue: JSON.stringify({ ...data, status }),
+                    userName: (cu && cu.name) || 'batman',
+                    createdAt: new Date().toISOString()
+                });
+            }
+        } catch (e) { console.warn('[Batman] Audit log error:', e); }
+    }
+
+    // ===== END PURCHASE SYSTEM =====
 
     async toolInventory(params) {
         try {
@@ -1207,17 +1582,40 @@ class AIPosEngine {
     // ===== AUDIT LOGGING =====
     async logAudit(action, details) {
         try {
-            await window.LuccaDB.AuditLogs.add({
-                userId: 'ai_assistant',
-                action: 'AI_' + action,
-                details: JSON.stringify(details),
-                timestamp: new Date().toISOString()
-            });
+            let uid = 'ai_assistant';
+            try {
+                const cu = window.LuccaDB && window.LuccaDB.Users && window.LuccaDB.Users.getCurrentUser && window.LuccaDB.Users.getCurrentUser();
+                if (cu) uid = (cu.userId != null ? cu.userId : cu.id) || uid;
+            } catch (e) { /* non-critical */ }
+            await window.LuccaDB.AuditLogs.log('AI_' + action, 'ai', null, null, details, uid);
         } catch (e) { /* audit log is non-critical */ }
     }
 
     // ===== MAIN PROCESSOR =====
     async process(userInput) {
+        // ===== PURCHASE DRAFT CONFIRMATION =====
+        if (this.pendingPurchaseDraft) {
+            const t = (userInput || '').trim();
+            if (/^(نعم|yes|ok|تمام|أكيد|confirm|تأكيد|سجّل|سجل)/i.test(t)) {
+                const draft = this.pendingPurchaseDraft;
+                this.pendingPurchaseDraft = null;
+                return await this._executePurchaseDraft(draft);
+            }
+            if (/^(لا|cancel|إلغاء|no|تمام|blank| Hamel)/i.test(t)) {
+                const draft = this.pendingPurchaseDraft;
+                this.pendingPurchaseDraft = null;
+                await this._logPurchaseAudit('BATMAN_PURCHASE_CANCELLED', draft, 'cancelled');
+                return { success: true, message: '✅ تم إلغاء مسودة المشتريات.' };
+            }
+            // If user typed a new purchase command, parse it instead
+            if (/(?:اشتر(?:يت|ى|ي)|شراء|مشتريات|فاتورة)/.test(t)) {
+                this.pendingPurchaseDraft = null;
+                // Fall through to normal processing
+            } else {
+                return { success: true, message: '⚠️ في مسودة مشتريات معلقة. اكتب "نعم" للتأكيد أو "لا" للإلغاء.' };
+            }
+        }
+
         // Check for pending confirmation
         if (this.pendingConfirmation && this.pendingAction) {
             if (/^(نعم|yes|ok|تمام|أكيد|affirmative|confirm)/i.test(userInput.trim())) {
@@ -1249,10 +1647,13 @@ class AIPosEngine {
         let parts = text.split(/\s+(?:وبعد\s+دي?ن?|ثم|،|;\s*)/i).map(s => s.trim()).filter(Boolean);
         
         // Further split by "و" between verbs
+        // NOTE: verbPattern is already a full non-capturing group (?:افتح|...).
+        // Wrapping it again (e.g. '(?:' + verbPattern + ')') or stripping its parens
+        // produces '(?:?:...)' → "Nothing to repeat" SyntaxError in JS RegExp.
         const verbPattern = '(?:افتح|فتح|اقفل|قفل|حط|حطيت|ضف|اضف|أضف|زود|شيل|احذف|امسح|ادفع|دفع|حساب|انقل|ادمج|قسم|اطبع|ابعت|خلي|غير)';
         const refined = [];
         for (const part of parts) {
-            const subParts = part.split(new RegExp('\\s+و\\s+(?:' + verbPattern.replace(/[()]/g, '') + ')\\s', 'i'));
+            const subParts = part.split(new RegExp('\\s+و\\s*' + verbPattern + '\\s', 'i'));
             if (subParts.length > 1) {
                 refined.push(...subParts.map(s => s.trim()).filter(Boolean));
             } else {
@@ -1315,6 +1716,8 @@ class AIPosEngine {
 
         // Build params based on intent
         let params = { tableNumber, paymentMethod, orderType };
+        // بعض الأدوات تقرأ النص الأصلي (toolAddExpense وغيرها) — بدون هذا يصلها نص فارغ دائماً.
+        params._rawText = userInput;
 
         if (intent === 'add_items' || intent === 'create_takeaway' || intent === 'create_delivery') {
             params.items = this.extractItems(userInput);
@@ -1376,7 +1779,11 @@ class AIPosEngine {
             this.pendingAction = { intent, params };
             const confirmMessages = {
                 payment: '💰 تأكد الدفع على الطاولة ' + (tableNumber || this.context.currentTable || '?') + '?\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء',
-                delete: '⚠️ تأكد الحذف؟\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء'
+                delete: '⚠️ تأكد الحذف؟\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء',
+                expense: (() => {
+                    const amt = params._rawText ? (params._rawText.match(/(\d+(?:[.,]\d+)?)/) || [])[1] : null;
+                    return '💸 **تأكيد تسجيل المصروف**\n💰 المبلغ: ' + (amt ? this._fmtMoney(Number(amt.replace(',', '.'))) : '?') + ' ل.س\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء';
+                })()
             };
             return { success: true, message: confirmMessages[confirmType] || '⚠️ تأكد العملية؟\n\nاكتب "نعم" أو "لا"', needsConfirmation: true };
         }

@@ -76,10 +76,29 @@
   };
 
   const Users = {
+    async _hashPassword(password, salt){
+      if(!window.crypto || !window.crypto.subtle) return null;
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+      const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: enc.encode(salt), iterations: 100000, hash: 'SHA-512' }, keyMaterial, 512);
+      return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
+    },
     async login(username, password) {
-      const { data, error } = await _supabase.from('users').select('*').eq('username', username).eq('password', password).single();
+      const { data, error } = await _supabase.from('users').select('*').eq('username', username).single();
       if (error || !data) throw new Error('بيانات الدخول غير صحيحة');
       const user = toCamel(data);
+      let valid = false;
+      const stored = user.password;
+      if (stored && String(stored).startsWith('pbkdf2:')) {
+        try {
+          const parts = String(stored).split(':');
+          const computed = await this._hashPassword(password, parts[1]);
+          valid = (computed === parts[2]);
+        } catch(e) { valid = false; }
+      } else {
+        valid = (String(stored) === String(password));
+      }
+      if (!valid) throw new Error('بيانات الدخول غير صحيحة');
       if (!user.active) throw new Error('الحساب معطل');
       localStorage.setItem('currentUser', JSON.stringify(user));
       return user;
@@ -90,7 +109,15 @@
       return u ? JSON.parse(u) : null;
     },
     async getAll() { return _db.getAll('users'); },
-    async add(user) { return _db.add('users', user); },
+    async add(user) {
+      let row = user;
+      if (user && user.password && !String(user.password).startsWith('pbkdf2:')) {
+        const salt = crypto.randomUUID();
+        const h = await this._hashPassword(user.password, salt);
+        if (h) row = { ...user, password: 'pbkdf2:' + salt + ':' + h };
+      }
+      return _db.add('users', row);
+    },
     async update(id, data) { return _db.put('users', { ...data, id }); },
     async delete(id) { return _db.delete('users', id); },
     async createDefaultAdmin() {
@@ -696,6 +723,8 @@
     // Sync methods
     enableSync: function(opts){
       if(!window.SyncEngine) return;
+      // غلف عمليات db.put/add/delete لتدخل في queue المزامنة (كانت تُتخطى سابقاً → لا شيء يُزامَن)
+      window.SyncEngine.wrapDBOperations(_db, _supabase);
       window.SyncEngine.startAutoSync(_supabase, _db, {
         interval: (opts && opts.interval) || 30000,
         onStatusChange: (opts && opts.onStatusChange) || null
@@ -705,4 +734,9 @@
     triggerSync: function(){ return window.SyncEngine ? window.SyncEngine.triggerSync() : Promise.resolve(); },
     _supabaseClient: _supabase
   };
+
+  // إعلام طبقة التشغيل (database.js) بجاهزية Supabase لتفعيل enableSync تلقائياً
+  if (typeof window !== 'undefined' && window.dispatchEvent) {
+    window.dispatchEvent(new Event('lucca:sync-available'));
+  }
 })();

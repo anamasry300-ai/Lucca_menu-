@@ -1508,8 +1508,8 @@
         <h1>LUCCA</h1>
         <p>لوحة التحكم - إدارة المطعم</p>
         <div class="form-row">
-            <label>اسم المستخدم</label>
-            <input type="text" id="loginUser" placeholder="اسم المستخدم" autocomplete="username">
+            <label>اسم المستخدم أو البريد</label>
+            <input type="text" id="loginUser" placeholder="اسم المستخدم أو البريد" autocomplete="username">
         </div>
         <div class="form-row">
             <label>كلمة المرور</label>
@@ -1517,6 +1517,29 @@
         </div>
         <button class="btn btn-primary" onclick="doLogin()">تسجيل الدخول</button>
         <div id="loginError" style="color:var(--danger);font-size:0.85rem;margin-top:12px;text-align:center"></div>
+    </div>
+</div>
+
+<!-- Activation Screen (via ?invite=TOKEN) -->
+<div class="login-screen" id="activationScreen" style="display:none">
+    <div class="login-card">
+        <h1>LUCCA</h1>
+        <p>تفعيل حساب الموظف</p>
+        <div id="actInfo" style="margin-bottom:14px;text-align:center"></div>
+        <div class="form-row">
+            <label> البريد الإلكتروني</label>
+            <input type="email" id="actEmail" readonly style="background:var(--bg-muted, #f1f3f5);color:var(--text-muted)">
+        </div>
+        <div class="form-row">
+            <label>كلمة المرور</label>
+            <input type="password" id="actPass" placeholder="6 أحرف على الأقل" autocomplete="new-password">
+        </div>
+        <div class="form-row">
+            <label>تأكيد كلمة المرور</label>
+            <input type="password" id="actPassConfirm" placeholder="أعد كلمة المرور" autocomplete="new-password">
+        </div>
+        <button class="btn btn-primary" onclick="doActivate()">تفعيل الحساب</button>
+        <div id="actError" style="color:var(--danger);font-size:0.85rem;margin-top:12px;text-align:center"></div>
     </div>
 </div>
 
@@ -1811,14 +1834,17 @@
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
                         <div style="flex:2;min-width:160px"><label>الاسم</label><input type="text" id="empName"></div>
+                        <div style="flex:1;min-width:170px"><label>البريد الإلكتروني</label><input type="email" id="empEmail" placeholder="name@example.com"></div>
+                        <div style="flex:1;min-width:100px"><label>كود الموظف</label><input type="text" id="empCode" placeholder="اختياري"></div>
                         <div style="flex:1;min-width:120px"><label>الهاتف</label><input type="text" id="empPhone"></div>
                         <div style="flex:1;min-width:120px"><label>الوظيفة</label><select id="empRole"><option value="cashier">كاشير</option><option value="waiter">جرسون</option><option value="chef">طباخ</option><option value="manager">مدير</option></select></div>
                         <div style="flex:1;min-width:100px"><label>الراتب</label><input type="number" id="empSalary" min="0"></div>
                         <button class="btn btn-primary" onclick="addEmployee()">إضافة</button>
+                        <button class="btn btn-secondary" onclick="inviteEmployeeForm()">إنشاء دعوة بالبريد</button>
                     </div>
                 </div></div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>الاسم</th><th>الهاتف</th><th>الوظيفة</th><th>الراتب</th><th>الحالة</th><th>إجراءات</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>الاسم</th><th>البريد</th><th>الهاتف</th><th>الوظيفة</th><th>الراتب</th><th>الحالة</th><th>الدعوة</th><th>إجراءات</th></tr></thead>
                     <tbody id="employeesBody"></tbody></table>
                 </div></div>
             </div>
@@ -1863,6 +1889,31 @@
                     <table class="data-table"><thead><tr><th>الموظف</th><th>التاريخ</th><th>البداية</th><th>النهاية</th><th>الساعات</th><th>المبيعات</th></tr></thead>
                     <tbody id="shiftsBody"></tbody></table>
                 </div></div>
+
+                <!-- ===== مطابقة الوردية اليومية (Shift Reconciliation) ===== -->
+                <div class="section-title" style="margin-top:24px">🧮 مطابقة الوردية اليومية</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:1;min-width:150px"><label>رصيد الافتتاح (نقد)</label><input type="number" id="dsOpeningCash" min="0" step="0.01" placeholder="0"></div>
+                        <button class="btn btn-success" onclick="dsOpen()" id="dsOpenBtn">فتح وردية المطابقة ▶</button>
+                        <div style="flex:1;min-width:150px"><label>النقد المُحصى فعلياً</label><input type="number" id="dsActualCash" min="0" step="0.01" placeholder="0"></div>
+                        <button class="btn btn-warning" onclick="dsClose()" id="dsCloseBtn">إغلاق ومطابقة ⏹</button>
+                    </div>
+                </div></div>
+                <div class="panel"><div class="panel-body no-pad">
+                    <table class="data-table"><thead><tr><th>التاريخ</th><th>الافتتاح</th><th>مبيعات كاش</th><th>المصروفات</th><th>المتوقع</th><th>المُحصى</th><th>الفرق</th></tr></thead>
+                    <tbody id="dsReconBody"></tbody></table>
+                </div></div>
+
+                <!-- ===== F4: الإقفال اليومي + ورديات الصندوق النقدي ===== -->
+                <div class="section-title" style="margin-top:24px">💰 تقرير الإقفال اليومي (الصندوق النقدي)</div>
+                <div class="panel" style="margin-bottom:20px"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:1;min-width:150px"><label>التاريخ</label><input type="date" id="f4ReportDate"></div>
+                        <button class="btn btn-primary" onclick="f4LoadDaily()">عرض تقرير الإقفال</button>
+                    </div>
+                    <div id="f4DailyBody" style="margin-top:14px"></div>
+                </div></div>
             </div>
 
             <!-- ===== INVENTORY ===== -->
@@ -1875,6 +1926,7 @@
                     <button class="btn btn-sm btn-ghost" onclick="switchInvTab('recipes')" id="invTabRecipes">🍽️ الوصفات</button>
                     <button class="btn btn-sm btn-ghost" onclick="switchInvTab('movements')" id="invTabMovements">📊 الحركات</button>
                     <button class="btn btn-sm btn-ghost" onclick="switchInvTab('waste')" id="invTabWaste">🗑️ الهالك</button>
+                    <button class="btn btn-sm btn-ghost" onclick="switchInvTab('alerts')" id="invTabAlerts">🔔 تنبيهات <span id="invAlertBadge" style="display:none;background:var(--danger);color:#fff;border-radius:10px;padding:0 6px;font-size:0.75rem"></span></button>
                 </div>
 
                 <!-- Items Tab -->
@@ -1959,6 +2011,14 @@
                         <tbody id="wasteBody"></tbody></table>
                     </div></div>
                 </div>
+
+                <!-- Inventory Alerts Tab -->
+                <div id="invPanel-alerts" style="display:none">
+                    <div class="panel"><div class="panel-body no-pad">
+                        <table class="data-table"><thead><tr><th>التاريخ</th><th>الصنف</th><th>الكمية</th><th>الحد الأدنى</th><th>السبب</th><th>الحالة</th><th>إجراءات</th></tr></thead>
+                        <tbody id="invAlertsBody"></tbody></table>
+                    </div></div>
+                </div>
             </div>
 
             <!-- ===== PURCHASES ===== -->
@@ -1987,7 +2047,9 @@
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
                         <div style="flex:2;min-width:160px"><label>الوصف</label><input type="text" id="expDesc"></div>
                         <div style="flex:1;min-width:100px"><label>المبلغ</label><input type="number" id="expAmount" min="0" step="0.01"></div>
-                        <div style="flex:1;min-width:120px"><label>الفئة</label><input type="text" id="expCategory" placeholder="إيجار/رواتب/عام"></div>
+                        <div style="flex:1;min-width:130px"><label>الفئة</label><select id="expCategory"></select></div>
+                        <div style="flex:1;min-width:140px"><label>المورد</label><select id="expSupplier"><option value="">— بدون مورد —</option></select></div>
+                        <div style="flex:1;min-width:110px"><label>طريقة الدفع</label><select id="expPayMethod"><option value="cash">💵 كاش</option><option value="card">💳 كارت</option><option value="bank">🏦 تحويل</option></select></div>
                         <div style="flex:1;min-width:120px"><label>ملاحظات</label><input type="text" id="expNotes"></div>
                         <button class="btn btn-primary" onclick="addExpense()">إضافة</button>
                     </div>
@@ -1998,7 +2060,7 @@
                     </div>
                 </div></div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>الوصف</th><th>المبلغ</th><th>الفئة</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>الوصف</th><th>المبلغ</th><th>الفئة</th><th>المورد</th><th>الدفع</th><th>الموظف</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
                     <tbody id="expensesBody"></tbody></table>
                 </div></div>
             </div>
@@ -2019,6 +2081,8 @@
                     <div class="report-card" onclick="loadReport('inventory')"><h3>📦 المخزون</h3><p>حالة المخزون والتنبيهات</p></div>
                     <div class="report-card" onclick="loadReport('shifts')"><h3>📅 الورديات</h3><p>ملخص الورديات والمبيعات</p></div>
                     <div class="report-card" onclick="loadReport('cost')"><h3>🧮 مراقبة التكاليف</h3><p>نسبة تكلفة الطعام والأرباح</p></div>
+                    <div class="report-card" onclick="loadReport('expenses')"><h3>🧾 المصروفات</h3><p>المصروفات حسب الفئة والموظف</p></div>
+                    <div class="report-card" onclick="loadReport('cash')"><h3>🪙 ملخص الصندوق</h3><p>فتح/إغلاق وإجماليات الصندوق</p></div>
                 </div>
                 <div class="panel" id="reportOutput" style="display:none">
                     <div class="panel-header">
@@ -2191,9 +2255,12 @@ function showToast(text, type){
 
 async function apiFetch(path){
     const url = getServerUrl() + '/api' + path;
-    const key = localStorage.getItem('luccaApiKey') || '';
+    const headers = { 'Content-Type':'application/json' };
+    const token = sessionStorage.getItem('luccaToken') || '';
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    else headers['x-api-key'] = localStorage.getItem('luccaApiKey') || '';
     try {
-        const res = await fetch(url, { headers:{'x-api-key':key,'Content-Type':'application/json'}, signal: AbortSignal.timeout(5000) });
+        const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
         if(!res.ok) throw new Error('API '+res.status);
         return res.json();
     } catch(e) {
@@ -2215,17 +2282,26 @@ async function localDashboardFallback(path){
             return d >= from && d <= to;
         });
         const completed = filteredOrders.filter(o => o.paymentStatus === 'paid' || o.status === 'completed' || o.status === 'closed');
-        const totalSales = completed.reduce((s,o) => s + (o.total || o.totalAmount || 0), 0);
+        const totalSalesGross = completed.reduce((s,o) => s + (o.total || o.totalAmount || 0), 0);
+        const allRefundsStore = await window.LuccaDB.db.getAll('refunds');
+        const rangeRefundsArr = allRefundsStore.filter(r => {
+            const d = (r.date || r.createdAt || r.updatedAt || '').slice(0,10);
+            return d >= from && d <= to;
+        });
+        const rangeRefunds = rangeRefundsArr.reduce((s,r) => s + Number(r.amount||0), 0);
+        const totalSales = totalSalesGross - rangeRefunds;
         const totalDiscounts = filteredOrders.reduce((s,o) => s + (o.discount || 0), 0);
-        const totalRefunds = filteredOrders.filter(o => o.status === 'refunded').reduce((s,o) => s + (o.total || 0), 0);
+        const totalRefunds = rangeRefunds;
         const avgOrder = completed.length > 0 ? Math.round(totalSales / completed.length) : 0;
 
         if(path.startsWith('/dashboard/kpis')){
             return { sales:{value:totalSales}, orders:{value:completed.length}, avgOrder:{value:avgOrder}, discounts:{value:totalDiscounts}, refunds:{value:totalRefunds} };
         }
         if(path.startsWith('/dashboard/sales-by-day')){
+            const refundByDay = {};
+            rangeRefundsArr.forEach(r => { const d = (r.date||r.createdAt||r.updatedAt||'').slice(0,10); refundByDay[d] = (refundByDay[d]||0) + Number(r.amount||0); });
             const dayMap = {};
-            completed.forEach(o => { const d = (o.date||o.createdAt||'').slice(0,10); dayMap[d] = (dayMap[d]||0) + (o.total||0); });
+            completed.forEach(o => { const d = (o.date||o.createdAt||'').slice(0,10); dayMap[d] = ((dayMap[d]||0) + (o.total||0)) - (refundByDay[d]||0); });
             return Object.entries(dayMap).map(([date,revenue]) => ({date,revenue})).sort((a,b) => a.date.localeCompare(b.date));
         }
         if(path.startsWith('/dashboard/sales-by-category')){
@@ -2300,6 +2376,7 @@ async function doLogin(){
     try {
         const u = await window.LuccaDB.Users.login(user, pass);
         currentUser = u;
+        window.__luccaRole = u.role || 'user';
         document.getElementById('loginScreen').style.display='none';
         document.getElementById('app').style.display='flex';
         document.getElementById('userDisplayName').textContent = u.displayName || u.username;
@@ -2314,8 +2391,63 @@ async function doLogin(){
 function doLogout(){
     window.LuccaDB.Users.logout();
     currentUser = null;
+    window.__luccaRole = null;
     document.getElementById('loginScreen').style.display='flex';
     document.getElementById('app').style.display='none';
+}
+
+// ===== تفعيل حساب الموظف (عبر ?invite=TOKEN) =====
+let pendingInviteToken = null;
+
+// نتحقق من الدعوة ونعرض معلوماتها (الاسم/البريد/الدور من الخادم — لا أسرار، لا اختيار هوية).
+async function initActivation(){
+    const params = new URLSearchParams(location.search);
+    const token = params.get('invite');
+    if(!token) return;
+    pendingInviteToken = token;
+    document.getElementById('activationScreen').style.display='flex';
+    document.getElementById('loginScreen').style.display='none';
+    const info = document.getElementById('actInfo');
+    const errEl = document.getElementById('actError');
+    errEl.textContent = '';
+    info.innerHTML = 'جارٍ التحقق من الدعوة...';
+    try {
+        const res = await window.LuccaDB.Users.checkInvite(token);
+        const roleLabels = {cashier:'كاشير',waiter:'جرسون',chef:'طباخ',manager:'مدير'};
+        info.innerHTML = '<div style="font-weight:700;margin-bottom:6px">مرحباً '+(res.name||'')+'</div>' +
+            '<div>الدور: <b>'+(roleLabels[res.role]||res.role||'—')+'</b></div>' +
+            '<div style="margin-top:4px;color:var(--text-muted)">أدخل بريدك الإلكتروني (يجب أن يطابق الدعوة) وكلمة مرورك لتفعيل الحساب.</div>';
+        document.getElementById('actEmail').value = res.email || '';
+    } catch(e){
+        info.innerHTML = '<div style="color:var(--danger);font-weight:700">تعذر التفعيل</div>';
+        errEl.textContent = e.message || 'رمز الدعوة غير صالح';
+        document.getElementById('activationScreen').querySelector('.btn').style.display='none';
+    }
+}
+
+async function doActivate(){
+    const email = document.getElementById('actEmail').value.trim();
+    const pass = document.getElementById('actPass').value;
+    const passC = document.getElementById('actPassConfirm').value;
+    const errEl = document.getElementById('actError');
+    errEl.textContent = '';
+    if(!pendingInviteToken){ errEl.textContent='رمز الدعوة مفقود'; return; }
+    if(!email || !pass || !passC){ errEl.textContent='أكمل جميع الحقول'; return; }
+    if(pass !== passC){ errEl.textContent='كلمتا المرور غير متطابقتين'; return; }
+    if(pass.length < 6){ errEl.textContent='كلمة المرور 6 أحرف على الأقل'; return; }
+    try {
+        await window.LuccaDB.Users.activateInvite(pendingInviteToken, email, pass);
+        // نجاح: ننظّف الرابط ونعرض شاشة الدخول (يمكنه الدخول بالبريد/المستخدم وكلمة المرور الجديدة).
+        const u = new URL(location.href); u.searchParams.delete('invite'); history.replaceState(null,'',u.toString());
+        document.getElementById('activationScreen').style.display='none';
+        document.getElementById('loginScreen').style.display='flex';
+        document.getElementById('loginError').textContent='✅ تم تفعيل الحساب — سجّل دخولك الآن';
+        document.getElementById('loginUser').value = email;
+        document.getElementById('loginPass').value = '';
+        /* الإخطار: نُخبر الإدارة بأن الدعوة اكتملت عبر تشغيل التفعيل لا إعادة تحميل */
+    } catch(e){
+        errEl.textContent = e.message || 'فشل التفعيل';
+    }
 }
 
 // ===== TABS =====
@@ -2338,10 +2470,10 @@ function initTabs(){
                 'paymethods-page': ()=>loadPaymentMethods(),
                 'employees-page': ()=>loadEmployees(),
                 'attendance-page': ()=>loadAttendance(),
-                'shifts-page': ()=>loadShifts(),
-                'inventory-page': ()=>loadInventory(),
+                'shifts-page': ()=>{ loadShifts(); dsLoad(); },
+                'inventory-page': ()=>{ loadInventory(); loadAlertsBadge(); },
                 'purchases-page': ()=>loadPurchases(),
-                'expenses-page': ()=>loadExpenses(),
+                'expenses-page': ()=>{ populateExpenseForm(); loadExpenses(); },
                 'roles-page': ()=>loadRoleUsers(),
                 'audit-page': ()=>loadAuditLogs(),
                 'kb-page': ()=>{ refreshKBStats(); loadKBDocList(); },
@@ -3051,11 +3183,23 @@ async function loadEmployees(){
     try {
         const emps = await window.LuccaDB.Employees.getAll();
         const tbody = document.getElementById('employeesBody');
-        if(!emps.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد موظفون</td></tr>'; return; }
+        if(!emps.length){ tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد موظفون</td></tr>'; return; }
         const roleLabels = {cashier:'كاشير',waiter:'جرسون',chef:'طباخ',manager:'مدير'};
+        const statusLabels = {pending:'⏳ قيد الانتظار',used:'✅ مفعّل',expired:'⌛ منتهية'};
+        // نجلب حالة الدعوة لكل موظف بالتوازي (اختياري إن وُجدت).
+        const inviteStatuses = {};
+        await Promise.all(emps.map(async e => {
+            try { inviteStatuses[e.id] = await window.LuccaDB.Employees.getInviteStatus(e.id); } catch(_) {}
+        }));
         tbody.innerHTML = emps.map(e=>{
             const active = e.active!==false && e.active!==0;
-            return '<tr><td>'+(e.name||'')+'</td><td>'+(e.phone||'—')+'</td><td><span class="badge badge-info">'+(roleLabels[e.role]||e.role||'—')+'</span></td><td>'+formatMoney(e.salary||0)+'</td><td><span class="badge '+(active?'badge-success':'badge-neutral')+'">'+(active?'نشط':'معطل')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="toggleEmployee(\''+e.id+'\','+(active?0:1)+')">'+(active?'🔒':'🔓')+'</button> <button class="btn btn-ghost btn-sm" onclick="deleteEmployee(\''+e.id+'\')">🗑️</button></td></tr>';
+            const st = inviteStatuses[e.id];
+            const inviteCell = st
+                ? '<span class="badge '+(st==='pending'?'badge-warning':st==='used'?'badge-success':'badge-neutral')+'">'+(statusLabels[st]||st)+'</span>' +
+                  (st==='pending' ? ' <button class="btn btn-ghost btn-sm" title="نسخ رابط التفعيل" onclick="copyInviteLink(\''+e.id+'\')">🔗</button>' : '')
+                : '<button class="btn btn-ghost btn-sm" title="إنشاء دعوة بهذا البريد" onclick="inviteEmployeeForm(\''+e.id+'\')">✉️</button>';
+            const email = (e.email && e.email !== 'null') ? e.email : '—';
+            return '<tr><td>'+(e.name||'')+'</td><td>'+email+'</td><td>'+(e.phone||'—')+'</td><td><span class="badge badge-info">'+(roleLabels[e.role]||e.role||'—')+'</span></td><td>'+formatMoney(e.salary||0)+'</td><td><span class="badge '+(active?'badge-success':'badge-neutral')+'">'+(active?'نشط':'معطل')+'</span></td><td>'+inviteCell+'</td><td><button class="btn btn-ghost btn-sm" onclick="toggleEmployee(\''+e.id+'\','+(active?0:1)+')">'+(active?'🔒':'🔓')+'</button> <button class="btn btn-ghost btn-sm" onclick="deleteEmployee(\''+e.id+'\')">🗑️</button></td></tr>';
         }).join('');
         populateEmployeeSelects();
     } catch(e){ showToast('خطأ: '+e.message,'error'); }
@@ -3063,19 +3207,78 @@ async function loadEmployees(){
 
 async function addEmployee(){
     const name = document.getElementById('empName').value.trim();
+    const email = document.getElementById('empEmail').value.trim();
+    const code = document.getElementById('empCode').value.trim();
     const phone = document.getElementById('empPhone').value.trim();
     const role = document.getElementById('empRole').value;
     const salary = document.getElementById('empSalary').value;
     if(!name){ showToast('أدخل اسم الموظف','error'); return; }
+    // إن وُجد بريد، نمرر عبر إنشاء الدعوة (إلزامي ليتمكن الموظف من الدخول لاحقاً) بدل الإنشاء المحلي الخام.
     try {
-        await window.LuccaDB.Employees.add({ name, phone, role, salary:Number(salary)||0, active:true, createdAt:new Date().toISOString() });
-        ['empName','empPhone','empSalary'].forEach(id=>document.getElementById(id).value='');
+        if(email){
+            const inv = await window.LuccaDB.Employees.invite({ name, email, role, employeeCode: code||undefined, phone, salary:Number(salary)||0 });
+            if(inv && inv.inviteToken){
+                const link = inviteLinkFor(inv.inviteToken);
+                showInviteLink(link);
+            }
+            loadEmployees(); showToast('تم إنشاء الموظف والدعوة');
+            ['empName','empEmail','empCode','empPhone','empSalary'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+            return;
+        }
+        await window.LuccaDB.Employees.add({ name, email: email||null, employeeCode: code||null, phone, role, salary:Number(salary)||0, active:true, createdAt:new Date().toISOString() });
+        ['empName','empEmail','empCode','empPhone','empSalary'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
         loadEmployees(); showToast('تمت الإضافة');
     } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
+// فتح نموذج دعوة لموظف قائم (يستعلم عن البريد إن وُجد).
+async function inviteEmployeeForm(employeeId){
+    let email = '', name = '', role = 'cashier';
+    if(employeeId){
+        const emps = await window.LuccaDB.Employees.getAll();
+        const emp = emps.find(x=>String(x.id)===String(employeeId));
+        if(emp){ email = emp.email || ''; name = emp.name || ''; role = emp.role || 'cashier'; }
+    }
+    const provided = prompt('البريد الإلكتروني للموظف (لإنشاء الدعوة):', email);
+    if(!provided || !provided.trim()) return;
+    const r = await window.LuccaDB.Employees.invite({ name: name||prompt('اسم الموظف:', name), email: provided.trim(), role });
+    if(r && r.inviteToken){ showInviteLink(inviteLinkFor(r.inviteToken), name||r.name); loadEmployees(); }
+}
+
+function inviteLinkFor(token){
+    const url = new URL(location.href);
+    url.searchParams.set('invite', token);
+    return url.toString();
+}
+
+function showInviteLink(link, name){
+    // لا نضع كلمة مرور داخل الرابط إطلاقاً — فقط رمز الدعوة.
+    if(navigator.clipboard){
+        navigator.clipboard.writeText(link).then(()=>showToast('رابط التفعيل منسوخ للحافظة')).catch(()=>prompt('انسخ رابط التفعيل (لا يتضمن كلمة مرور):', link));
+    } else { prompt('رابط التفعيل (لا يتضمن كلمة مرور):', link); }
+}
+
+async function copyInviteLink(employeeId){
+    try {
+        const status = await window.LuccaDB.Employees.getInviteStatus(employeeId);
+        if(status !== 'pending'){ showToast('لا توجد دعوة قيد الانتظار لهذا الموظف','error'); return; }
+        const invites = await window.LuccaDB.db.getAll('invitations');
+        const inv = invites.find(i=>String(i.employeeId)===String(employeeId) && i.status==='pending');
+        if(inv && inv.token){ showInviteLink(inviteLinkFor(inv.token)); }
+        else { showToast('دعوة غير موجودة — أنشئ واحدة جديدة','error'); }
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
 async function toggleEmployee(id, newActive){
-    try { await window.LuccaDB.Employees.update(Number(id)||id, { active:!!newActive }); loadEmployees(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+    try {
+        // نستخدم نقطة النهاية المخصّصة (الخادم مصدر الحقيقة) لتعطيل الموظف وكل حساب مرتبط به.
+        await window.LuccaDB.Employees.setStatus(Number(id)||id, !!newActive);
+        loadEmployees();
+    } catch(e){
+        // في وضع غير متصل أو عند فشل الخادم، ننسحب لتحديث محلي خفيف.
+        try { await window.LuccaDB.Employees.update(Number(id)||id, { active:!!newActive }); loadEmployees(); } catch(e2){}
+        showToast('خطأ: '+e.message,'error');
+    }
 }
 
 async function deleteEmployee(id){
@@ -3152,11 +3355,90 @@ async function endShift(){
     try { await window.LuccaDB.Shifts.end(Number(empId)); loadShifts(); showToast('تم إنهاء الوردية'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
+// ===== مطابقة الوردية اليومية (Shift Reconciliation) =====
+async function dsOpen(){
+    const cash = parseFloat(document.getElementById('dsOpeningCash').value) || 0;
+    try {
+        const res = await window.LuccaDB.DailyShifts.open(cash);
+        if(res.error){ showToast(res.error,'error'); }
+        else { showToast('تم فتح وردية المطابقة برصيد ' + formatMoney(cash)); }
+        dsLoad();
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+async function dsClose(){
+    const actual = parseFloat(document.getElementById('dsActualCash').value) || 0;
+    try {
+        const res = await window.LuccaDB.DailyShifts.close(actual);
+        if(res.error){ showToast(res.error,'error'); }
+        else {
+            const s = res.shift;
+            showToast('تم الإغلاق: المتوقع ' + formatMoney(s.expectedCash) + '، المُحصى ' + formatMoney(s.actualCash) + '، الفرق ' + formatMoney(s.difference), s.difference === 0 ? 'success' : 'warn');
+        }
+        dsLoad();
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+async function dsLoad(){
+    try {
+        const recs = await window.LuccaDB.DailyShifts.getReconciliations();
+        const body = document.getElementById('dsReconBody');
+        if(!recs.length){ body.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد وديات مُغلقة بعد</td></tr>'; return; }
+        body.innerHTML = recs.map(s=>{
+            const diff = (s.difference ?? 0);
+            const cls = diff === 0 ? '' : (diff < 0 ? 'color:#e74c3c' : 'color:#27ae60');
+            return '<tr><td>'+(s.date||'')+'</td><td>'+formatMoney(s.openingBalance||0)+'</td><td>'+formatMoney(s.cashSales||0)+'</td><td>'+formatMoney(s.totalExpenses||0)+'</td><td>'+formatMoney(s.expectedCash||0)+'</td><td>'+formatMoney(s.actualCash||0)+'</td><td style="'+cls+'">'+formatMoney(diff)+'</td></tr>';
+        }).join('');
+    } catch(e){ /* silent */ }
+}
+
+// ===== F4: تقرير الإقفال اليومي (الصندوق النقدي / ورديات الكاش) =====
+async function f4LoadDaily(){
+    try {
+        const d = document.getElementById('f4ReportDate').value || new Date().toISOString().slice(0,10);
+        if(!window.LuccaDB || !window.LuccaDB.CashRegister){ return; }
+        const rep = await window.LuccaDB.CashRegister.getDailyClosingReport(d);
+        const body = document.getElementById('f4DailyBody');
+        if(!body) return;
+        if(!rep.drawers.length){ body.innerHTML = '<div style="padding:16px;color:var(--text-muted)">لا توجد ورديات صندوق لهذا اليوم.</div>'; return; }
+
+        const diffLabel = { shortage: 'عجز', overage: 'فائض', balanced: 'مطابق' };
+        const drawerRows = rep.drawers.map(dr=>{
+            const cls = dr.difference===0?'':(dr.difference<0?'color:#e74c3c':'color:#27ae60');
+            const label = diffLabel[dr.differenceType] || '';
+            return '<tr><td>'+(dr.openedAt||'').slice(0,16).replace('T',' ')+'</td><td>'
+                +(dr.openedBy||'—')+'</td><td>'+(dr.closedBy||'—')+'</td><td>'+formatMoney(dr.openingCash)+'</td><td>'
+                +formatMoney(dr.totalCashSales)+'</td><td>'+formatMoney(dr.totalCardSales)+'</td><td>'+formatMoney(dr.totalWalletSales)+'</td><td>'
+                +formatMoney(dr.totalExpenses)+'</td><td>'+formatMoney(dr.expectedCash)+'</td><td>'+formatMoney(dr.actualCash)+'</td><td style="'+cls+'">'
+                +formatMoney(dr.difference)+' '+label+'</td></tr>';
+        }).join('');
+
+        const itemRows = rep.topItems.map(t=>'<tr><td>'+(t.name||'')+'</td><td>'+t.quantity+'</td><td>'+formatMoney(t.revenue)+'</td></tr>').join('')
+            || '<tr><td colspan="3" style="text-align:center;color:var(--text-muted)">لا أصناف لهذا اليوم</td></tr>';
+
+        body.innerHTML = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">'
+            +'<div class="stat"><b>الإيراد (المدفوع − استرداد)</b><div style="font-size:1.3rem">'+formatMoney(rep.netRevenue)+'</div></div>'
+            +'<div class="stat"><b>نقد</b><div>'+formatMoney(rep.totals.cash)+'</div></div>'
+            +'<div class="stat"><b>فيزا</b><div>'+formatMoney(rep.totals.card)+'</div></div>'
+            +'<div class="stat"><b>محفظة</b><div>'+formatMoney(rep.totals.wallet)+'</div></div>'
+            +'<div class="stat"><b>مصروفات</b><div>'+formatMoney(rep.totals.expenses)+'</div></div>'
+            +'<div class="stat"><b>استرداد</b><div>'+formatMoney(rep.totals.refunds)+'</div></div>'
+            +'</div>'
+            +'<div style="font-weight:700;margin:8px 0">ورديات الصندوق</div>'
+            +'<table class="data-table"><thead><tr><th>الفتح</th><th>افتتح</th><th>أغلق</th><th>الافتتاح</th><th>نقد</th><th>فيزا</th><th>محفظة</th><th>مصروف</th><th>المتوقع</th><th>الفعلي</th><th>الفرق</th></tr></thead><tbody id="f4DrawerBody">'+drawerRows+'</tbody></table>'
+            +'<div style="font-weight:700;margin:14px 0 8px">الأصناف الأكثر مبيعاً</div>'
+            +'<table class="data-table"><thead><tr><th>الصنف</th><th>الكمية</th><th>الإيراد</th></tr></thead><tbody>'+itemRows+'</tbody></table>';
+    } catch(e){ showToast('خطأ تقرير الإقفال: '+e.message,'error'); }
+}
+// تعبئة التاريخ الافتراضي عند فتح صفحة الورديات
+document.addEventListener('DOMContentLoaded', ()=>{
+    const rd = document.getElementById('f4ReportDate');
+    if(rd && !rd.value) rd.value = new Date().toISOString().slice(0,10);
+});
+
 // ===== INVENTORY =====
 let currentInvTab = 'items';
 function switchInvTab(tab){
     currentInvTab = tab;
-    ['items','suppliers','recipes','movements','waste'].forEach(t=>{
+    ['items','suppliers','recipes','movements','waste','alerts'].forEach(t=>{
         const panel = document.getElementById('invPanel-'+t);
         const btn = document.getElementById('invTab'+t.charAt(0).toUpperCase()+t.slice(1));
         if(panel) panel.style.display = t===tab?'':'none';
@@ -3166,6 +3448,7 @@ function switchInvTab(tab){
     if(tab==='suppliers') loadSuppliers();
     if(tab==='recipes') loadRecipes();
     if(tab==='movements') loadStockMovements();
+    if(tab==='alerts') loadInventoryAlerts();
     if(tab==='waste') loadWaste();
 }
 
@@ -3287,6 +3570,36 @@ async function loadStockMovements(){
     } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
+// ===== تنبيهات المخزون =====
+async function loadAlertsBadge(){
+    try {
+        const active = await window.LuccaDB.InventoryAlerts.getActive();
+        const badge = document.getElementById('invAlertBadge');
+        if(badge) badge.style.display = active.length ? 'inline-block' : 'none';
+        if(badge && active.length) badge.textContent = active.length;
+    } catch(e){ /* silent */ }
+}
+async function loadInventoryAlerts(){
+    try {
+        const alerts = await window.LuccaDB.InventoryAlerts.getAll();
+        alerts.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+        const tbody = document.getElementById('invAlertsBody');
+        if(!alerts.length){ tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد تنبيهات مخزون</td></tr>'; return; }
+        const causeLabels = {sale:'بيع',recipe_deduct:'استهلاك',waste:'هالك',purchase:'شراء',adjustment:'تعديل'};
+        tbody.innerHTML = alerts.map(a=>{
+            const active = a.status==='active';
+            return '<tr><td>'+formatDate(a.createdAt)+'</td><td>'+(a.name||'')+'</td><td>'+a.quantity+'</td><td>'+a.minStock+'</td><td>'+(causeLabels[a.cause]||a.cause||'—')+'</td><td style="color:'+(active?'var(--danger)':'var(--muted)')+'">'+(active?'نشط':'مُحل')+'</td><td>'+(active?'<button class="btn btn-sm btn-warning" onclick="resolveAlert('+a.id+')">حل</button>':'<span style="color:var(--muted)">'+formatDate(a.resolvedAt)+'</span>')+'</td></tr>';
+        }).join('');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+async function resolveAlert(id){
+    try {
+        await window.LuccaDB.InventoryAlerts.resolve(id, 'manual');
+        loadInventoryAlerts(); loadAlertsBadge();
+        showToast('تم حل التنبيه');
+    } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
 // ===== WASTE =====
 async function loadWaste(){
     try {
@@ -3354,20 +3667,42 @@ async function loadExpenses(){
         if(to) expenses = expenses.filter(e=>e.date<=to);
         expenses.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
         const tbody = document.getElementById('expensesBody');
-        if(!expenses.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد مصروفات</td></tr>'; return; }
-        tbody.innerHTML = expenses.map(e=>'<tr><td>'+(e.description||'')+'</td><td>'+formatMoney(e.amount||0)+'</td><td>'+(e.category||'—')+'</td><td>'+formatDate(e.date)+'</td><td><button class="btn btn-ghost btn-sm" onclick="deleteExpense(\''+e.id+'\')">🗑️</button></td></tr>').join('');
+        if(!expenses.length){ tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد مصروفات</td></tr>'; return; }
+        tbody.innerHTML = expenses.map(e=>{
+            const pay = (e.paymentMethod==='card')?'💳 كارت':(e.paymentMethod==='bank')?'🏦 تحويل':'💵 كاش';
+            const sup = (e.supplierId&&window.LuccaDB.Suppliers)?(e._supName||e.supplierName||''):(e.supplierName||e.supplier||(e.supplierId?'#'+e.supplierId:'—'));
+            return '<tr><td>'+(e.description||'')+'</td><td>'+formatMoney(e.amount||0)+'</td><td>'+(e.category||'—')+'</td><td>'+(sup||'—')+'</td><td>'+pay+'</td><td>'+(e.createdBy||'—')+'</td><td>'+formatDate(e.date)+'</td><td>'+((window.__luccaRole==='cashier')?'—':'<button class="btn btn-ghost btn-sm" onclick="deleteExpense(\''+e.id+'\')">🗑️</button>')+'</td></tr>';
+        }).join('');
     } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function populateExpenseForm(){
+    try {
+        const catSel = document.getElementById('expCategory');
+        if(catSel){
+            const cats = await window.LuccaDB.ExpenseCategories.getAll();
+            catSel.innerHTML = cats.map(c=>'<option value="'+c.name+'">'+(c.icon||'')+' '+c.name+'</option>').join('') || '<option value="عام">عام</option>';
+        }
+        const supSel = document.getElementById('expSupplier');
+        if(supSel){
+            const sups = await window.LuccaDB.Suppliers.getAll();
+            supSel.innerHTML = '<option value="">— بدون مورد —</option>' + sups.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');
+        }
+    } catch(e){}
 }
 
 async function addExpense(){
     const desc = document.getElementById('expDesc').value.trim();
     const amount = document.getElementById('expAmount').value;
     const category = document.getElementById('expCategory').value.trim();
+    const supplierId = document.getElementById('expSupplier').value;
+    const supplierName = supplierId ? (document.getElementById('expSupplier').selectedOptions[0]?.text||'') : '';
+    const paymentMethod = document.getElementById('expPayMethod').value;
     const notes = document.getElementById('expNotes').value.trim();
     if(!desc||!amount){ showToast('أدخل الوصف والمبلغ','error'); return; }
     try {
-        await window.LuccaDB.Expenses.add({ description:desc, amount:Number(amount), category, notes, date:todayStr() });
-        ['expDesc','expAmount','expCategory','expNotes'].forEach(id=>document.getElementById(id).value='');
+        await window.LuccaDB.Expenses.add({ description:desc, amount:Number(amount), category, supplierId: supplierId||null, supplierName, paymentMethod, notes, date:todayStr() });
+        ['expDesc','expAmount','expNotes'].forEach(id=>document.getElementById(id).value='');
         loadExpenses(); showToast('تمت الإضافة');
     } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
@@ -3386,7 +3721,7 @@ async function loadReport(type){
     const title = document.getElementById('reportTitle');
     output.style.display = 'block';
     content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-    const titles = {sales:'تقرير المبيعات',orders:'تقرير الطلبات',payments:'تقرير المدفوعات',products:'تقرير المنتجات',categories:'تقرير الأقسام',employees:'تقرير الموظفين',discounts:'تقرير الخصومات',refunds:'تقرير المرتجعات',profit:'تقرير الأرباح',inventory:'تقرير المخزون',shifts:'تقرير الورديات'};
+    const titles = {sales:'تقرير المبيعات',orders:'تقرير الطلبات',payments:'تقرير المدفوعات',products:'تقرير المنتجات',categories:'تقرير الأقسام',employees:'تقرير الموظفين',discounts:'تقرير الخصومات',refunds:'تقرير المرتجعات',profit:'تقرير الأرباح',inventory:'تقرير المخزون',shifts:'تقرير الورديات',expenses:'تقرير المصروفات',cash:'ملخص الصندوق'};
     title.textContent = titles[type]||'تقرير';
     try {
         let html = '';
@@ -3509,6 +3844,29 @@ async function loadReport(type){
                 html += '<tr><td><b>' + r.name + '</b></td><td>' + r.cat + '</td><td>' + formatMoney(r.price) + '</td><td>' + formatMoney(r.cost) + '</td><td style="color:' + costColor + ';font-weight:700">' + r.foodCostPct.toFixed(1) + '%</td><td>' + r.profitMargin.toFixed(1) + '%</td><td>' + r.sold + '</td><td>' + formatMoney(r.revenue) + '</td><td>' + r.classification + '</td></tr>';
             });
             html += '</tbody></table>';
+            currentReportData = rows;
+        } else if(type==='expenses'){
+            const d = await apiFetch('/dashboard/expenses?from='+from+'&to='+to);
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card red"><div class="kpi-value">'+formatMoney(d.total||0)+'</div><div class="kpi-label">إجمالي المصروفات ('+(d.count||0)+')</div></div><div class="kpi-card orange"><div class="kpi-value">'+formatMoney(Math.round((d.total||0)/Math.max(1,(d.count||0))))+'</div><div class="kpi-label">متوسط المصروف</div></div></div>';
+            html += '<h3>حسب الفئة</h3><table class="data-table"><thead><tr><th>الفئة</th><th>العدد</th><th>الإجمالي</th></tr></thead><tbody>';
+            (d.byCategory||[]).forEach(r=>{ html += '<tr><td>'+(r.name||'—')+'</td><td>'+(r.count||0)+'</td><td>'+formatMoney(r.total)+'</td></tr>'; });
+            html += '</tbody></table>';
+            html += '<h3>حسب الموظف</h3><table class="data-table"><thead><tr><th>الموظف</th><th>العدد</th><th>الإجمالي</th></tr></thead><tbody>';
+            (d.byEmployee||[]).forEach(r=>{ html += '<tr><td>'+(r.name||'—')+'</td><td>'+(r.count||0)+'</td><td>'+formatMoney(r.total)+'</td></tr>'; });
+            html += '</tbody></table>';
+            currentReportData = (d.byCategory||[]);
+        } else if(type==='cash'){
+            const drawers = await window.LuccaDB.CashRegister.getAllDrawers();
+            const today = new Date().toISOString().slice(0,10);
+            const rows = drawers.filter(d => (d.openedAt||'').slice(0,10)>=from && (d.openedAt||'').slice(0,10)<=to && (d.openedAt||'').slice(0,10)<=(to||today));
+            html += '<table class="data-table"><thead><tr><th>الفتح</th><th>الإغلاق</th><th>الأساسي</th><th>كاش</th><th>كارت</th><th>مصروفات</th><th>مرتجعات</th><th>متوقع</th><th>الفعلي</th><th>الفرق</th><th>الحالة</th></tr></thead><tbody>';
+            rows.forEach(d=>{
+                const exp = d.startingCash + (d.totalCashSales||0) - (d.totalExpenses||0) - (d.totalRefunds||0);
+                const diff = d.difference != null ? d.difference : (d.closingCash!=null? d.closingCash-exp : null);
+                html += '<tr><td>'+formatDate(d.openedAt)+'</td><td>'+(d.closedAt?formatDate(d.closedAt):'—')+'</td><td>'+formatMoney(d.startingCash)+'</td><td>'+formatMoney(d.totalCashSales||0)+'</td><td>'+formatMoney(d.totalCardSales||0)+'</td><td>'+formatMoney(d.totalExpenses||0)+'</td><td>'+formatMoney(d.totalRefunds||0)+'</td><td>'+formatMoney(exp)+'</td><td>'+(d.closingCash!=null?formatMoney(d.closingCash):'—')+'</td><td>'+(diff!=null?formatMoney(diff):'—')+'</td><td>'+((d.status==='open')?'مفتوح':'مغلق')+'</td></tr>';
+            });
+            html += '</tbody></table>';
+            if(!rows.length) html = '<div class="empty-state"><div class="icon">🪙</div><p>لا توجد بيانات صندوق لهذه الفترة</p></div>';
             currentReportData = rows;
         }
         content.innerHTML = html || '<div class="empty-state"><div class="icon">📊</div><p>لا توجد بيانات لهذا التقرير</p></div>';
@@ -3741,9 +4099,12 @@ function savePrinterSettings(){
 document.addEventListener('DOMContentLoaded', async ()=>{
     try { await init(); } catch(e){ console.error(e); }
     AdminPrinter.init();
-    // Enable sync engine in admin
-    if(window.SyncEngine && window.LuccaDB && window.LuccaDB._supabaseClient){
-        window.SyncEngine.startAutoSync(window.LuccaDB._supabaseClient, window.LuccaDB.db || null, { interval: 60000 });
+    // إذا وُجد رمز دعوة في الرابط → نعرض شاشة التفعيل ونتوقف (لا نفتح الجلسة المحفوظة).
+    const inviteToken = new URLSearchParams(location.search).get('invite');
+    if(inviteToken){ try { await initActivation(); } catch(e){ console.error(e); } return; }
+    // Enable sync engine in admin (نقطة تشغيل موحّدة: enableSync → wrapDBOperations + startAutoSync)
+    if(window.LuccaDB && typeof window.LuccaDB.enableSync === 'function'){
+        window.LuccaDB.enableSync(window.LuccaDB._supabaseClient || null, { interval: 60000 });
     }
     const savedUser = window.LuccaDB.Users.getCurrentUser();
     if(savedUser){
@@ -3752,6 +4113,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
             const exists = users.find(u=>u.id===savedUser.id||u.username===savedUser.username);
             if(exists){
                 currentUser = exists;
+                window.__luccaRole = exists.role || 'user';
                 document.getElementById('loginScreen').style.display='none';
                 document.getElementById('app').style.display='flex';
                 document.getElementById('userDisplayName').textContent = exists.displayName || exists.username;
@@ -3996,6 +4358,9 @@ async function deleteKBDoc(id){
 }
 
 <!-- ===== AI ASSISTANT BOT (Admin) ===== -->
+<script src="../ollama-adapter.js"></script>
+<script src="../ocr-adapter.js"></script>
+<script src="../invoice-scanner.js"></script>
 <script src="../ai-pos-engine.js"></script>
 <script src="../forecasting.js"></script>
 <script src="../report-export.js"></script>
@@ -4096,16 +4461,40 @@ function aiAddMsg(text,type,extra){const div=document.getElementById('aiMessages
 function aiBotReply(text,qa){setBotState('speaking');setTimeout(()=>setBotState(null),1500);const extra={};if(qa)extra.actions=qa;aiAddMsg(text,'bot',extra);if(qa&&qa.length){const qaDiv=document.getElementById('aiQuickActions');qaDiv.innerHTML='';qa.slice(0,6).forEach(a=>{const btn=document.createElement('button');btn.className='ai-quick-btn';btn.textContent=a.text;btn.onclick=()=>{aiAddMsg(a.text,'user');setTimeout(()=>processAdminBot(a.cmd||a.text),300);};qaDiv.appendChild(btn);});}}
 function aiShowTyping(){setBotState('thinking');const div=document.getElementById('aiMessages');const t=document.createElement('div');t.className='ai-msg bot';t.id='aiTyping';t.innerHTML='<div class="ai-typing"><span></span><span></span><span></span></div>';div.appendChild(t);div.scrollTop=div.scrollHeight;}
 function aiHideTyping(){setBotState(null);const t=document.getElementById('aiTyping');if(t)t.remove();}
+
+// ===== BATMAN Phase 1: توطين التنفيذ المالي بمستخدم الجلسة =====
+// Batman يعرف المستخدم الحالي من الجلسة تلقائياً. لا يقبل أبداً userId/employeeId/createdBy
+// من نص المستخدم — الهوية تُحقن من الجلسة داخل طبقة التنفيذ (Expenses.add / Purchases.add ...).
+let batmanPending = null;
+
+// تنفيذ عملية مالية مؤكَّدة. الهوية مصدرها الجلسة فقط (نص المستخدم لا يتحكم بها).
+async function executeBatmanConfirmed(){
+    if(!batmanPending) return;
+    const op = batmanPending; batmanPending = null;
+    try {
+        if(op.type==='expense'){
+            // Expenses.add يسند تلقائياً createdBy/userId/employeeId من مستخدم الجلسة.
+            const id = await window.LuccaDB.Expenses.add({ description: op.description, amount: op.amount, category: op.category||'عام', date: new Date().toISOString() });
+            const by = (window.currentUser && (window.currentUser.name||window.currentUser.username)) || '—';
+            return aiBotReply('✅ سُجّل المصروف\n• الوصف: **'+(op.description||'—')+'**\n• المبلغ: **'+formatMoney(op.amount)+' ل.س**\n• بواسطة: **'+by+'**');
+        }
+        return aiBotReply('❌ عملية غير معروفة');
+    } catch(e){ return aiBotReply('❌ فشل التنفيذ: '+e.message); }
+}
+
 function matchAny(text,kws){return kws.some(k=>text.includes(k));}
 
 async function processAdminBot(text){
     aiShowTyping();await new Promise(r=>setTimeout(r,300+Math.random()*300));aiHideTyping();
     const t=text.toLowerCase().trim();
+    // أوامر تأكيد/إلغاء باتمان
+    if(t==='batman_confirm'){ return executeBatmanConfirmed(); }
+    if(t==='batman_cancel'){ batmanPending=null; return aiBotReply('تم الإلغاء'); }
     if(matchAny(t,['مبيعات','today','sales','اليوم'])){
-        try{const orders=await window.LuccaDB.Orders.getAll();const today=new Date().toISOString().slice(0,10);const tO=orders.filter(o=>(o.createdAt||o.date||'').slice(0,10)===today);const total=tO.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);let h='<table class="ai-table"><tr><th>المقياس</th><th>القيمة</th></tr><tr><td>المبيعات</td><td><b>'+total.toLocaleString()+' ل.س</b></td></tr><tr><td>الطلبات</td><td>'+tO.length+'</td></tr><tr><td>متوسط الطلب</td><td>'+(tO.length?Math.round(total/tO.length):0).toLocaleString()+' ل.س</td></tr></table>';return aiBotReply('📊 **مبيعات اليوم:**'+h,[{text:'تقرير تفصيلي',cmd:'report'},{text:'المصروفات',cmd:'expenses'}]);}catch(e){return aiBotReply('❌ '+e.message);}
+        try{const orders=await window.LuccaDB.Orders.getAll();const today=new Date().toISOString().slice(0,10);const tO=orders.filter(o=>(o.createdAt||o.date||'').slice(0,10)===today&&o.paymentStatus==='paid');const total=tO.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);let h='<table class="ai-table"><tr><th>المقياس</th><th>القيمة</th></tr><tr><td>المبيعات</td><td><b>'+total.toLocaleString()+' ل.س</b></td></tr><tr><td>الطلبات</td><td>'+tO.length+'</td></tr><tr><td>متوسط الطلب</td><td>'+(tO.length?Math.round(total/tO.length):0).toLocaleString()+' ل.س</td></tr></table>';return aiBotReply('📊 **مبيعات اليوم:**'+h,[{text:'تقرير تفصيلي',cmd:'report'},{text:'المصروفات',cmd:'expenses'}]);}catch(e){return aiBotReply('❌ '+e.message);}  
     }
     if(matchAny(t,['تقرير','report'])){
-        try{const orders=await window.LuccaDB.Orders.getAll();const expenses=await window.LuccaDB.Expenses.getAll();const today=new Date().toISOString().slice(0,10);const tO=orders.filter(o=>(o.createdAt||o.date||'').slice(0,10)===today);const tE=expenses.filter(e=>(e.createdAt||e.date||'').slice(0,10)===today);const sales=tO.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);const exp=tE.reduce((s,e)=>s+Number(e.amount||0),0);let h='<table class="ai-table"><tr><th>البند</th><th>المبلغ</th></tr><tr><td>المبيعات</td><td><b>'+sales.toLocaleString()+' ل.س</b></td></tr><tr><td>الطلبات</td><td>'+tO.length+'</td></tr><tr><td>المصروفات</td><td style="color:#ff6b6b">'+exp.toLocaleString()+' ل.س</td></tr><tr><td>الربح</td><td style="color:'+(sales-exp>=0?'#51cf66':'#ff6b6b')+'"><b>'+(sales-exp).toLocaleString()+' ل.س</b></td></tr></table>';return aiBotReply('📊 **التقرير اليومي:**'+h);}catch(e){return aiBotReply('❌ '+e.message);}
+        try{const orders=await window.LuccaDB.Orders.getAll();const expenses=await window.LuccaDB.Expenses.getAll();const today=new Date().toISOString().slice(0,10);const tO=orders.filter(o=>(o.createdAt||o.date||'').slice(0,10)===today&&o.paymentStatus==='paid');const tE=expenses.filter(e=>(e.createdAt||e.date||'').slice(0,10)===today);const sales=tO.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);const exp=tE.reduce((s,e)=>s+Number(e.amount||0),0);let h='<table class="ai-table"><tr><th>البند</th><th>المبلغ</th></tr><tr><td>المبيعات</td><td><b>'+sales.toLocaleString()+' ل.س</b></td></tr><tr><td>الطلبات</td><td>'+tO.length+'</td></tr><tr><td>المصروفات</td><td style="color:#ff6b6b">'+exp.toLocaleString()+' ل.س</td></tr><tr><td>الربح</td><td style="color:'+(sales-exp>=0?'#51cf66':'#ff6b6b')+'"><b>'+(sales-exp).toLocaleString()+' ل.س</b></td></tr></table>';return aiBotReply('📊 **التقرير اليومي:**'+h);}catch(e){return aiBotReply('❌ '+e.message);}
     }
     if(matchAny(t,['الموظفين','موظف','employees'])){try{const emps=await window.LuccaDB.Employees.getAll();let h='<table class="ai-table"><tr><th>الاسم</th><th>الدور</th><th>الحالة</th></tr>';emps.forEach(e=>{h+='<tr><td>'+(e.name||'')+'</td><td>'+(e.role||'')+'</td><td>'+(e.active?'✅':'❌')+'</td></tr>';});h+='</table>';return aiBotReply('👥 **الموظفين:**'+h,[{text:'حضور',cmd:'checkin'},{text:'وردية',cmd:'shift'}]);}catch(e){return aiBotReply('❌ '+e.message);}}
     if(matchAny(t,['حضور','checkin'])){try{const emps=await window.LuccaDB.Employees.getAll();const btns=emps.filter(e=>e.active!==0).map(e=>({text:e.name,cmd:'ci_'+e.id}));return aiBotReply('👥 اختر الموظف:',btns);}catch(e){return aiBotReply('❌ '+e.message);}}
@@ -4113,6 +4502,22 @@ async function processAdminBot(text){
     if(matchAny(t,['وردية','shift'])){return aiBotReply('🕐 إدارة الورديات:',[{text:'بدء وردية',cmd:'start_shift'},{text:'انهاء وردية',cmd:'end_shift'}]);}
     if(matchAny(t,['المنتجات','منتج','products'])){
         try{const prods=await window.LuccaDB.Products.getActive();let h='<table class="ai-table"><tr><th>المنتج</th><th>السعر</th></tr>';prods.slice(0,8).forEach(p=>{h+='<tr><td>'+(p.nameAr||p.name||'')+'</td><td>'+(p.price||0).toLocaleString()+' ل.س</td></tr>';});h+='</table>';return aiBotReply('🛒 **المنتجات ('+prods.length+')**: '+h,[{text:'اضافة منتج',cmd:'add_prod'}]);}catch(e){return aiBotReply('❌ '+e.message);}
+    }
+    // إنشاء مصروف (Batman): يتطلب تأكيداً للعملية المالية — الهوية من الجلسة لا من النص.
+    if(matchAny(t,['سجل مصروف','سجلت مصروف','اضف مصروف','أضف مصروف','تسجيل مصروف','مصروف جديد','تسجيل عملية'])){
+        // نستخرج الوصف من بقية الجملة بعد نزع الكلمات المفتاحية والمبلغ.
+        let body = t;
+        ['سجلت مصروف','سجل مصروف','اضف مصروف','أضف مصروف','تسجيل مصروف','مصروف جديد','تسجيل عملية','مصروف'].forEach(k=>{ body = body.split(k).join(' '); });
+        body = body.replace(/\bب(?:مبلغ|مقابل)?\s*(\d+(?:[.,]\d+)?)/g, ' ').replace(/\s+/g,' ').trim();
+        const amountMatch = t.match(/(\d+(?:[.,]\d+)?)/);
+        const amount = amountMatch ? parseFloat(amountMatch[1].replace(',','.')) : NaN;
+        if(!amountMatch || isNaN(amount) || amount<=0){
+            return aiBotReply('✍️ **سجّل المصروف** — كم المبلغ؟\nمثال: "سجل مصروف خضار بـ 5000"', [{text:'مثال: خضار 5000', cmd:'سجل مصروف خضار بـ 5000'}]);
+        }
+        const description = body || 'مصروف';
+        const by = (window.currentUser && (window.currentUser.name||window.currentUser.username)) || window.__luccaRole || 'المستخدم الحالي';
+        batmanPending = { type:'expense', description, amount, category:'عام' };
+        return aiBotReply('⚠️ **تأكيد تسجيل المصروف**\n• الوصف: **'+description+'**\n• المبلغ: **'+formatMoney(amount)+' ل.س**\n• المسجَّل بواسطة: **'+by+'**\n\nهل تريد التنفيذ؟', [{text:'✅ تأكيد', cmd:'batman_confirm'},{text:'❌ إلغاء', cmd:'batman_cancel'}]);
     }
     if(matchAny(t,['مصروفات','مصروف','expense'])){
         try{const exps=await window.LuccaDB.Expenses.getAll();const today=new Date().toISOString().slice(0,10);const tE=exps.filter(e=>(e.createdAt||e.date||'').slice(0,10)===today);let h='<table class="ai-table"><tr><th>الوصف</th><th>المبلغ</th></tr>';tE.slice(-5).forEach(e=>{h+='<tr><td>'+(e.description||'')+'</td><td>'+(e.amount||0).toLocaleString()+' ل.س</td></tr>';});h+='</table>';return aiBotReply('💸 **مصروفات اليوم:**'+h);}catch(e){return aiBotReply('❌ '+e.message);}
@@ -4126,7 +4531,7 @@ async function processAdminBot(text){
     }
     // ===== ACCOUNTING =====
     if(matchAny(t,['حسابات','accounting','P&L','الميزانية','المال','financial','الربح والخسارة','تقرير مالي'])){
-        try{const orders=await window.LuccaDB.Orders.getAll();const expenses=await window.LuccaDB.Expenses.getAll();const month=new Date().toISOString().slice(0,7);const mO=orders.filter(o=>(o.createdAt||o.date||'').slice(0,7)===month);const mE=expenses.filter(e=>(e.createdAt||e.date||'').slice(0,7)===month);const sales=mO.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);const exp=mE.reduce((s,e)=>s+Number(e.amount||0),0);const profit=sales-exp;const margin=sales>0?((profit/sales)*100):0;let h='<table class="ai-table"><tr><th>البند</th><th>المبلغ</th></tr><tr><td>إيرادات المبيعات</td><td style="color:#51cf66"><b>'+sales.toLocaleString()+' ل.س</b></td></tr><tr><td>المصروفات</td><td style="color:#ff6b6b">-'+exp.toLocaleString()+' ل.س</td></tr><tr><td><b>صافي الربح</b></td><td style="color:'+(profit>=0?'#51cf66':'#ff6b6b')+'"><b>'+profit.toLocaleString()+' ل.س ('+margin.toFixed(1)+'%)</b></td></tr></table>';return aiBotReply('📊 **التقرير المالي الشهري:** '+h,[{text:'المصروفات',cmd:'expenses'},{text:'المبيعات',cmd:'sales'}]);}catch(e){return aiBotReply('❌ '+e.message);}
+        try{const orders=await window.LuccaDB.Orders.getAll();const expenses=await window.LuccaDB.Expenses.getAll();const month=new Date().toISOString().slice(0,7);const mO=orders.filter(o=>(o.createdAt||o.date||'').slice(0,7)===month&&o.paymentStatus==='paid');const mE=expenses.filter(e=>(e.createdAt||e.date||'').slice(0,7)===month);const sales=mO.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);const exp=mE.reduce((s,e)=>s+Number(e.amount||0),0);const profit=sales-exp;const margin=sales>0?((profit/sales)*100):0;let h='<table class="ai-table"><tr><th>البند</th><th>المبلغ</th></tr><tr><td>إيرادات المبيعات</td><td style="color:#51cf66"><b>'+sales.toLocaleString()+' ل.س</b></td></tr><tr><td>المصروفات</td><td style="color:#ff6b6b">-'+exp.toLocaleString()+' ل.س</td></tr><tr><td><b>صافي الربح</b></td><td style="color:'+(profit>=0?'#51cf66':'#ff6b6b')+'"><b>'+profit.toLocaleString()+' ل.س ('+margin.toFixed(1)+'%)</b></td></tr></table>';return aiBotReply('📊 **التقرير المالي الشهري:** '+h,[{text:'المصروفات',cmd:'expenses'},{text:'المبيعات',cmd:'sales'}]);}catch(e){return aiBotReply('❌ '+e.message);}
     }
     // ===== FORECASTING =====
     if(matchAny(t,['توقع','forecast','تنبؤ','predict','اليوم الأفضل','best day','reorder','إعادة طلب'])){
