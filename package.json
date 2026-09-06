@@ -1,6 +1,6 @@
 {
   "name": "lucca-caffe-pos",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Lucca Caffè - نظام إدارة المقهى",
   "main": "main.js",
   "author": "Lucca Caffè",
@@ -22,6 +22,7 @@
       "preload.js",
       "update-engine.js",
       "index.html",
+      "kitchen.html",
       "admin/**/*",
       "ai-pos-engine.js",
       "batman-dashboard.js",
