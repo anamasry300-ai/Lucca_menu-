@@ -242,10 +242,8 @@
                         <input type="number" id="newTableCapacity" min="1" max="20" value="4" style="max-width:70px;">
                         <label>المنطقة</label>
                         <select id="newTableZone">
-                            <option value="صالة">صالة</option>
-                            <option value="VIP">VIP</option>
+                            <option value="داخلي">داخلي</option>
                             <option value="خارجي">خارجي</option>
-                            <option value="أرجيلة">أرجيلة</option>
                         </select>
                         <button class="btn btn-primary btn-sm" onclick="addNewTable()">➕ إضافة</button>
                     </div>
@@ -696,7 +694,7 @@
                 `;
             }
 
-            const zone = table.zone || 'صالة';
+            const zone = table.zone || 'داخلي';
             const capacity = table.capacity || 4;
 
             return `
@@ -745,7 +743,7 @@
         async function renderZoneTabs(tables) {
             const container = document.getElementById('zoneTabs');
             if (!container) return;
-            const zones = [...new Set(tables.map(t => t.zone || 'صالة'))].sort();
+            const zones = [...new Set(tables.map(t => t.zone || 'داخلي'))].sort();
             let html = `<button class="zone-tab ${_activeZone === 'all' ? 'active' : ''}" onclick="filterZone('all')">الكل</button>`;
             zones.forEach(z => {
                 html += `<button class="zone-tab ${_activeZone === z ? 'active' : ''}" onclick="filterZone('${z}')">${z}</button>`;
@@ -783,7 +781,7 @@
 
                     // Apply zone filter
                     if (_activeZone !== 'all') {
-                        tables = tables.filter(t => (t.zone || 'صالة') === _activeZone);
+                        tables = tables.filter(t => (t.zone || 'داخلي') === _activeZone);
                     }
                     // Apply search filter
                     if (_tableSearchTerm) {
@@ -895,7 +893,7 @@
                 <div class="settings-table-item">
                     <div class="info">
                         <span class="num">#${t.number}</span>
-                        <span class="zone-tag">${t.zone || 'صالة'}</span>
+                        <span class="zone-tag">${t.zone || 'داخلي'}</span>
                         <span class="cap-tag">👤 ${t.capacity || 4}</span>
                         <select onchange="updateTableStatus(${t.number}, this.value)" style="font-size:0.7rem;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text)">
                             <option value="available" ${t.status==='available'?'selected':''}>🟢 فارغة</option>
@@ -1053,7 +1051,7 @@
                 `;
 
                 // Zones
-                const zones = ['الكل', ...new Set(allTables.map(t => t.zone || 'صالة'))];
+                const zones = ['الكل', ...new Set(allTables.map(t => t.zone || 'داخلي'))];
                 zonesEl.innerHTML = zones.map(z => `<div class="zone-pill ${z === 'الكل' ? 'active' : ''}" onclick="filterMainTables('${z}')">${z}</div>`).join('');
 
                 // Render all tables
@@ -1074,20 +1072,73 @@
             loadTablesMainView();
         }
 
+        const _ZONE_META = {
+            'داخلي':  { icon: '🏠', color: '#3B82F6', area: 'indoor' },
+            'خارجي':  { icon: '🌳', color: '#10B981', area: 'outdoor' }
+        };
+
+        function buildTableCardHTML(table, pendingOrders) {
+            return `<div class="table-card ${table.status}" data-table="${table.number}" onclick="enterOrderForTable(${table.number})">${buildTableHTML(table, pendingOrders)}</div>`;
+        }
+
+        function buildZoneSection(zone, zoneTables, pendingOrders) {
+            const meta = _ZONE_META[zone] || { icon: '📍', color: '#64748B', area: '' };
+            const cards = zoneTables.map(t => buildTableCardHTML(t, pendingOrders)).join('');
+            return `
+                <div class="floor-section ${meta.area}" data-zone="${zone}" style="--zone-accent:${meta.color}">
+                    <div class="floor-section-header">
+                        <span class="floor-section-icon">${meta.icon}</span>
+                        <span class="floor-section-name">${zone}</span>
+                        <span class="floor-section-count">${zoneTables.length} طاولة</span>
+                    </div>
+                    <div class="floor-section-grid">${cards}</div>
+                </div>
+            `;
+        }
+
+        function buildTakeawayBox() {
+            return `
+                <div class="floor-section takeaway" data-zone="takeaway" onclick="enterTakeawayOrder()" style="--zone-accent:#0EA5E9;cursor:pointer;" title="فتح طلب سفرى">
+                    <div class="floor-section-header">
+                        <span class="floor-section-icon">🛵</span>
+                        <span class="floor-section-name">تيك أواي</span>
+                        <span class="floor-section-count">أوردر سفرى</span>
+                    </div>
+                    <div class="takeaway-body">
+                        <div class="takeaway-big">🛵</div>
+                        <div class="takeaway-hint">اضغط لبدء طلب جاهز · بدون طاولة</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function enterTakeawayOrder() {
+            showOrderMode();
+            selectTable('takeaway');
+        }
+
         async function renderMainTableCards(tables, pendingOrders) {
             const grid = document.getElementById('tablesMainGrid');
+            if (!grid) return;
+            let filtered = tables;
             if (_mainTableFilter !== 'الكل') {
-                tables = tables.filter(t => (t.zone || 'صالة') === _mainTableFilter);
+                filtered = filtered.filter(t => (t.zone || 'داخلي') === _mainTableFilter);
             }
-            tables.sort((a, b) => a.number - b.number);
-            tables.forEach(table => {
-                const card = document.createElement('div');
-                card.className = `table-card ${table.status}`;
-                card.dataset.table = table.number;
-                card.innerHTML = buildTableHTML(table, pendingOrders);
-                card.addEventListener('click', () => enterOrderForTable(table.number));
-                grid.appendChild(card);
+            const byZone = {};
+            filtered.forEach(t => {
+                const z = t.zone || 'داخلي';
+                (byZone[z] = byZone[z] || []).push(t);
             });
+            const zoneNames = Object.keys(byZone);
+            const isMapLayout = zoneNames.length > 0 && zoneNames.every(z => _ZONE_META[z] && _ZONE_META[z].area);
+            grid.classList.toggle('map-layout', isMapLayout);
+            let html = zoneNames.map(z =>
+                buildZoneSection(z, byZone[z].slice().sort((a, b) => a.number - b.number), pendingOrders)
+            ).join('');
+            if (isMapLayout && _mainTableFilter === 'الكل') {
+                html += buildTakeawayBox();
+            }
+            grid.innerHTML = html || '<div style="text-align:center;color:var(--text-secondary);padding:40px;">لا توجد طاولات</div>';
         }
 
         function enterOrderForTable(tableNum) {

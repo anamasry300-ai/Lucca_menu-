@@ -131,11 +131,21 @@
   const Tables = {
     async init() {
       const tables = await this.getAll();
+      const expectedZone = (num) => (num <= 7 ? 'خارجي' : 'داخلي');
       if (tables.length === 0) {
-        const zoneMap = [null, 'صالة','صالة','صالة','صالة','صالة','صالة','صالة','VIP','VIP','VIP','VIP','خارجي','خارجي','أرجيلة'];
         for (let i = 1; i <= 14; i++) {
-          await _db.add('tables_store', { id: i, number: i, status: 'available', capacity: i <= 7 ? 4 : 6, zone: zoneMap[i] || 'صالة' });
+          await _db.add('tables_store', { id: i, number: i, status: 'available', capacity: i <= 7 ? 4 : 6, zone: expectedZone(i) });
         }
+      } else {
+        let changed = false;
+        for (const t of tables) {
+          if (t.zone !== expectedZone(t.number)) {
+            t.zone = expectedZone(t.number);
+            await _db.put('tables_store', t);
+            changed = true;
+          }
+        }
+        if (changed) console.log('[Tables] zones normalized: خارجي 1-7 / داخلي 8+');
       }
     },
     async getAll() { return _db.getAll('tables_store'); },
@@ -149,7 +159,7 @@
       return all.find(t => t.number === num) || all.find(t => t.id === num) || null;
     },
     async getById(id) { return this._findByRef(id); },
-    async add(t) { return _db.add('tables_store', { status: 'available', capacity: 4, zone: 'صالة', ...t }); },
+    async add(t) { return _db.add('tables_store', { status: 'available', capacity: 4, zone: 'داخلي', ...t }); },
     async update(id, data) {
       const table = await this._findByRef(id);
       if(table){ Object.assign(table, data); return _db.put('tables_store', table); }
