@@ -1,7 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { queryAll, queryOne } from '../db.js';
+import { authRequired, requirePermission } from '../auth.js';
 
 const router = Router();
+
+// H2: كل مسارات التحليلات/التقارير تتطلب مصادقة + صلاحية قراءة التقارير (admin/manager)
+router.use('/dashboard', authRequired as any);
+router.use('/dashboard', requirePermission('reports.read') as any);
 
 function dateRange(req: Request): { from: string; to: string } {
   const today = new Date().toISOString().slice(0, 10);
@@ -22,12 +27,12 @@ router.get('/dashboard/kpis', (req: Request, res: Response) => {
     const pf = prevDateRange(from, to);
 
     const cur = queryOne(
-      "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder, COALESCE(SUM(discountAmount), 0) as discounts FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status NOT IN ('cancelled')",
+      "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder, COALESCE(SUM(discountAmount), 0) as discounts FROM orders WHERE date(date) >= ? AND date(date) <= ? AND paymentStatus = 'paid'",
       [from, to]
     ) || { count: 0, revenue: 0, avgOrder: 0, discounts: 0 };
 
     const prev = queryOne(
-      "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status NOT IN ('cancelled')",
+      "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder FROM orders WHERE date(date) >= ? AND date(date) <= ? AND paymentStatus = 'paid'",
       [pf.from, pf.to]
     ) || { count: 0, revenue: 0, avgOrder: 0 };
 
@@ -41,7 +46,7 @@ router.get('/dashboard/kpis', (req: Request, res: Response) => {
 
     // COGS
     const cogsRow = queryOne(
-      "SELECT COALESCE(SUM(oi.quantity * COALESCE(p.cost, 0)), 0) as cogs FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled')",
+      "SELECT COALESCE(SUM(oi.quantity * COALESCE(p.cost, 0)), 0) as cogs FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.paymentStatus = 'paid'",
       [from, to]
     );
     const cogs = (cogsRow?.cogs as number) || 0;
@@ -72,7 +77,7 @@ router.get('/dashboard/sales-by-day', (req: Request, res: Response) => {
   try {
     const { from, to } = dateRange(req);
     const rows = queryAll(
-      "SELECT date(date) as date, COUNT(*) as orders, COALESCE(SUM(total), 0) as revenue, COALESCE(SUM(discountAmount), 0) as discounts FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status NOT IN ('cancelled') GROUP BY date(date) ORDER BY date(date)",
+      "SELECT date(date) as date, COUNT(*) as orders, COALESCE(SUM(total), 0) as revenue, COALESCE(SUM(discountAmount), 0) as discounts FROM orders WHERE date(date) >= ? AND date(date) <= ? AND paymentStatus = 'paid' GROUP BY date(date) ORDER BY date(date)",
       [from, to]
     );
     res.json(rows);
@@ -84,7 +89,7 @@ router.get('/dashboard/sales-by-category', (req: Request, res: Response) => {
   try {
     const { from, to } = dateRange(req);
     const rows = queryAll(
-      "SELECT COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') as name, SUM(oi.quantity) as quantity, SUM(oi.total) as revenue FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled') GROUP BY COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') ORDER BY revenue DESC",
+      "SELECT COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') as name, SUM(oi.quantity) as quantity, SUM(oi.total) as revenue FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.paymentStatus = 'paid' GROUP BY COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') ORDER BY revenue DESC",
       [from, to]
     );
     const total = rows.reduce((s, r) => s + ((r.revenue as number) || 0), 0);
@@ -98,7 +103,7 @@ router.get('/dashboard/top-products', (req: Request, res: Response) => {
     const { from, to } = dateRange(req);
     const limit = parseInt(req.query.limit as string) || 10;
     const rows = queryAll(
-      `SELECT oi.name, p.id as productId, COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') as category, SUM(oi.quantity) as quantity, SUM(oi.total) as revenue, COALESCE(p.cost, 0) as costPrice FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled') GROUP BY oi.name ORDER BY revenue DESC LIMIT ?`,
+      `SELECT oi.name, p.id as productId, COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') as category, SUM(oi.quantity) as quantity, SUM(oi.total) as revenue, COALESCE(p.cost, 0) as costPrice FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.paymentStatus = 'paid' GROUP BY oi.name ORDER BY revenue DESC LIMIT ?`,
       [from, to, limit]
     );
     res.json(rows.map(r => {
@@ -177,7 +182,7 @@ router.get('/dashboard/employees', (req: Request, res: Response) => {
   try {
     const { from, to } = dateRange(req);
     const rows = queryAll(
-      "SELECT o.createdBy as name, COUNT(*) as orders, COALESCE(SUM(o.total), 0) as sales, COALESCE(AVG(o.total), 0) as avgOrder FROM orders o WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled') GROUP BY o.createdBy ORDER BY sales DESC",
+      "SELECT o.createdBy as name, COUNT(*) as orders, COALESCE(SUM(o.total), 0) as sales, COALESCE(AVG(o.total), 0) as avgOrder FROM orders o WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.paymentStatus = 'paid' GROUP BY o.createdBy ORDER BY sales DESC",
       [from, to]
     );
     res.json(rows);
@@ -189,7 +194,7 @@ router.get('/dashboard/discounts', (req: Request, res: Response) => {
   try {
     const { from, to } = dateRange(req);
     const summary = queryOne(
-      "SELECT COUNT(*) as totalOrders, SUM(CASE WHEN discountAmount > 0 THEN 1 ELSE 0 END) as discountedOrders, COALESCE(SUM(discountAmount), 0) as totalDiscounts, COALESCE(SUM(total), 0) as totalSales FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status NOT IN ('cancelled')",
+      "SELECT COUNT(*) as totalOrders, SUM(CASE WHEN discountAmount > 0 THEN 1 ELSE 0 END) as discountedOrders, COALESCE(SUM(discountAmount), 0) as totalDiscounts, COALESCE(SUM(total), 0) as totalSales FROM orders WHERE date(date) >= ? AND date(date) <= ? AND paymentStatus = 'paid'",
       [from, to]
     );
     res.json(summary || { totalOrders: 0, discountedOrders: 0, totalDiscounts: 0, totalSales: 0 });
@@ -207,6 +212,14 @@ router.get('/dashboard/inventory', (_req: Request, res: Response) => {
   } catch (e: unknown) { res.status(500).json({ error: (e as Error).message }); }
 });
 
+// تنبيهات المخزون المُنشأة (persisted) النشطة — تُظهر الأحداث الفعلية الناتجة عن بيع/شراء انخفض تحت الحد.
+router.get('/dashboard/inventory-alerts', (_req: Request, res: Response) => {
+  try {
+    const rows = queryAll("SELECT * FROM inventory_alerts WHERE status = 'active' ORDER BY createdAt DESC");
+    res.json(rows);
+  } catch (e: unknown) { res.status(500).json({ error: (e as Error).message }); }
+});
+
 // 13. Business insights (auto-generated)
 router.get('/dashboard/insights', (req: Request, res: Response) => {
   try {
@@ -214,15 +227,15 @@ router.get('/dashboard/insights', (req: Request, res: Response) => {
     const pf = prevDateRange(from, to);
     const insights: { type: string; message: string; severity: string }[] = [];
 
-    const curSales = ((queryOne("SELECT COALESCE(SUM(total), 0) as t FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status NOT IN ('cancelled')", [from, to]) || {}).t as number) || 0;
-    const prevSales = ((queryOne("SELECT COALESCE(SUM(total), 0) as t FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status NOT IN ('cancelled')", [pf.from, pf.to]) || {}).t as number) || 0;
+    const curSales = ((queryOne("SELECT COALESCE(SUM(total), 0) as t FROM orders WHERE date(date) >= ? AND date(date) <= ? AND paymentStatus = 'paid'", [from, to]) || {}).t as number) || 0;
+    const prevSales = ((queryOne("SELECT COALESCE(SUM(total), 0) as t FROM orders WHERE date(date) >= ? AND date(date) <= ? AND paymentStatus = 'paid'", [pf.from, pf.to]) || {}).t as number) || 0;
     if (prevSales > 0) {
       const ch = ((curSales - prevSales) / prevSales * 100);
       if (ch > 5) insights.push({ type: 'positive', message: `المبيعات ارتفعت ${ch.toFixed(1)}% مقارنة بالفترة السابقة`, severity: 'success' });
       else if (ch < -5) insights.push({ type: 'negative', message: `المبيعات انخفضت ${Math.abs(ch).toFixed(1)}% مقارنة بالفترة السابقة`, severity: 'danger' });
     }
 
-    const topCat = queryOne("SELECT COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') as name, SUM(oi.total) as rev FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled') GROUP BY COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') ORDER BY rev DESC LIMIT 1", [from, to]);
+    const topCat = queryOne("SELECT COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') as name, SUM(oi.total) as rev FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.paymentStatus = 'paid' GROUP BY COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') ORDER BY rev DESC LIMIT 1", [from, to]);
     if (topCat && (topCat.rev as number) > 0) insights.push({ type: 'info', message: `قسم "${topCat.name}" حقق أعلى إيراد`, severity: 'info' });
 
     const cashPct = queryOne("SELECT COALESCE(SUM(amount), 0) as cash FROM payments WHERE method = 'cash' AND createdAt >= ? AND createdAt <= ? || 'T23:59:59'", [from, to]);
@@ -255,7 +268,7 @@ router.get('/dashboard/alerts', (req: Request, res: Response) => {
 
     const today = new Date().toISOString().slice(0, 10);
     const highDiscounts = queryOne(
-      "SELECT COALESCE(SUM(discountAmount), 0) as total, COALESCE(SUM(total), 0) as sales FROM orders WHERE date(date) = ? AND status NOT IN ('cancelled')",
+      "SELECT COALESCE(SUM(discountAmount), 0) as total, COALESCE(SUM(total), 0) as sales FROM orders WHERE date(date) = ? AND paymentStatus = 'paid'",
       [today]
     );
     if ((highDiscounts?.sales as number) > 0 && ((highDiscounts?.total as number) / (highDiscounts?.sales as number) > 0.2)) {
@@ -276,7 +289,7 @@ router.get('/dashboard/products', (req: Request, res: Response) => {
        FROM products p
        LEFT JOIN categories c ON p.categoryId = c.id
        LEFT JOIN order_items oi ON oi.productId = p.id
-       LEFT JOIN orders o ON oi.orderId = o.id AND date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled')
+       LEFT JOIN orders o ON oi.orderId = o.id AND date(o.date) >= ? AND date(o.date) <= ? AND o.paymentStatus = 'paid'
        GROUP BY p.id ORDER BY revenue DESC`,
       [from, to]
     );
@@ -295,7 +308,7 @@ router.get('/dashboard/categories', (req: Request, res: Response) => {
        FROM categories c
        LEFT JOIN products p ON p.categoryId = c.id
        LEFT JOIN order_items oi ON oi.productId = p.id
-       LEFT JOIN orders o ON oi.orderId = o.id AND date(o.date) >= ? AND date(o.date) <= ? AND o.status NOT IN ('cancelled')
+       LEFT JOIN orders o ON oi.orderId = o.id AND date(o.date) >= ? AND date(o.date) <= ? AND o.paymentStatus = 'paid'
        GROUP BY c.id ORDER BY c.sortOrder`,
       [from, to]
     );
@@ -318,6 +331,27 @@ router.get('/dashboard/settings', (_req: Request, res: Response) => {
     const obj: Record<string, unknown> = {};
     rows.forEach(r => { obj[r.key as string] = r.value; });
     res.json(obj);
+  } catch (e: unknown) { res.status(500).json({ error: (e as Error).message }); }
+});
+
+// 19. Expenses report (by category + by employee within a date range)
+// Uses only existing 'expenses' columns (category, amount, createdBy, date) — no schema change.
+router.get('/dashboard/expenses', (req: Request, res: Response) => {
+  try {
+    const { from, to } = dateRange(req);
+    const total = (queryOne(
+      "SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM expenses WHERE date(date) >= ? AND date(date) <= ?",
+      [from, to]
+    ) || { total: 0, count: 0 });
+    const byCategory = queryAll(
+      "SELECT category as name, COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM expenses WHERE date(date) >= ? AND date(date) <= ? GROUP BY category ORDER BY total DESC",
+      [from, to]
+    );
+    const byEmployee = queryAll(
+      "SELECT createdBy as name, COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM expenses WHERE date(date) >= ? AND date(date) <= ? GROUP BY createdBy ORDER BY total DESC",
+      [from, to]
+    );
+    res.json({ total: total.total, count: total.count, byCategory, byEmployee, from, to });
   } catch (e: unknown) { res.status(500).json({ error: (e as Error).message }); }
 });
 

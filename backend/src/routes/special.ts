@@ -1,11 +1,31 @@
 import { Router, Request, Response } from 'express';
 import { getDb, saveDb, queryAll, queryOne } from '../db.js';
+import { authRequired, AuthRequest } from '../auth.js';
 
 const router = Router();
 
+router.use(authRequired as any);
+
+function adminish(req: AuthRequest): boolean {
+  const id = req.identity;
+  return !!id && (id.role === 'admin' || id.role === 'manager');
+}
+function requireAdminish(req: Request, res: Response): boolean {
+  if (!adminish(req as AuthRequest)) { res.status(403).json({ error: 'Forbidden' }); return false; }
+  return true;
+}
+// قراءة الإعدادات: مسموحة للإداري/المدير/مفتاح الجهاز (تطبيق يحتاج إعدادات)، لا للكاشير/المطبخ
+function requireSettingsRead(req: Request, res: Response): boolean {
+  const id = (req as AuthRequest).identity;
+  if (!id) { res.status(401).json({ error: 'Unauthorized' }); return false; }
+  if (id.role === 'admin' || id.role === 'manager' || id.role === 'device') return true;
+  res.status(403).json({ error: 'Forbidden' }); return false;
+}
+
 // === DAILY SHIFTS (cash management, separate from per-employee) ===
 
-router.get('/daily-shifts', (_req: Request, res: Response) => {
+router.get('/daily-shifts', (req: Request, res: Response) => {
+  if (!requireAdminish(req, res)) return;
   try {
     const rows = queryAll('SELECT * FROM daily_shifts ORDER BY date DESC');
     res.json(rows);
@@ -15,6 +35,7 @@ router.get('/daily-shifts', (_req: Request, res: Response) => {
 });
 
 router.get('/daily-shifts/:date', (req: Request, res: Response) => {
+  if (!requireAdminish(req, res)) return;
   try {
     const row = queryOne('SELECT * FROM daily_shifts WHERE date = ?', [req.params.date]);
     if (!row) { res.status(404).json({ error: 'Not found' }); return; }
@@ -25,6 +46,7 @@ router.get('/daily-shifts/:date', (req: Request, res: Response) => {
 });
 
 router.post('/daily-shifts', (req: Request, res: Response) => {
+  if (!requireAdminish(req, res)) return;
   try {
     const data = req.body;
     if (!data.date) { res.status(400).json({ error: 'date is required' }); return; }
@@ -59,6 +81,7 @@ router.post('/daily-shifts', (req: Request, res: Response) => {
 });
 
 router.put('/daily-shifts/:date', (req: Request, res: Response) => {
+  if (!requireAdminish(req, res)) return;
   try {
     const data = req.body;
     const date = req.params.date;
@@ -95,6 +118,7 @@ router.put('/daily-shifts/:date', (req: Request, res: Response) => {
 });
 
 router.delete('/daily-shifts/:date', (req: Request, res: Response) => {
+  if (!requireAdminish(req, res)) return;
   try {
     const db = getDb();
     db.run('DELETE FROM daily_shifts WHERE date = ?', [req.params.date]);
@@ -107,7 +131,8 @@ router.delete('/daily-shifts/:date', (req: Request, res: Response) => {
 
 // === SETTINGS ===
 
-router.get('/settings', (_req: Request, res: Response) => {
+router.get('/settings', (req: Request, res: Response) => {
+  if (!requireSettingsRead(req, res)) return;
   try {
     const rows = queryAll('SELECT * FROM settings');
     res.json(rows);
@@ -117,6 +142,7 @@ router.get('/settings', (_req: Request, res: Response) => {
 });
 
 router.get('/settings/:key', (req: Request, res: Response) => {
+  if (!requireSettingsRead(req, res)) return;
   try {
     const row = queryOne('SELECT * FROM settings WHERE key = ?', [req.params.key]);
     if (!row) { res.status(404).json({ error: 'Not found' }); return; }
@@ -127,6 +153,7 @@ router.get('/settings/:key', (req: Request, res: Response) => {
 });
 
 router.post('/settings', (req: Request, res: Response) => {
+  if (!requireAdminish(req, res)) return;
   try {
     const { key, value } = req.body;
     if (!key) { res.status(400).json({ error: 'key is required' }); return; }

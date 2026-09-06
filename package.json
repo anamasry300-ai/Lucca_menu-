@@ -1,13 +1,12 @@
 {
   "name": "lucca-caffe-pos",
-  "version": "1.2.1",
+  "version": "1.0.4",
   "description": "Lucca Caffè - نظام إدارة المقهى",
   "main": "main.js",
   "author": "Lucca Caffè",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "build": "npm run icon && npx electron-packager . LuccaPOS --platform=win32 --arch=x64 --out=dist --overwrite --asar --icon=icon --ignore=node_modules --ignore=\\.git$ --ignore=README\\.md$ --ignore=backend --ignore=dist --ignore=scripts --ignore=\\.bat$ --ignore=\\.md$ --ignore=icon\\.svg$ --ignore=icon-tmp",
     "icon": "node scripts/generate-icon.js",
     "build:installer": "electron-builder --win",
     "publish": "electron-builder --win --publish always"
@@ -21,21 +20,28 @@
     "files": [
       "main.js",
       "preload.js",
+      "update-engine.js",
       "index.html",
       "admin/**/*",
       "ai-pos-engine.js",
+      "batman-dashboard.js",
       "sync-engine.js",
       "forecasting.js",
       "knowledge-base.js",
       "report-export.js",
       "supabase-db.js",
+      "ollama-adapter.js",
+      "ocr-adapter.js",
+      "invoice-scanner.js",
+      "menu-data.js",
       "version.json",
       "icon.ico",
       "package.json"
     ],
     "win": {
       "target": "nsis",
-      "icon": "icon.ico"
+      "icon": "icon.ico",
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
@@ -45,13 +51,14 @@
     "publish": {
       "provider": "github",
       "owner": "anamasry300-ai",
-      "repo": "Lucca_menu-"
+      "repo": "Lucca_menu-",
+      "releaseType": "release"
     }
   },
   "devDependencies": {
     "electron": "^42.3.0",
     "electron-builder": "^25.1.8",
-    "electron-packager": "^17.0.0"
+    "fake-indexeddb": "^6.2.5"
   },
   "dependencies": {
     "electron-updater": "^6.3.0",

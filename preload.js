@@ -14,11 +14,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     isElectron: true,
 
     getVersion: () => ipcRenderer.invoke('get-version'),
-    checkForUpdates: () => ipcRenderer.send('check-for-updates'),
-    startUpdate: () => ipcRenderer.send('start-update'),
+    getUpdateState: () => ipcRenderer.invoke('get-update-state'),
+
+    // Real update flow (state machine driven by update-engine.js)
+    checkForUpdates: () => ipcRenderer.invoke('update-check'),
+    startUpdate: () => ipcRenderer.invoke('update-check'),
+    downloadUpdate: () => ipcRenderer.invoke('update-download'),
+    installUpdate: () => ipcRenderer.invoke('update-install'),
     checkRemoteVersion: () => ipcRenderer.invoke('check-remote-version'),
 
+    onUpdateState: (callback) => ipcRenderer.on('update-state', (e, data) => callback(data)),
+    onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (e, data) => callback(data)),
+    onUpdateStatus: (callback) => ipcRenderer.on('update-state', (e, data) => callback((data && data.state) || 'idle')),
+
+    // Compat: legacy channels so existing/renderer code does not crash
     onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (e, data) => callback(data)),
-    onUpdateStatus: (callback) => ipcRenderer.on('update-status', (e, status) => callback(status)),
-    onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (e, data) => callback(data))
+    onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (e, data) => callback(data))
 });

@@ -7,7 +7,103 @@
 
 // ==================== قاعدة البيانات المحلية ====================
 const DB_NAME = 'lucca_caffe_db';
-const DB_VERSION = 8;
+const DB_VERSION = 9;
+
+// ==================== C2: Stable Sync IDs & updatedAt ====================
+// مخازن قابلة للمزامنة — سبقت كلها بـ syncId/updatedAt (الهوية المستقرة، لا autoincrement id).
+const SYNC_STORES = [
+    'users','tables','orders','order_items','invoices','payments','refunds',
+    'audit_logs','order_status_history','customers','inventory','stock_movements',
+    'purchases','product_recipes','waste_log','expenses','employees','attendance',
+    'shifts','categories','products','product_modifiers','product_variations',
+    'payment_methods','taxes','discounts','suppliers','cash_registers'
+];
+
+// توليد UUID v4 (يكفي للبيئة المحلية/CRDT، لا يتطلب سيرفر)
+function newSyncId() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+// طابع زمني للبيانات — يُحدَّث في طبقة البيانات نفسها.
+// (قرار التعارض يتم عبر نافذة غموض وليس Date.now() وحده — انظر newestWins أدناه.)
+function newDataTimestamp() { return new Date().toISOString(); }
+
+// إضافة/تحديث حقول الهوية المستقرة لسجل قيد الكتابة.
+function stampSyncRecord(store, data, isNew) {
+    if (!data || typeof data !== 'object') return data;
+    const isSyncStore = SYNC_STORES.indexOf(store) !== -1;
+    if (isSyncStore) {
+        if (isNew && !data.syncId) data.syncId = newSyncId();
+        if (store === 'order_items' && data.orderSyncId == null && data.orderId != null) {
+            // يُملأ orderSyncId لاحقاً عند الربط (انظر ensureOrderSyncIds)
+        }
+        data.updatedAt = newDataTimestamp();
+    }
+    return data;
+}
+
+// backfill: إضافة syncId/updatedAt للسجلات القديمة أثناء upgrade (cursur في معاملة onupgradeneeded).
+function backfillSyncStore(tx, storeName) {
+    const store = tx.objectStore(storeName);
+    if (!store) return;
+    return new Promise((resolve) => {
+        const req = store.openCursor();
+        req.onsuccess = (e) => {
+            const cursor = e.target.result;
+            if (cursor) {
+                const v = cursor.value;
+                let changed = false;
+                if (v && typeof v === 'object') {
+                    if (!v.syncId) { v.syncId = newSyncId(); changed = true; }
+                    if (!v.updatedAt) { v.updatedAt = newDataTimestamp(); changed = true; }
+                }
+                if (changed) cursor.update(v);
+                cursor.continue();
+            } else resolve();
+        };
+        req.onerror = () => resolve();
+    });
+}
+
+// بعد backfill، اربط order_items بأبائها عبر orderSyncId (عند توفر orderId → نبحث عن order.syncId من orders الجديد).
+async function ensureOrderSyncIds(tx) {
+    if (!tx.objectStore.contains || tx.objectStoreNames.contains('order_items')) {
+        const orderIdx = {}; // orderId -> syncId
+        const orderStore = tx.objectStore('orders');
+        await new Promise((resolve) => {
+            const req = orderStore.openCursor();
+            req.onsuccess = (e) => {
+                const c = e.target.result;
+                if (c) { if (c.value && c.value.id != null && c.value.syncId) orderIdx[c.value.id] = c.value.syncId; c.continue(); }
+                else resolve();
+            };
+            req.onerror = () => resolve();
+        });
+        const oiStore = tx.objectStore('order_items');
+        await new Promise((resolve) => {
+            const req = oiStore.openCursor();
+            req.onsuccess = (e) => {
+                const c = e.target.result;
+                if (c) {
+                    const v = c.value;
+                    let changed = false;
+                    if (v && v.orderId != null && !v.orderSyncId && orderIdx[v.orderId]) {
+                        v.orderSyncId = orderIdx[v.orderId]; changed = true;
+                    }
+                    if (changed) c.update(v);
+                    c.continue();
+                } else resolve();
+            };
+            req.onerror = () => resolve();
+        });
+    }
+}
+
 
 class LuccaDatabase {
     constructor() {
@@ -184,6 +280,13 @@ class LuccaDatabase {
                     refStore.createIndex('orderId', 'orderId', { unique: false });
                 }
 
+                // F4: الصندوق النقدي (ورديات الكاش) — سجل الوردية/الصندوق الواحد لكل جهاز
+                if (!db.objectStoreNames.contains('cash_registers')) {
+                    const crStore = db.createObjectStore('cash_registers', { keyPath: 'id', autoIncrement: true });
+                    crStore.createIndex('status', 'status', { unique: false });
+                    crStore.createIndex('openedAt', 'openedAt', { unique: false });
+                }
+
                 // جدول أصناف الطلب
                 if (!db.objectStoreNames.contains('order_items')) {
                     const oiStore = db.createObjectStore('order_items', { keyPath: 'id', autoIncrement: true });
@@ -234,6 +337,18 @@ class LuccaDatabase {
                     wlStore.createIndex('ingredientId', 'ingredientId', { unique: false });
                     wlStore.createIndex('date', 'date', { unique: false });
                 }
+                // سجل مزامنة (audit للـ sync)
+                if (!db.objectStoreNames.contains('sync_log')) {
+                    db.createObjectStore('sync_log', { keyPath: 'id', autoIncrement: true });
+                }
+                // صندوق نسخ احتياطي قبل المزامنة
+                if (!db.objectStoreNames.contains('sync_backups')) {
+                    db.createObjectStore('sync_backups', { keyPath: 'id', autoIncrement: true });
+                }
+                // دعوات الموظفين (حالة الدعوة محلياً لعرضها في إدارة الموظفين)
+                if (!db.objectStoreNames.contains('invitations')) {
+                    db.createObjectStore('invitations', { keyPath: 'id' });
+                }
             };
         });
     }
@@ -260,6 +375,8 @@ class LuccaDatabase {
     }
 
     async add(storeName, data) {
+        // C2: طبقة البيانات تضمن syncId/updatedAt لسجل جديد
+        stampSyncRecord(storeName, data, true);
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(storeName, 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -270,6 +387,8 @@ class LuccaDatabase {
     }
 
     async put(storeName, data) {
+        // C2: طبقة البيانات تضمن updatedAt عند كل تحديث (ولا تُغيّر syncId القائم)
+        stampSyncRecord(storeName, data, false);
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(storeName, 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -298,6 +417,71 @@ class LuccaDatabase {
             request.onerror = () => reject(request.error);
         });
     }
+
+    // C2: backfill بعد الإقلاع — يملأ syncId/updatedAt للسجلات القديمة ويربط order_items بأبائها
+    async backfillSyncIds() {
+        if (!this.db) return;
+        const storeNames = Array.from(this.db.objectStoreNames);
+        for (const store of SYNC_STORES) {
+            if (storeNames.indexOf(store) === -1) continue;
+            try { await this._backfillStoreSync(store); } catch (e) { console.warn('[sync-backfill]', store, e); }
+        }
+        try { await this._linkOrderItemsToOrders(); } catch (e) { console.warn('[sync-backfill-link]', e); }
+    }
+
+    _backfillStoreSync(storeName) {
+        return new Promise((resolve) => {
+            const tx = this.db.transaction(storeName, 'readwrite');
+            const store = tx.objectStore(storeName);
+            const req = store.openCursor();
+            req.onsuccess = (e) => {
+                const cur = e.target.result;
+                if (cur) {
+                    const v = cur.value;
+                    let changed = false;
+                    if (v && typeof v === 'object') {
+                        if (!v.syncId) { v.syncId = newSyncId(); changed = true; }
+                        if (!v.updatedAt) { v.updatedAt = newDataTimestamp(); changed = true; }
+                    }
+                    if (changed) cur.update(v);
+                    cur.continue();
+                } else resolve();
+            };
+            req.onerror = () => resolve();
+            tx.oncomplete = () => resolve();
+        });
+    }
+
+    _linkOrderItemsToOrders() {
+        return new Promise((resolve) => {
+            const tx = this.db.transaction(['orders', 'order_items'], 'readwrite');
+            const orderMap = {};
+            const oStore = tx.objectStore('orders');
+            const oReq = oStore.openCursor();
+            oReq.onsuccess = (e) => {
+                const c = e.target.result;
+                if (c) { if (c.value && c.value.id != null && c.value.syncId) orderMap[c.value.id] = c.value.syncId; c.continue(); }
+                else {
+                    const oiStore = tx.objectStore('order_items');
+                    const oiReq = oiStore.openCursor();
+                    oiReq.onsuccess = (ev) => {
+                        const ci = ev.target.result;
+                        if (ci) {
+                            const v = ci.value;
+                            if (v && v.orderId != null && !v.orderSyncId && orderMap[v.orderId]) {
+                                v.orderSyncId = orderMap[v.orderId];
+                                ci.update(v);
+                            }
+                            ci.continue();
+                        } else resolve();
+                    };
+                    oiReq.onerror = () => resolve();
+                }
+            };
+            oReq.onerror = () => resolve();
+            tx.oncomplete = () => resolve();
+        });
+    }
 }
 
 // إنشاء مثيل واحد
@@ -308,6 +492,60 @@ const ServerAPI = {
     getBaseUrl() { return localStorage.getItem('luccaServerUrl') || 'http://localhost:3000'; },
     getApiKey() { return localStorage.getItem('luccaApiKey') || ''; },
     getToken() { return sessionStorage.getItem('luccaToken') || ''; },
+    setToken(t) { if (t) sessionStorage.setItem('luccaToken', t); else sessionStorage.removeItem('luccaToken'); },
+    // رؤوس المصادقة: توكن الجلسة (إن وُجد) + مفتاح الجهاز احتياطياً
+    authHeaders(contentType) {
+        const headers = {};
+        if (contentType) headers['Content-Type'] = contentType;
+        const token = this.getToken();
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+        else headers['x-api-key'] = this.getApiKey();
+        return headers;
+    },
+
+    // ===== Offline retry queue: يحفظ العمليات الفاشلة (انقطاع الشبكة) ويعيد محاولتها لاحقاً =====
+    OFFLINE_KEY: 'lucca_offline_queue',
+    MAX_OFFLINE: 200,
+    _getOfflineQueue() {
+        try { return JSON.parse(localStorage.getItem(this.OFFLINE_KEY) || '[]'); } catch(e) { return []; }
+    },
+    _setOfflineQueue(q) {
+        const trimmed = Array.isArray(q) ? q.slice(-this.MAX_OFFLINE) : [];
+        try { localStorage.setItem(this.OFFLINE_KEY, JSON.stringify(trimmed)); } catch(e) {}
+    },
+    _enqueueOffline(method, path, body) {
+        const q = this._getOfflineQueue();
+        q.push({ method, path, body, retries: 0, ts: new Date().toISOString() });
+        this._setOfflineQueue(q);
+        return q.length;
+    },
+    // يعيد محاولة كل عملية مؤجلة. مكالمة آمنة (لا ترمي) تعمل دون إنترنت.
+    async flushOfflineQueue() {
+        const q = this._getOfflineQueue();
+        if (q.length === 0) return { flushed: 0, remained: 0 };
+        const remaining = [];
+        let flushed = 0;
+        const batch = q.slice(0, 50);
+        for (const op of batch) {
+            try {
+                const headers = this.authHeaders('application/json');
+                const res = await fetch(`${this.getBaseUrl()}${op.path}`, {
+                    method: op.method, headers, body: op.body ? JSON.stringify(op.body) : undefined
+                });
+                if (res.ok || res.status === 409 || res.status === 404) {
+                    flushed++;
+                } else {
+                    op.retries = (op.retries || 0) + 1;
+                    if (op.retries < 3) remaining.push(op);
+                }
+            } catch(e) {
+                op.retries = (op.retries || 0) + 1;
+                if (op.retries < 3) remaining.push(op);
+            }
+        }
+        this._setOfflineQueue(remaining.concat(q.slice(50)));
+        return { flushed, remained: remaining.length };
+    },
 
     async getAll(store) {
         try {
@@ -349,7 +587,7 @@ const ServerAPI = {
 
     async add(store, item) {
         try {
-            const headers = { 'Content-Type': 'application/json', 'x-api-key': this.getApiKey() };
+            const headers = this.authHeaders('application/json');
             const res = await fetch(`${this.getBaseUrl()}/api/${store}`, {
                 method: 'POST', headers, body: JSON.stringify(item)
             });
@@ -364,28 +602,30 @@ const ServerAPI = {
             return null;
         } catch(e) {
             if (e && e.status === 409) throw e;
+            // فشل الشبكة (لا استجابة) — احفظ للـ offline queue ثم أعد null (رموز callers fire-and-forget)
+            this._enqueueOffline('POST', '/api/' + store, item);
             return null;
         }
     },
 
     async put(store, id, item) {
         try {
-            const headers = { 'Content-Type': 'application/json', 'x-api-key': this.getApiKey() };
+            const headers = this.authHeaders('application/json');
             const res = await fetch(`${this.getBaseUrl()}/api/${store}/${id}`, {
                 method: 'PUT', headers, body: JSON.stringify(item)
             });
             return res.ok;
-        } catch(e) { return false; }
+        } catch(e) { this._enqueueOffline('PUT', '/api/' + store + '/' + id, item); return false; }
     },
 
     async remove(store, id) {
         try {
-            const headers = { 'x-api-key': this.getApiKey() };
+            const headers = this.authHeaders();
             const res = await fetch(`${this.getBaseUrl()}/api/${store}/${id}`, {
                 method: 'DELETE', headers
             });
             return res.ok;
-        } catch(e) { return false; }
+        } catch(e) { this._enqueueOffline('DELETE', '/api/' + store + '/' + id, null); return false; }
     },
 
     async get(store, id) {
@@ -401,7 +641,7 @@ const ServerAPI = {
 
     async checkout(orderId, data) {
         try {
-            const headers = { 'Content-Type': 'application/json', 'x-api-key': this.getApiKey() };
+            const headers = this.authHeaders('application/json');
             const res = await fetch(`${this.getBaseUrl()}/api/orders/${orderId}/checkout`, {
                 method: 'POST', headers, body: JSON.stringify(data || {})
             });
@@ -417,14 +657,55 @@ const ServerAPI = {
             if (e && e.status === 409) throw e;
             return null;
         }
+    },
+
+    // استدعاء POST عام على مسار (يحمل رأس المصادقة إن وُجد). يستخدم لمسارات الدعوات/الموظفين المخصّصة.
+    async post(path, body) {
+        try {
+            const headers = this.authHeaders('application/json');
+            const res = await fetch(`${this.getBaseUrl()}${path}`, {
+                method: 'POST', headers, body: JSON.stringify(body || {})
+            });
+            const json = await res.json().catch(() => ({}));
+            if (res.ok) return json;
+            const err = new Error(json.error || 'فشل الطلب');
+            err.status = res.status;
+            throw err;
+        } catch(e) {
+            if (e && e.status) throw e;
+            throw new Error('تعذر الاتصال بالخادم');
+        }
+    },
+
+    // استدعاء GET عام على مسار (يحمل رأس المصادقة إن وُجد).
+    async get(path) {
+        try {
+            const headers = { 'Content-Type': 'application/json' };
+            const token = this.getToken();
+            if (token) headers['Authorization'] = 'Bearer ' + token;
+            const res = await fetch(`${this.getBaseUrl()}${path}`, { headers });
+            const json = await res.json().catch(() => ({}));
+            if (res.ok) return json;
+            const err = new Error(json.error || 'فشل الطلب');
+            err.status = res.status;
+            throw err;
+        } catch(e) {
+            if (e && e.status) throw e;
+            throw new Error('تعذر الاتصال بالخادم');
+        }
     }
 };
 
 // ==================== إدارة المستخدمين ====================
 const Users = {
     async login(username, password) {
+        const search = String(username).trim().toLowerCase();
         const users = await db.getAll('users');
-        const user = users.find(u => u.username === username);
+        // الدخول بالمستخدم أو البريد الإلكتروني (متوافق مع الخادم: WHERE username = ? OR email = ?)
+        const user = users.find(u =>
+            (u.username || '').toLowerCase() === search ||
+            (u.email || '').toLowerCase() === search
+        );
         if (!user) throw new Error('اسم المستخدم أو كلمة المرور خطأ');
 
         let valid = false;
@@ -445,9 +726,46 @@ const Users = {
         }
 
         if (valid) {
-            const safe = { id: user.id, username: user.username, name: user.name, role: user.role };
+            // الهوية الكاملة تُحفظ محلياً (تعمل دون خادم). حقول الهوية (userId/employeeId/email)
+            // مصدرها الخادم عند توفره — الخادم هو مصدر الحقيقة، لا نثق بهوية يرسلها العميل للعمليات.
+            const safe = {
+                id: user.id,
+                userId: user.userId != null ? user.userId : user.id,
+                employeeId: user.employeeId ?? null,
+                email: user.email || null,
+                username: user.username,
+                name: user.name,
+                role: user.role,
+                active: user.active !== undefined ? user.active : true
+            };
             localStorage.setItem('currentUser', JSON.stringify(safe));
-            return user;
+            // الوصول الآمن للخادم: نسجّل دخولنا لدى الخادم للحصول على جلسة تُرفع صلاحيتنا الحقيقية.
+            // لا يُعطِّل الدخول المحلي إن لم يصل السيرفر (نسقط إلى مفتاح الجهاز للمزامنة فقط).
+            try {
+                const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+                const cr = await fetch(`${url}/api/auth/login`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                    signal: AbortSignal.timeout(4000)
+                });
+                // الخادم هو مصدر الحقيقة: إن سلّمنا جلسة، نستبدل حقول الهوية النسخة الموثوقة من الخادم.
+                if (cr.ok) {
+                    const cj = await cr.json();
+                    if (cj.token) ServerAPI.setToken(cj.token);
+                    const s = cj.user || cj;
+                    if (s) {
+                        safe.userId = s.userId != null ? s.userId : (s.id != null ? s.id : safe.userId);
+                        safe.employeeId = s.employeeId != null ? s.employeeId : safe.employeeId;
+                        safe.email = s.email != null ? s.email : safe.email;
+                        if (s.username) safe.username = s.username;
+                        if (s.role) safe.role = s.role;
+                        safe.active = s.active !== undefined ? s.active : safe.active;
+                        safe.mustChangePassword = s.mustChangePassword !== undefined ? s.mustChangePassword : false;
+                        localStorage.setItem('currentUser', JSON.stringify(safe));
+                    }
+                }
+            } catch(e) { /* السيرفر غير متاح — نكمل بدون جلسة خادم */ }
+            return safe;
         }
         throw new Error('اسم المستخدم أو كلمة المرور خطأ');
     },
@@ -467,6 +785,13 @@ const Users = {
         }
         userData.createdAt = new Date().toISOString();
         userData.role = userData.role || 'cashier';
+        if (userData.password && !String(userData.password).startsWith('pbkdf2:')) {
+            const salt = crypto.randomUUID();
+            const hashed = await this.pbkdf2Hash(userData.password, salt);
+            if (hashed) userData.password = 'pbkdf2:' + salt + ':' + hashed;
+        }
+        const maxId = users.reduce((max, u) => Math.max(max, Number(u.id) || 0), 0);
+        userData.id = maxId + 1;
         const id = await db.add('users', userData);
         ServerAPI.add('users', userData).catch(() => {});
         return { ...userData, id };
@@ -476,8 +801,12 @@ const Users = {
         const users = await this.getAll();
         const maxId = users.reduce((max, u) => Math.max(max, Number(u.id) || 0), 0);
         const id = maxId + 1;
+        let hashed = null;
         const salt = crypto.randomUUID();
-        const hashed = await this.pbkdf2Hash(userData.password, salt);
+        if (userData.password && !String(userData.password).startsWith('pbkdf2:')) {
+            const h = await this.pbkdf2Hash(userData.password, salt);
+            if (h) hashed = 'pbkdf2:' + salt + ':' + h;
+        }
         const user = {
             id,
             username: userData.username,
@@ -494,12 +823,39 @@ const Users = {
     },
 
     async logout() {
+        // إبطال جلسة الخادم إن وُجدت
+        try {
+            const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+            const token = ServerAPI.getToken();
+            if (token) await fetch(`${url}/api/auth/logout`, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } });
+        } catch(e) { /* best-effort */ }
+        ServerAPI.setToken(null);
         localStorage.removeItem('currentUser');
+        sessionStorage.removeItem('posAdminAuthed');
     },
 
     getCurrentUser() {
         const user = localStorage.getItem('currentUser');
         return user ? JSON.parse(user) : null;
+    },
+
+    // التحقق من دعوة الموظف (قبل التفعيل). عام — لا يتطلب جلسة ولا يعيد أية كلمة مرور/سر.
+    async checkInvite(token) {
+        if (!token) throw new Error('رمز الدعوة مطلوب');
+        const res = await ServerAPI.get(`/api/invitations/${encodeURIComponent(token)}/check`);
+        if (!res || res.valid === false) {
+            const reason = (res && res.reason) || 'invalid';
+            const msg = { not_found: 'رمز الدعوة غير صالح', expired: 'انتهت صلاحية الدعوة', used: 'تم تفعيل هذه الدعوة مسبقاً', revoked: 'تم إلغاء هذه الدعوة' }[reason] || 'رمز الدعوة غير صالح';
+            const err = new Error(msg); err.code = reason; throw err;
+        }
+        return res;
+    },
+
+    // تنشيط الحساب: يختار الموظف بريده (يجب أن يطابق الدعوة) وكلمة مروره. الدور/الهوية من الخادم.
+    async activateInvite(token, email, password) {
+        if (!token || !email || !password) throw new Error('أكمل جميع الحقول');
+        if (String(password).length < 6) throw new Error('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+        return ServerAPI.post(`/api/invitations/${encodeURIComponent(token)}/activate`, { email, password });
     },
 
     async getAll() {
@@ -736,8 +1092,10 @@ const Orders = {
 
         try {
             if (db.db.objectStoreNames.contains('order_items')) {
+                const storedOrder = await db.get('orders', id);
+                const osId = (storedOrder && storedOrder.syncId) || order.syncId || null;
                 for (const item of (order.items || [])) {
-                    await db.add('order_items', { orderId: id, ...item });
+                    await db.add('order_items', { orderId: id, orderSyncId: osId, ...item });
                 }
             }
         } catch(e) {}
@@ -804,6 +1162,20 @@ const Orders = {
         if (!localOrder) throw new Error('الطلب غير موجود');
         if (localOrder.status === 'closed') throw new Error('الطلب مغلق بالفعل');
 
+        // Best-effort: if a cash drawer is open, the sale is auto-recorded into it
+        // (aligns Orders.checkout with CashRegister — silent & never blocks checkout).
+        const _recordDrawerSale = async () => {
+            try {
+                if (typeof CashRegister === 'undefined' || !CashRegister.getActiveDrawer || !CashRegister.recordTransaction) return;
+                const od = await CashRegister.getActiveDrawer();
+                if (od) {
+                    const amt = Number(localOrder.total) || Number(localOrder.totalAmount) ||
+                        (localOrder.items || []).reduce((s, i) => s + (Number(i.total) || ((Number(i.price) || 0) * (Number(i.quantity) || 1))), 0);
+                    await CashRegister.recordTransaction(od.id, 'sale', amt, paymentMethod || 'cash', 'فاتورة#' + localOrder.id);
+                }
+            } catch (_) {}
+        };
+
         // Try server checkout first (atomic)
         const serverResult = await ServerAPI.checkout(orderId, { paymentMethod: paymentMethod || 'cash' });
         if (serverResult && serverResult.success) {
@@ -814,6 +1186,7 @@ const Orders = {
             if (localOrder.tableId && !isNaN(parseInt(localOrder.tableId))) {
                 await Tables.update(parseInt(localOrder.tableId), { status: 'available', currentOrder: null });
             }
+            await _recordDrawerSale();
             return { ...localOrder, status: 'closed' };
         }
 
@@ -826,6 +1199,7 @@ const Orders = {
         // 1. Create invoice (immutable record of the sale)
         const invoice = {
             orderId: localOrder.id,
+            orderSyncId: localOrder.syncId,
             tableId: localOrder.tableId,
             customerName: localOrder.customerName || '',
             customerPhone: localOrder.customerPhone || '',
@@ -842,11 +1216,16 @@ const Orders = {
         const invoiceId = await db.add('invoices', invoice);
 
         // 2. Record payment
+        const _payUser = Users.getCurrentUser && Users.getCurrentUser();
         const payment = {
+            orderId: localOrder.id,
+            orderSyncId: localOrder.syncId,
             invoiceId,
             amount: total,
             method: paymentMethod || 'cash',
-            date: now
+            date: now,
+            createdBy: _payUser?.name || 'unknown',
+            userId: _payUser?.id != null ? _payUser.id : null
         };
         await db.add('payments', payment);
 
@@ -861,11 +1240,14 @@ const Orders = {
         localOrder.changeAmount = 0;
         await db.put('orders', localOrder);
 
-        // 4b. Save order_items individually
+        // 4b. Save order_items individually (avoid duplicates: remove existing for this order first)
         try {
             if (db.db.objectStoreNames.contains('order_items')) {
+                const allOI = await db.getAll('order_items');
+                const existing = allOI.filter(r => String(r.orderId) === String(localOrder.id));
+                for (const r of existing) { await db.delete('order_items', r.id); }
                 for (const item of (localOrder.items || [])) {
-                    await db.add('order_items', { orderId: localOrder.id, ...item });
+                    await db.add('order_items', { orderId: localOrder.id, orderSyncId: localOrder.syncId, ...item });
                 }
             }
         } catch(e) {}
@@ -878,6 +1260,8 @@ const Orders = {
         // 6. Sync to server in background
         ServerAPI.checkout(orderId, { paymentMethod: paymentMethod || 'cash' }).catch(() => {});
 
+        await _recordDrawerSale();
+
         return { ...localOrder, _invoiceId: invoiceId };
     },
 
@@ -886,6 +1270,8 @@ const Orders = {
         if (!item) {
             return null;
         }
+        if (item.status === 'closed') throw new Error('الطلب مغلق بالفعل');
+        const prevTableId = item.tableId;
         Object.assign(item, updates);
         if (updates.items && !updates.subtotal) {
             item.subtotal = updates.items.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
@@ -898,12 +1284,26 @@ const Orders = {
         }
         await db.put('orders', item);
 
+        // Table-state sync عند نقل الطلب إلى طاولة أخرى (أو تحريره): نُحدّث الطاولة القديمة
+        // (نفرغها إن كان الطلب المفتوح عليها) ونشغّل الطاولة الجديدة بالطلب الحالي.
+        if (!isNaN(parseInt(item.tableId)) && item.status === 'pending') {
+            const newT = parseInt(item.tableId);
+            if (prevTableId != null && String(prevTableId) !== String(newT) && !isNaN(parseInt(prevTableId))) {
+                const oldRow = await Tables.getById(parseInt(prevTableId));
+                if (oldRow) {
+                    const freeOld = oldRow.currentOrder == null || String(oldRow.currentOrder) === String(orderId);
+                    await Tables.update(parseInt(prevTableId), { status: freeOld ? 'available' : oldRow.status, currentOrder: freeOld ? null : oldRow.currentOrder });
+                }
+            }
+            await Tables.update(newT, { status: 'occupied', currentOrder: orderId });
+        }
+
         if (updates.items && db.db.objectStoreNames.contains('order_items')) {
             try {
                 const allOI = await db.getAll('order_items');
                 const existing = allOI.filter(r => r.orderId === orderId);
                 for (const r of existing) { await db.delete('order_items', r.id); }
-                for (const oi of (updates.items || [])) { await db.add('order_items', { orderId, ...oi }); }
+                for (const oi of (updates.items || [])) { await db.add('order_items', { orderId, orderSyncId: item.syncId, ...oi }); }
             } catch(e) {}
         }
 
@@ -925,7 +1325,7 @@ const Orders = {
     async getDailySales() {
         const orders = await this.getAll();
         const today = new Date().toISOString().split('T')[0];
-        return orders.filter(o => o.date.startsWith(today) && (o.status === 'closed' || o.status === 'completed' || o.status === 'pending'));
+        return orders.filter(o => o.date.startsWith(today) && o.paymentStatus === 'paid');
     },
 
     async getByDateRange(startDate, endDate) {
@@ -1030,6 +1430,15 @@ const Inventory = {
         await db.put('inventory', item);
         // Record movement
         await StockMovements.add({ ingredientId: id, type: type || 'adjustment', quantity: qty, notes: notes || '' });
+        // تنبيهات المخزون: انخفاض تحت الحد يُنشئ تنبيهاً؛ إعادة التخزين فوق الحد تُحل التنبيهات
+        const min = item.minStock != null ? item.minStock : (item.minQuantity || 0);
+        if (min > 0) {
+            if (item.quantity <= min) {
+                InventoryAlerts.raise(item, type || 'adjustment').catch(() => {});
+            } else {
+                InventoryAlerts.resolveByItem(id, 'restocked').catch(() => {});
+            }
+        }
         return item;
     },
     async getLowStock() {
@@ -1074,6 +1483,11 @@ const Purchases = {
     async add(p) {
         p.date = p.date || new Date().toISOString();
         p.createdAt = new Date().toISOString();
+        // الإسناد التلقائي لمستخدم الجلسة — لا يقبل العمليات أبداً مساهمين من المستخدم مباشرة.
+        const cu = Users.getCurrentUser && Users.getCurrentUser();
+        p.createdBy = p.createdBy || (cu && cu.name) || 'system';
+        p.userId = p.userId != null ? p.userId : (cu && (cu.userId != null ? cu.userId : cu.id)) || null;
+        p.employeeId = p.employeeId != null ? p.employeeId : (cu && (cu.employeeId != null ? cu.employeeId : null)) || null;
         const id = await db.add('purchases', p);
         // Auto-add to inventory
         if (p.inventoryItemId) {
@@ -1121,6 +1535,77 @@ const StockMovements = {
         const sales = all.filter(m => m.type === 'sale' || m.type === 'recipe_deduct').reduce((s, m) => s + Math.abs(m.quantity || 0), 0);
         const waste = all.filter(m => m.type === 'waste').reduce((s, m) => s + Math.abs(m.quantity || 0), 0);
         return { total: all.length, purchases, sales, waste };
+    }
+};
+
+// ==================== تنبيهات المخزون ====================
+// تُنشأ لحظة انخفاض كمية صنف إلى ما دون الحد الأدنى (minStock) نتيجة بيع/مصروف/هالك،
+// وتُحل تلقائياً عند إعادة التخزين فوق الحد. مخزن متزامن (inventory_alerts).
+const InventoryAlerts = {
+    _storeName: 'inventory_alerts',
+
+    async getAll() { return db.getAll('inventory_alerts'); },
+
+    async getActive() {
+        const all = await this.getAll();
+        return all.filter(a => a.status === 'active');
+    },
+
+    async countActive() {
+        return (await this.getActive()).length;
+    },
+
+    // رفع تنبيه لصنف نزل تحت الحد. لا يُكرَّر تنبيه نشط لنفس الصنف والسبب.
+    async raise(item, cause) {
+        const all = await this.getAll();
+        const open = all.find(a => a.status === 'active' && a.ingredientId == item.id && a.cause === (cause || 'sale'));
+        if (open) {
+            Object.assign(open, { quantity: item.quantity, minStock: item.minStock != null ? item.minStock : (item.minQuantity || 0), updatedAt: new Date().toISOString() });
+            await db.put(this._storeName, open);
+            return open;
+        }
+        const alert = {
+            syncId: 'al-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+            ingredientId: item.id,
+            name: item.name || item.nameAr || '',
+            quantity: item.quantity || 0,
+            minStock: item.minStock != null ? item.minStock : (item.minQuantity || 0),
+            cause: cause || 'sale',
+            status: 'active',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            resolvedAt: null
+        };
+        const id = await db.add(this._storeName, alert);
+        return { ...alert, id };
+    },
+
+    // حل تنبيه نشط يدوياً (إداري/مدير).
+    async resolve(id, reason) {
+        const a = await db.get(this._storeName, id);
+        if (a && a.status === 'active') {
+            a.status = 'resolved';
+            a.resolvedAt = new Date().toISOString();
+            if (reason) a.reason = reason;
+            a.updatedAt = new Date().toISOString();
+            await db.put(this._storeName, a);
+        }
+        return a;
+    },
+
+    // حل كل التنبيهات النشطة لصنف ما عند إعادة تخزينه فوق الحد تلقائياً.
+    async resolveByItem(itemId, reason) {
+        const all = await this.getAll();
+        for (const a of all) {
+            if (a.status === 'active' && a.ingredientId == itemId) {
+                a.status = 'resolved';
+                a.resolvedAt = new Date().toISOString();
+                if (reason) a.reason = reason;
+                a.updatedAt = new Date().toISOString();
+                await db.put(this._storeName, a);
+            }
+        }
+        return true;
     }
 };
 
@@ -1265,24 +1750,43 @@ const CashRegister = {
         const existing = await this.getActiveDrawer();
         if(existing) return { error: 'الصندوق مفتوح بالفعل! أغلقه أولاً.', drawer: existing };
 
+        // هوية الجلسة فقط — لا قبول معرّف من المستخدم مباشرة (يُستثنى employeeId الاحتياطي).
+        const cu = (typeof Users !== 'undefined' && Users.getCurrentUser) ? Users.getCurrentUser() : null;
+        const identityName = (cu && (cu.name || cu.username)) || 'system';
+        const identityId = (cu && (cu.id != null ? cu.id : cu.userId)) ?? null;
+
         const drawer = {
             status: 'open',
             startingCash: Number(startingCash) || 0,
             currentCash: Number(startingCash) || 0,
-            employeeId: employeeId || null,
+            openingCash: Number(startingCash) || 0,
+            employeeId: (typeof Users !== 'undefined' && Users.getCurrentUser) ? (cu && (cu.employeeId != null ? cu.employeeId : identityId)) || null : (employeeId || null),
+            openedBy: identityName,
+            openedByUser: identityId,
+            closedBy: null,
+            closedByUser: null,
             openedAt: new Date().toISOString(),
             closedAt: null,
             closingCash: null,
-            expectedCash: 0,
+            expectedCash: Number(startingCash) || 0,
             difference: 0,
+            differenceType: 'balanced',
             totalCashSales: 0,
             totalCardSales: 0,
+            totalWalletSales: 0,
             totalExpenses: 0,
             totalRefunds: 0,
             transactionCount: 0,
+            version: 1,
             notes: notes || ''
         };
         drawer.id = await db.add(this._storeName, drawer);
+        try {
+            if (typeof AuditLogs !== 'undefined' && AuditLogs.log) {
+                await AuditLogs.log('shift.open', this._storeName, drawer.id, null,
+                    { openingCash: drawer.openingCash, openedBy: drawer.openedBy, shiftId: drawer.id }, identityName);
+            }
+        } catch (_) {}
         return { drawer };
     },
 
@@ -1290,12 +1794,34 @@ const CashRegister = {
         const drawer = await this.getActiveDrawer();
         if(!drawer) return { error: 'لا يوجد صندوق مفتوح' };
 
+        // F4: منع إغلاق وردية مغلقة أصلاً
+        if (drawer.status === 'closed') return { error: 'الصندوق مغلق بالفعل!' };
+        const cu = (typeof Users !== 'undefined' && Users.getCurrentUser) ? Users.getCurrentUser() : null;
+        const identityName = (cu && (cu.name || cu.username)) || 'system';
+        const identityId = (cu && (cu.id != null ? cu.id : cu.userId)) ?? null;
+
         drawer.status = 'closed';
         drawer.closingCash = Number(closingCash) || 0;
         drawer.closedAt = new Date().toISOString();
-        drawer.difference = drawer.closingCash - drawer.expectedCash;
+        drawer.closedBy = identityName;
+        drawer.closedByUser = identityId;
+        // يعاد حساب المتوقع من الأرقام الحيّة للوردية — لا يتم ضبط مبيعات/مصروفات للموازنة
+        drawer.expectedCash = Number(drawer.openingCash || drawer.startingCash || 0)
+            + (Number(drawer.totalCashSales) || 0)
+            - (Number(drawer.totalExpenses) || 0)
+            - (Number(drawer.totalRefunds) || 0);
+        drawer.difference = (Number(drawer.closingCash) || 0) - drawer.expectedCash;
+        drawer.differenceType = drawer.difference > 0 ? 'overage' : (drawer.difference < 0 ? 'shortage' : 'balanced');
+        drawer.version = (Number(drawer.version) || 1) + 1;
         if(notes) drawer.notes = (drawer.notes || '') + '\n' + notes;
         await db.put(this._storeName, drawer);
+        try {
+            if (typeof AuditLogs !== 'undefined' && AuditLogs.log) {
+                await AuditLogs.log('shift.close', this._storeName, drawer.id, null,
+                    { shiftId: drawer.id, openingCash: drawer.openingCash, expectedCash: drawer.expectedCash,
+                      actualCash: drawer.closingCash, difference: drawer.difference, closedBy: drawer.closedBy }, identityName);
+            }
+        } catch (_) {}
         return { drawer };
     },
 
@@ -1314,11 +1840,14 @@ const CashRegister = {
 
         amount = Number(amount) || 0;
         drawer.transactionCount = (drawer.transactionCount || 0) + 1;
+        const m = String(method || '').toLowerCase();
 
         if(type === 'sale'){
-            if(method === 'cash' || method === 'كاش'){
+            if(m === 'cash' || m === 'كاش' || m === 'نقدي'){
                 drawer.totalCashSales += amount;
                 drawer.currentCash += amount;
+            } else if(m === 'wallet' || m === 'محفظة' || m === 'digital'){
+                drawer.totalWalletSales = (drawer.totalWalletSales || 0) + amount;
             } else {
                 drawer.totalCardSales += amount;
             }
@@ -1326,13 +1855,17 @@ const CashRegister = {
             drawer.totalExpenses += amount;
             drawer.currentCash -= amount;
         } else if(type === 'refund'){
-            drawer.totalRefunds += amount;
-            if(method === 'cash' || method === 'كاش'){
+            drawer.totalRefunds = (drawer.totalRefunds || 0) + amount;
+            if(m === 'cash' || m === 'كاش' || m === 'نقدي'){
                 drawer.currentCash -= amount;
             }
         }
 
-        drawer.expectedCash = drawer.startingCash + drawer.totalCashSales - drawer.totalExpenses - drawer.totalRefunds;
+        drawer.expectedCash = (Number(drawer.openingCash || drawer.startingCash) || 0)
+            + (Number(drawer.totalCashSales) || 0)
+            - (Number(drawer.totalExpenses) || 0)
+            - (Number(drawer.totalRefunds) || 0);
+        drawer.version = (Number(drawer.version) || 1) + 1;
         await db.put(this._storeName, drawer);
         return drawer;
     },
@@ -1378,6 +1911,76 @@ const CashRegister = {
             totalRefunds: totalRefunds,
             transactionCount: count,
             netCash: totalCash - totalExpenses - totalRefunds
+        };
+    },
+
+    // F4: تقرير الإقفال اليومي — يعيد استخدام تعريف إيراد H5 (المدفوع - الاستردادات)
+    // ومصدر الأصناف الأكثر مبيعاً من order_items المدفوعة، مع بيانات ورديات الصندوق.
+    async getDailyClosingReport(dateStr) {
+        const day = dateStr || new Date().toISOString().slice(0, 10);
+        const drawers = await db.getAll(this._storeName);
+        const dayDrawers = drawers.filter(d => {
+            const d1 = (d.openedAt || '').slice(0, 10);
+            const d2 = (d.closedAt || '').slice(0, 10);
+            return d1 === day || d2 === day;
+        });
+
+        const allOrders = await db.getAll('orders');
+        const paidOrders = allOrders.filter(o => String(o.paymentStatus || '').toLowerCase() === 'paid'
+            && (o.date || o.createdAt || '').slice(0, 10) === day);
+        let revenue = 0;
+        paidOrders.forEach(o => { revenue += Number(o.total) || 0; });
+
+        const allRefunds = await db.getAll('refunds');
+        const dayRefunds = allRefunds.filter(r => (r.createdAt || r.updatedAt || r.date || '').slice(0, 10) === day);
+        let refundTotal = 0;
+        dayRefunds.forEach(r => { refundTotal += Number(r.amount) || 0; });
+        const netRevenue = revenue - refundTotal;
+
+        const orderIds = new Set(paidOrders.map(o => o.id));
+        const allItems = await db.getAll('order_items');
+        const itemCount = {};
+        const itemRevenue = {};
+        allItems.forEach(it => {
+            if (!orderIds.has(it.orderId)) return;
+            const name = it.name || 'غير محدد';
+            itemCount[name] = (itemCount[name] || 0) + (Number(it.quantity) || 0);
+            itemRevenue[name] = (itemRevenue[name] || 0) + (Number(it.total) || Number(it.quantity || 0) * (Number(it.price || it.unitPrice) || 0) || 0);
+        });
+        const topItems = Object.keys(itemCount).map(name => ({
+            name, quantity: itemCount[name], revenue: itemRevenue[name]
+        })).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
+
+        let totalCash = 0, totalCard = 0, totalWallet = 0, totalExp = 0, totalRef = 0;
+        dayDrawers.forEach(d => {
+            totalCash += Number(d.totalCashSales) || 0;
+            totalCard += Number(d.totalCardSales) || 0;
+            totalWallet += Number(d.totalWalletSales) || 0;
+            totalExp += Number(d.totalExpenses) || 0;
+            totalRef += Number(d.totalRefunds) || 0;
+        });
+
+        return {
+            date: day,
+            drawers: dayDrawers.map(d => ({
+                id: d.id, syncId: d.syncId, status: d.status,
+                openedBy: d.openedBy, closedBy: d.closedBy,
+                openedAt: d.openedAt, closedAt: d.closedAt,
+                openingCash: Number(d.openingCash || d.startingCash) || 0,
+                expectedCash: Number(d.expectedCash) || 0,
+                actualCash: Number(d.closingCash) || 0,
+                difference: Number(d.difference) || 0,
+                differenceType: d.differenceType || 'balanced',
+                totalCashSales: Number(d.totalCashSales) || 0,
+                totalCardSales: Number(d.totalCardSales) || 0,
+                totalWalletSales: Number(d.totalWalletSales) || 0,
+                totalExpenses: Number(d.totalExpenses) || 0,
+                totalRefunds: Number(d.totalRefunds) || 0,
+                transactionCount: d.transactionCount || 0
+            })),
+            revenue, refunds: refundTotal, netRevenue,
+            totals: { cash: totalCash, card: totalCard, wallet: totalWallet, expenses: totalExp, refunds: totalRef },
+            topItems
         };
     }
 };
@@ -1550,6 +2153,53 @@ const Employees = {
     async getActive() {
         const all = await this.getAll();
         return all.filter(e => e.active);
+    },
+
+    // إنشاء دعوة لموظف بالبريد (إداري/مدير). الخادم ينشئ الموظف + حساباً غير مفعّل + رمز دعوة.
+    // الدور يُحدَّد بالنظام (داخل الدعوة) لا باختيار الموظف.
+    async invite(payload) {
+        const res = await ServerAPI.post('/api/employees/invite', payload);
+        if (!res || !res.inviteToken) throw new Error('لم يتم إنشاء الدعوة');
+        // نسجّل الدعوة محلياً لعرض حالتها (Pending/Activated/Expired) في إدارة الموظفين.
+        try {
+            const existing = await db.get('invitations', res.inviteId);
+            await db.put('invitations', {
+                id: res.inviteId,
+                token: res.inviteToken,
+                email: res.email,
+                name: res.name,
+                role: res.role,
+                employeeId: res.employeeId,
+                status: 'pending',
+                expiresAt: res.expiresAt,
+                createdBy: Users.getCurrentUser()?.userId ?? null,
+                createdAt: new Date().toISOString()
+            });
+        } catch (e) { /* تجاهل فشل التخزين المحلي */ }
+        return res;
+    },
+
+    // تعطيل/إعادة تفعيل الموظف وكل حساب مستخدم مرتبط به (نقطة نهاية مخصّصة آمنة — ليست sync).
+    async setStatus(id, active) {
+        const res = await ServerAPI.post(`/api/employees/${Number(id)}/status`, { active: !!active });
+        // نحدّث النسخة المحلية لتعكس الحالة الجديدة.
+        try {
+            const emp = await db.get('employees', Number(id));
+            if (emp) { emp.active = active ? 1 : 0; await db.put('employees', emp); }
+        } catch (e) { /* تجاهل */ }
+        return res;
+    },
+
+    // حالة دعوة الموظف من السجل المحلي (إن وُجد) — Pending/Activated/Expired.
+    async getInviteStatus(employeeId) {
+        try {
+            const all = await db.getAll('invitations');
+            const inv = all.find(i => String(i.employeeId) === String(employeeId));
+            if (!inv) return null;
+            if (inv.status === 'used') return 'used';
+            if (new Date(inv.expiresAt).getTime() < Date.now()) return 'expired';
+            return 'pending';
+        } catch (e) { return null; }
     }
 };
 
@@ -1626,14 +2276,35 @@ const Expenses = {
     },
 
     async add(expense) {
+        const cu = Users.getCurrentUser && Users.getCurrentUser();
         expense.date = expense.date || new Date().toISOString();
         expense.createdAt = new Date().toISOString();
-        const serverResult = await ServerAPI.add('expenses', expense);
+        expense.createdBy = expense.createdBy || (cu && cu.name) || 'system';
+        expense.userId = expense.userId != null ? expense.userId : (cu && (cu.userId != null ? cu.userId : cu.id)) || null;
+        expense.employeeId = expense.employeeId != null ? expense.employeeId : (cu && (cu.employeeId != null ? cu.employeeId : null)) || null;
+        let id;
+        // سندفع للخادم فقط أعمدة موجودة فعلاً في جدول expenses (يمنع فشل إدراج بسبب أعمدة محلية إضافية).
+        const serverPayload = { description: expense.description, category: expense.category, amount: expense.amount, notes: expense.notes, date: expense.date, createdBy: expense.createdBy };
+        const serverResult = await ServerAPI.add('expenses', serverPayload);
         if (serverResult && serverResult.id) {
             await db.put('expenses', { ...expense, id: serverResult.id });
-            return serverResult.id;
+            id = serverResult.id;
+        } else {
+            id = await db.add('expenses', expense);
         }
-        return db.add('expenses', expense);
+        // Record cash-drawer expense so reconciliation stays correct (never double-counted:
+        // expenses are recorded only once here, regardless of payment method).
+        try {
+            const drawer = await CashRegister.getActiveDrawer();
+            if (drawer) {
+                await CashRegister.recordTransaction(drawer.id, 'expense', parseFloat(expense.amount || 0), expense.paymentMethod || 'cash', expense.description || 'مصروف');
+            }
+        } catch (e) { console.warn('[Expenses] drawer expense', e); }
+        // Audit trail: no silent financial ops.
+        try {
+            await AuditLogs.log('expense.create', 'expenses', id, null, { amount: expense.amount, category: expense.category, supplier: expense.supplierId || expense.supplier || '', paymentMethod: expense.paymentMethod || 'cash', description: expense.description }, (cu && cu.name) || 'system');
+        } catch (e) { console.warn('[Expenses] audit', e); }
+        return id;
     },
 
     async update(id, data) {
@@ -1641,14 +2312,19 @@ const Expenses = {
         if (item) {
             Object.assign(item, data);
             await db.put('expenses', item);
-            ServerAPI.put('expenses', id, item).catch(() => {});
+            ServerAPI.put('expenses', id, { description: item.description, category: item.category, amount: item.amount, notes: item.notes, date: item.date, createdBy: item.createdBy }).catch(() => {});
         }
         return item;
     },
 
     async delete(id) {
+        const cu = Users.getCurrentUser && Users.getCurrentUser();
+        const existing = await db.get('expenses', id);
         await db.delete('expenses', id);
         ServerAPI.remove('expenses', id).catch(() => {});
+        try {
+            await AuditLogs.log('expense.delete', 'expenses', id, existing ? { amount: existing.amount, category: existing.category } : null, null, (cu && cu.name) || 'system');
+        } catch (e) { console.warn('[Expenses] audit', e); }
     },
 
     async getByDateRange(startDate, endDate) {
@@ -1735,6 +2411,102 @@ const Shifts = {
     async getByEmployee(employeeId) {
         const all = await this.getAll();
         return all.filter(s => s.employeeId === employeeId);
+    }
+};
+
+// ===== مطابقة الوردية اليومية (Shift Reconciliation) =====
+// فتح الوردية بفتح النقد + إغلاقها بالنقد المُحصى فعلياً + حساب الفرق (تقرير منفصل).
+// يستخدم جدول السيرفر daily_shifts (إداري/مدير فقط) لحفظ الحالة والفرق.
+const DailyShifts = {
+    _storeName: 'daily_shifts',
+
+    // قراءة كل الوديات اليومية (مسار مخصص، إداري/مدير فقط).
+    async getAll() {
+        const d = await ServerAPI.get('/api/daily-shifts');
+        return Array.isArray(d) ? d : [];
+    },
+
+    async getOpen() {
+        const all = await this.getAll();
+        const today = new Date().toISOString().slice(0, 10);
+        return all.find(s => s.status === 'open' && s.date === today) || null;
+    },
+
+    // فتح الوردية: يسجّل رصيد الافتتاح (النقد المُسلّم عند بدء الوردية).
+    async open(openingCash = 0, notes = '') {
+        const existing = await this.getOpen();
+        if (existing) return { error: 'توجد وردية مفتوحة بالفعل', shift: existing };
+        const today = new Date().toISOString().slice(0, 10);
+        const payload = {
+            date: today,
+            openingBalance: Number(openingCash) || 0,
+            status: 'open',
+            openedAt: new Date().toISOString(),
+            closedAt: null,
+            actualCash: null,
+            expectedCash: null,
+            difference: null,
+            cashSales: 0,
+            cardSales: 0,
+            totalSales: 0,
+            totalExpenses: 0,
+            orderCount: 0,
+            notes: notes || ''
+        };
+        const res = await ServerAPI.post('/api/daily-shifts', payload);
+        const shift = res && res.date ? res : payload;
+        this._current = shift;
+        return { shift };
+    },
+
+    // ربط البيع/المصروف بالوردية المفتوحة (حالة غير متصلة تُحدّث محلياً ثم تُرسل عند الاتصال).
+    async record(type, amount, method = '') {
+        let shift = this._current || await this.getOpen();
+        if (!shift) return { error: 'لا توجد وردية مفتوحة' };
+        amount = Number(amount) || 0;
+        const updated = { ...shift };
+        if (type === 'sale') {
+            const isCash = (method === 'cash' || method === 'كاش');
+            updated.cashSales = (updated.cashSales || 0) + (isCash ? amount : 0);
+            updated.cardSales = (updated.cardSales || 0) + (isCash ? 0 : amount);
+            updated.totalSales = (updated.totalSales || 0) + amount;
+            updated.orderCount = (updated.orderCount || 0) + 1;
+        } else if (type === 'expense') {
+            updated.totalExpenses = (updated.totalExpenses || 0) + amount;
+        }
+        this._current = updated;
+        if (shift.date) ServerAPI.put('/api/daily-shifts/' + shift.date, updated).catch(() => {});
+        return { shift: updated };
+    },
+
+    // إغلاق الوردية: يتلقّى النقد المُحصى فعلياً ويحسب المتوقع والفرق.
+    // المتوقع = رصيد الافتتاح + مبيعات الكاش − المصروفات النقدية.
+    async close(actualCash = 0) {
+        let shift = this._current || await this.getOpen();
+        if (!shift) return { error: 'لا توجد وردية مفتوحة' };
+        actualCash = Number(actualCash) || 0;
+        const expected = (shift.openingBalance || 0) + (shift.cashSales || 0) - (shift.totalExpenses || 0);
+        const difference = actualCash - expected;
+        const closed = {
+            ...shift,
+            status: 'closed',
+            actualCash,
+            expectedCash: expected,
+            difference,
+            closedAt: new Date().toISOString()
+        };
+        this._current = null;
+        if (shift.date) await ServerAPI.put('/api/daily-shifts/' + shift.date, closed);
+        return { shift: closed };
+    },
+
+    // تقرير منفصل بالوديات المُغلقة وفرقها (المتوقع مقابل المُحصى).
+    async getReconciliations(before = null) {
+        const all = await this.getAll();
+        const closed = all.filter(s => s.status === 'closed');
+        closed.sort((a, b) => ((b.closedAt || b.date) || '').localeCompare((a.closedAt || a.date) || ''));
+        if (before) return closed.filter(s => (s.closedAt || s.date) <= before);
+        return closed;
     }
 };
 
@@ -2208,6 +2980,14 @@ const DataSync = {
             audit_logs: await db.getAll('audit_logs'),
             order_status_history: await db.getAll('order_status_history'),
             discounts: await db.getAll('discounts'),
+            invoices: await db.getAll('invoices'),
+            order_items: await db.getAll('order_items'),
+            suppliers: await db.getAll('suppliers'),
+            stock_movements: await db.getAll('stock_movements'),
+            product_recipes: await db.getAll('product_recipes'),
+            waste_log: await db.getAll('waste_log'),
+            knowledge_documents: await db.getAll('knowledge_documents'),
+            knowledge_chunks: await db.getAll('knowledge_chunks'),
             exportDate: new Date().toISOString()
         };
         return JSON.stringify(data, null, 2);
@@ -2215,7 +2995,7 @@ const DataSync = {
 
     async importAll(jsonString) {
         const data = JSON.parse(jsonString);
-        const stores = ['users', 'tables', 'customers', 'orders', 'inventory', 'purchases', 'employees', 'attendance', 'expenses', 'shifts', 'categories', 'products', 'product_modifiers', 'product_variations', 'payment_methods', 'taxes', 'payments', 'refunds', 'audit_logs', 'order_status_history', 'discounts'];
+        const stores = ['users', 'tables', 'customers', 'orders', 'inventory', 'purchases', 'employees', 'attendance', 'expenses', 'shifts', 'categories', 'products', 'product_modifiers', 'product_variations', 'payment_methods', 'taxes', 'payments', 'refunds', 'audit_logs', 'order_status_history', 'discounts', 'settings', 'invoices', 'order_items', 'suppliers', 'stock_movements', 'product_recipes', 'waste_log', 'knowledge_documents', 'knowledge_chunks'];
         for (const store of stores) {
             if (data[store]) {
                 await db.clear(store);
@@ -2251,80 +3031,262 @@ const ServerSync = {
         return localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
     },
 
+    // ===== أدوات Safe Sync المحلية (مطابقة لـ safe-sync-engine في الاختبارات) =====
+
+    // مقارنة "نفس البيانات" من منظور السجل الوارد فقط (b=الواردة من السيرفر، a=المحلي)
+    // السجل المحلي/السيرفر قد يحملان أعمدة default إضافية لا يرسلها الآخر — نقارن حقول الوارد فقط.
+    _sameData(a, b) {
+        const skip = { id: 1, syncId: 1, updatedAt: 1, updated_at: 1, revision: 1, version: 1 };
+        for (const k of Object.keys(b || {})) {
+            if (skip[k]) continue;
+            const bv = b[k];
+            const av = a ? a[k] : undefined;
+            const n = (x) => (x && typeof x === 'object') ? JSON.stringify(x) : String((x == null ? '' : x));
+            if (n(bv) !== n(av)) return false;
+        }
+        return true;
+    },
+
+    // نافذة غموض: لا نعتمد على Date.now() وحده، أي فرق أصغر منه غير موثوق
+    AMBIGUITY_MS: 5000,
+    _newestLocal(localRow, serverRow) {
+        const lv = localRow && (localRow.version != null ? localRow.version : localRow.revision);
+        const sv = serverRow && (serverRow.version != null ? serverRow.version : serverRow.revision);
+        if (lv != null && sv != null && lv !== sv) return lv > sv ? 'local' : 'server';
+        const lt = localRow && (localRow.updatedAt || localRow.updated_at);
+        const st = serverRow && (serverRow.updatedAt || serverRow.updated_at);
+        if (lt && st) {
+            const a = new Date(st).getTime(), b = new Date(lt).getTime();
+            if (!Number.isNaN(a) && !Number.isNaN(b)) {
+                const d = b - a;
+                if (Math.abs(d) >= this.AMBIGUITY_MS) return d > 0 ? 'local' : 'server';
+            }
+        }
+        if (st && !lt) return 'server';
+        if (lt && !st) return 'local';
+        return null;
+    },
+
+    // دمج local/single في اتجاه pull: لا حذف، لا استبدال أعمى.
+    _mergeOne(localRow, serverRow) {
+        if (!localRow) return { action: 'insert', item: serverRow };
+        if (this._sameData(localRow, serverRow)) return { action: 'skip', item: localRow };
+        const win = this._newestLocal(localRow, serverRow);
+        if (win === 'server') return { action: 'update', item: serverRow };
+        if (win === 'local') return { action: 'skip', item: localRow };
+        return { action: 'conflict', server: serverRow, local: localRow };
+    },
+
+    // نسخة احتياطية قبل أي عملية sync (تُخزَّن سجل في sync_backups)
+    async _preSyncBackup() {
+        try {
+            const json = await DataSync.exportAll();
+            const rec = { createdAt: new Date().toISOString(), data: json };
+            await db.add('sync_backups', rec);
+            return rec.id;
+        } catch (e) {
+            console.warn('[sync-backup]', e);
+            return null;
+        }
+    },
+
+    // تسجيل سجل المزامنة في sync_log
+    async _logSync(direction, result) {
+        try {
+            await db.add('sync_log', {
+                direction: direction || 'unknown',
+                startedAt: result.startedAt || new Date().toISOString(),
+                inserted: result.inserted || 0,
+                updated: result.updated || 0,
+                skipped: result.skipped || 0,
+                conflicts: result.conflicts || 0,
+                errors: result.errors || 0,
+                conflictDetail: result.conflictDetail || [],
+                note: result.message || ''
+            });
+        } catch (e) { /* silent */ }
+    },
+
+    // جمع ملفات للرفع (كل مخازن المزامنة)
+    async _collectAllData() {
+        const data = {};
+        for (const s of SYNC_STORES) {
+            try { data[s] = await db.getAll(s); } catch (e) { data[s] = []; }
+        }
+        data.settings = await db.getAll('settings');
+        return data;
+    },
+
     async pushAll() {
         const url = this.getServerUrl();
-        const apiKey = localStorage.getItem('luccaApiKey') || 'lucca-secret-key';
+        const apiKey = localStorage.getItem('luccaApiKey') || '';
+        const result = { startedAt: new Date().toISOString(), inserted: 0, updated: 0, skipped: 0, conflicts: 0, errors: 0, conflictDetail: [] };
         try {
-            const data = {
-                users: await db.getAll('users'),
-                tables: await db.getAll('tables'),
-                orders: await db.getAll('orders'),
-                customers: await db.getAll('customers'),
-                settings: await db.getAll('settings'),
-                inventory: await db.getAll('inventory'),
-                purchases: await db.getAll('purchases'),
-                employees: await db.getAll('employees'),
-                attendance: await db.getAll('attendance'),
-                expenses: await db.getAll('expenses'),
-                shifts: await db.getAll('shifts'),
-                categories: await db.getAll('categories'),
-                products: await db.getAll('products'),
-                payment_methods: await db.getAll('payment_methods'),
-                taxes: await db.getAll('taxes'),
-                payments: await db.getAll('payments'),
-                refunds: await db.getAll('refunds'),
-                audit_logs: await db.getAll('audit_logs'),
-                discounts: await db.getAll('discounts'),
-                order_status_history: await db.getAll('order_status_history'),
-                product_modifiers: await db.getAll('product_modifiers'),
-                product_variations: await db.getAll('product_variations'),
-                order_items: await db.getAll('order_items')
-            };
+            // 1) نسخة احتياطية قبل المزامنة
+            await this._preSyncBackup();
+            // 2) جمع البيانات المحلية
+            const data = await this._collectAllData();
+            // 3) إرسال — السيرفر ينفذ Safe Sync (لا DELETE). نرسل أيضاً النسخة المحلية للمقارنة.
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 3000);
+            const timer = setTimeout(() => controller.abort(), 15000);
             const res = await fetch(`${url}/api/sync`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                headers: ServerAPI.authHeaders('application/json'),
                 body: JSON.stringify(data),
                 signal: controller.signal
             });
             clearTimeout(timer);
-            if (!res.ok) throw new Error('فشل رفع البيانات');
-            return { success: true, message: '✅ تم رفع البيانات للسيرفر' };
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                result.errors++;
+                result.message = body.message || 'فشل رفع البيانات';
+                await this._logSync('push', result);
+                return { success: false, message: result.message };
+            }
+            const parsed = await res.json().catch(() => ({}));
+            if (parsed.log) {
+                result.inserted = parsed.log.inserted || 0;
+                result.updated = parsed.log.updated || 0;
+                result.skipped = parsed.log.skipped || 0;
+                result.conflicts = parsed.log.conflicts || 0;
+                result.conflictDetail = parsed.log.conflictDetail || [];
+                // السيرفر يُسجّل أخطاء الكتابة (فشل إدراج/تحديث) مع رسالة السبب — نميّزها عن التعارضات العادية.
+                const writeFailures = (result.conflictDetail || []).filter(
+                    d => d && d.reason && (/فشل إدراج|فشل تحديث/.test(d.reason))
+                );
+                result.errors = (result.errors || 0) + writeFailures.length;
+            }
+            result.message = (result.errors > 0)
+                ? ('⚠️ تم الرفع مع ' + result.errors + ' خطأ كتابة — راجع sync_log')
+                : '✅ تم رفع البيانات للسيرفر (دمج آمن)';
+            await this._logSync('push', result);
+            return { success: result.errors === 0, message: result.message, result };
         } catch (e) {
-            return { success: false, message: '❌ فشل الاتصال بالسيرفر: ' + e.message };
+            result.errors++;
+            result.message = '❌ فشل الاتصال بالسيرفر: ' + e.message;
+            await this._logSync('push', result);
+            return { success: false, message: result.message, result };
         }
     },
 
     async pullAll() {
         const url = this.getServerUrl();
-        const apiKey = localStorage.getItem('luccaApiKey') || 'lucca-secret-key';
+        const apiKey = localStorage.getItem('luccaApiKey') || '';
+        const result = { startedAt: new Date().toISOString(), inserted: 0, updated: 0, skipped: 0, conflicts: 0, errors: 0, conflictDetail: [] };
         try {
-            const collections = ['users', 'tables', 'orders', 'customers', 'settings', 'inventory', 'purchases', 'employees', 'attendance', 'expenses', 'shifts', 'categories', 'products', 'payment_methods', 'taxes', 'payments', 'refunds', 'audit_logs', 'discounts', 'order_status_history', 'product_modifiers', 'product_variations', 'order_items'];
+            // نسخة احتياطية قبل أي pull
+            await this._preSyncBackup();
+            // نسجل أيضاً نسخة محلية مضمّنة داخل sync_log (إشارة قبل الدمج)
+            const collections = SYNC_STORES.concat('settings');
             for (const col of collections) {
                 const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), 3000);
+                const timer = setTimeout(() => controller.abort(), 8000);
                 const res = await fetch(`${url}/api/${col}`, {
-                    headers: { 'x-api-key': apiKey },
+                    headers: ServerAPI.authHeaders(),
                     signal: controller.signal
                 });
                 clearTimeout(timer);
-                if (!res.ok) continue;
-                const items = await res.json();
-                await db.clear(col);
-                for (const item of items) {
-                    await db.add(col, item);
+                if (!res.ok) { continue; }
+                const serverItems = (await res.json().catch(() => [])) || [];
+                if (!Array.isArray(serverItems)) continue;
+                const localItems = await db.getAll(col);
+                // MERGE لا REPLACE: لا نمسح IndexedDB أبداً
+                const bySync = {};
+                for (const li of localItems) { if (li && li.syncId) bySync[li.syncId] = li; }
+                for (const si of serverItems) {
+                    if (!si || !si.syncId) { continue; }
+                    const localRow = bySync[si.syncId];
+                    const res2 = this._mergeOne(localRow, si);
+                    if (res2.action === 'insert') {
+                        const applied = await this._applyLocal(col, si, 'insert');
+                        if (applied.ok) { result.inserted++; }
+                        else { result.errors++; result.conflictDetail.push({ syncId: si.syncId, reason: 'فشل إدراج محلي: ' + applied.error, collection: col }); }
+                    }
+                    else if (res2.action === 'update') {
+                        const applied = await this._applyLocal(col, si, 'update');
+                        if (applied.ok) { result.updated++; }
+                        else { result.errors++; result.conflictDetail.push({ syncId: si.syncId, reason: 'فشل تحديث محلي: ' + applied.error, collection: col }); }
+                    }
+                    else if (res2.action === 'skip') { result.skipped++; }
+                    else if (res2.action === 'conflict') {
+                        result.conflicts++;
+                        result.conflictDetail.push({ syncId: si.syncId, reason: 'تعارض بلا نسخة أحدث موثوقة', server: si, local: localRow });
+                    }
                 }
             }
-            return { success: true, message: '✅ تم تحميل البيانات من السيرفر' };
+            result.message = (result.errors > 0)
+                ? ('⚠️ تم التحميل من السيرفر مع ' + result.errors + ' خطأ — راجع sync_log')
+                : '✅ تم تحميل البيانات من السيرفر (دمج لا مسح)';
+            await this._logSync('pull', result);
+            return { success: result.errors === 0, message: result.message, result };
         } catch (e) {
-            return { success: false, message: '❌ فشل الاتصال بالسيرفر: ' + e.message };
+            result.errors++;
+            result.message = '❌ فشل الاتصال بالسيرفر: ' + e.message;
+            await this._logSync('pull', result);
+            return { success: false, message: result.message, result };
         }
+    },
+
+    // كتابة دمج محلية آمنة لعمليات pull:
+    //  - insert: نستبعد id الرقمي للسيرفر (قد يتعارض مع id محلي مختلف) ونترك IndexedDB يمنح id محلياً جديداً،
+    //            مع الحفاظ على syncId/orderSyncId (الهوية المستقرة) وإعادة ربط الأبوين عبر syncId.
+    //  - update: نحافظ على id المحلي (مفتاح autoincrement) ونمرر حقول السيرفر فوقه.
+    // يُعيد { ok: true } عند النجاح، أو { ok: false, error } عند الفشل — لا يُبتلع الخطأ بصمت.
+    async _applyLocal(col, item, kind) {
+        try {
+            const copy = Object.assign({}, item);
+            if (kind !== 'update') {
+                // إدراج جديد: لا نأخذ id السيرفر أبداً
+                delete copy.id;
+                // إعادة ربط الأبوين بالمعرّفات المحلية عبر syncId (عند نشوئها محلياً لأول مرة)
+                const parentLink = this._parentLinkMap[col];
+                if (parentLink) {
+                    const parentCol = parentLink.parentStore;
+                    const parentSync = copy[parentLink.syncField];
+                    if (parentSync) {
+                        const localParent = await this._localBySyncId(parentCol, parentSync);
+                        if (localParent && localParent.id != null) copy[parentLink.fkField] = localParent.id;
+                    }
+                }
+                await db.add(col, copy);
+            } else {
+                // تحديث: نحتفظ بمعرّف السجل المحلي الموجود
+                if (copy.id == null) {
+                    const local = await this._localBySyncId(col, item.syncId);
+                    if (local) copy.id = local.id;
+                }
+                await db.put(col, copy);
+            }
+            return { ok: true };
+        } catch (e) {
+            // PT-applyLocal: لا نبتلع الخطأ بصمت — نسجّل المجموعة + syncId + السبب ونخبر المتصل بالفشل.
+            const reason = e && e.message ? e.message : String(e);
+            console.error('[sync-applyLocal] فشل', col, (item && item.syncId), reason);
+            return { ok: false, error: reason };
+        }
+    },
+
+    // خريطة علاقات الأبوين لإعادة ربط المفاتيح الخارجية عند الإدراج عبر المزامنة
+    _parentLinkMap: {
+        'order_items': { parentStore: 'orders', syncField: 'orderSyncId', fkField: 'orderId' },
+        'payments': { parentStore: 'orders', syncField: 'orderSyncId', fkField: 'orderId' },
+        'refunds': { parentStore: 'orders', syncField: 'orderSyncId', fkField: 'orderId' },
+        'invoices': { parentStore: 'orders', syncField: 'orderSyncId', fkField: 'orderId' },
+        'order_status_history': { parentStore: 'orders', syncField: 'orderSyncId', fkField: 'orderId' }
+    },
+
+    async _localBySyncId(col, syncId) {
+        if (!syncId) return null;
+        try {
+            const all = await db.getAll(col);
+            for (const r of all) { if (r && r.syncId === syncId) return r; }
+        } catch (e) { }
+        return null;
     },
 
     async testConnection() {
         const url = this.getServerUrl();
-        const apiKey = localStorage.getItem('luccaApiKey') || 'lucca-secret-key';
+        const apiKey = localStorage.getItem('luccaApiKey') || '';
         try {
             const res = await fetch(`${url}/api/tables`, { method: 'HEAD', cache: 'no-store', headers: { 'x-api-key': apiKey } });
             return res.ok;
@@ -2338,10 +3300,8 @@ const ServerSync = {
 async function initSystem() {
     await db.init();
 
-    // Auto-fetch API key from server (short timeout, best-effort)
-    ServerAPI.getAll('public-key').then(data => {
-        if (data?.apiKey) localStorage.setItem('luccaApiKey', data.apiKey);
-    }).catch(() => {});
+    // C2: بعد فتح قاعدة البيانات نسند syncId/updatedAt للسجلات القديمة ونربط order_items بأبائها
+    try { await db.backfillSyncIds(); } catch(e) { console.warn('[sync-backfill]', e); }
 
     await Tables.init();
     await Users.createDefaultAdmin();
@@ -2350,7 +3310,7 @@ async function initSystem() {
         await MenuSync.syncFromMenuData(menuData);
     }
 
-    // Push/pull server sequentially to prevent race conditions
+    // C2: مزامنة آمنة (Safe Sync) — لا مسح، دمج فقط.
     setTimeout(async () => {
         try {
             await ServerSync.pushAll();
@@ -2372,7 +3332,8 @@ async function seedDefaultPaymentMethods() {
             { name_ar: 'تحويل بنكي', name_en: 'transfer', type: 'bank', icon: '🏦', active: 1, sortOrder: 3, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
         ];
         for (const m of defaults) {
-            await db.add('payment_methods', m);
+            // name مطلوب بالسيرفر (NOT NULL) — بخلافه يرفض INSERT كل sync لطرق الدفع
+            await db.add('payment_methods', Object.assign({ name: m.name_ar }, m));
         }
     } catch(e) {}
 }
@@ -2622,7 +3583,7 @@ const KnowledgeBase = {
 };
 
 // تصدير للاستخدام
-window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem };
+window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, DailyShifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, InventoryAlerts, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem };
 
 // ===== SYNC INTEGRATION =====
 // When Supabase is available, enable auto-sync
@@ -2647,3 +3608,22 @@ window.LuccaDB.triggerSync = function(){
     if(!window.SyncEngine) return Promise.resolve(null);
     return window.SyncEngine.triggerSync();
 };
+
+// تصدير تفريغ الـ offline queue يدوياً (زر "مزامنة الآن") ولأغراض التحقق.
+window.LuccaDB.flushOfflineQueue = function(){
+    return ServerAPI.flushOfflineQueue();
+};
+
+// ===== مزامنة ودّمم الـ offline queue عند التشغيل =====
+(function bootSync(){
+    // إعادة محاولة العمليات المؤجلة (انقطاعات سابقة) فوراً وبشكل دوري عند عودة الشبكة.
+    const flushAll = () => { ServerAPI.flushOfflineQueue().catch(() => {}); };
+    setTimeout(flushAll, 1500);
+    if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('online', () => { setTimeout(flushAll, 1000); });
+        // عند اتصال Supabase (إن وُجد) يُفعَّل التغليف والمزامنة التلقائية.
+        window.addEventListener('lucca:sync-available', () => {
+            window.LuccaDB.enableSync(window.LuccaDB._supabaseClient || null, { interval: 30000 });
+        });
+    }
+})();

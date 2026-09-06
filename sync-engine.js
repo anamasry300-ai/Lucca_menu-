@@ -213,6 +213,9 @@
         _localDB = localDB;
         _onStatusChange = (options && options.onStatusChange) || null;
 
+        // Idempotency: منع فترات مزامنة متعددة عند إعادة الاستدعاء (enableSync من عدة أماكن).
+        if(_syncInterval) return { stop: stopAutoSync, trigger: triggerSync };
+
         const interval = (options && options.interval) || 30000; // 30 seconds default
 
         // Sync on startup after 3 seconds
@@ -257,6 +260,10 @@
 
     // ===== WRAPPER: Auto-enqueue on DB writes =====
     function wrapDBOperations(db, supabase){
+        if(!db) return;
+        // Idempotency: لا نغلف مرتين (يُستدعى enableSync من عدة أماكن) لتفادي enqueue/مزامنة مكررة.
+        if(db.__syncWrapped) return;
+        db.__syncWrapped = true;
         // Intercept put/add/delete to auto-enqueue
         const originalPut = db.put.bind(db);
         const originalAdd = db.add.bind(db);

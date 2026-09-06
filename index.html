@@ -11,7 +11,11 @@
     <script src="admin/database.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-db.js"></script>
+    <script src="ollama-adapter.js"></script>
+    <script src="ocr-adapter.js"></script>
+    <script src="invoice-scanner.js"></script>
     <script src="ai-pos-engine.js"></script>
+    <script src="batman-dashboard.js"></script>
     <script src="forecasting.js"></script>
     <script src="report-export.js"></script>
     <script src="sync-engine.js"></script>
@@ -164,7 +168,7 @@
                     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
                         <button type="button" class="btn" onclick="openCustomItemModal()" style="flex:1;min-width:80px;padding:8px;background:#8e44ad;color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.8rem;">➕ صنف يدوي</button>
                         <button type="button" class="btn" onclick="openOrderSearchModal()" style="flex:1;min-width:80px;padding:8px;background:#2980b9;color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.8rem;">🔍 بحث طلبات</button>
-                        <button type="button" class="btn" onclick="openVoidOrderModal()" style="flex:1;min-width:80px;padding:8px;background:#e74c3c;color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.8rem;">❌ إلغاء طلب</button>
+                        <button type="button" class="btn" onclick="openVoidOrderModal()" id="voidOrderBtn" style="flex:1;min-width:80px;padding:8px;background:#e74c3c;color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.8rem;">❌ إلغاء طلب</button>
                     </div>
                     <div class="order-status-workflow" id="orderStatusWorkflow" style="display:none;margin-bottom:12px;">
                         <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:6px;">حالة الطلب:</div>
@@ -421,6 +425,16 @@
                 <div id="serverStatusMsg" style="margin-top:8px;font-size:0.85rem;text-align:center;"></div>
             </div>
             <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px;">
+                <h4 style="font-size:0.9rem;margin-bottom:10px;color:var(--text);">🔑 مفتاح الجهاز (Device Key)</h4>
+                <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--text-secondary);">مفتاح كشك POS (صلاحية جهاز محدودة — يُزوَّد عبر مسؤول النظام، لا يُخزَّن حرفياً في الكود)</label>
+                <input type="password" id="deviceKeyInput" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:8px;font-size:0.9rem;margin-bottom:10px;" placeholder="ألصق مفتاح الجهاز هنا">
+                <div style="display:flex;gap:10px;">
+                    <button onclick="saveDeviceKey()" style="flex:1;padding:10px;background:var(--primary);color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;">💾 حفظ المفتاح</button>
+                    <button onclick="getDeviceKeyFromServer()" style="flex:1;padding:10px;background:var(--text-secondary);color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;">🔑 احصل على المفتاح (مسؤول)</button>
+                </div>
+                <div id="deviceKeyMsg" style="margin-top:8px;font-size:0.85rem;text-align:center;"></div>
+            </div>
+            <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px;">
                 <h4 style="font-size:0.9rem;margin-bottom:10px;color:var(--text);">💰 الإعدادات المالية</h4>
                 <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--text-secondary);">نسبة الضريبة (%)</label>
                 <input type="number" id="taxRateInput" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:8px;font-size:0.9rem;margin-bottom:10px;" min="0" max="100" step="0.5" placeholder="14">
@@ -538,6 +552,21 @@
             const discountAmount = subtotal * ((discountPct || 0) / 100);
             const afterDiscount = subtotal - discountAmount;
             return { subtotal, discountAmount, afterDiscount };
+        }
+
+        // C4: مصدر موحّد لحساب إجماليات الفاتورة.
+        // يعتمد على القيم المحفوظة في سجل الطلب (شاملة الضريبة) لتطابق:
+        //   المعروض = المطبوع = المحصَّل = المخزَّن
+        // للمعاينة (طلب غير محفوظ بدون tax/total) يقع على subtotal - discount بدون ضريبة.
+        function orderTotalsForDisplay(order, fallbackSubtotal) {
+            const itemsSubtotal = (order && order.items || []).reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
+            const subtotal = (order && order.subtotal != null) ? order.subtotal : (fallbackSubtotal != null ? fallbackSubtotal : itemsSubtotal);
+            const discount = (order && order.discount) || 0;
+            const discountAmount = (order && order.discountAmount != null) ? order.discountAmount : (subtotal * discount / 100);
+            const afterDiscount = subtotal - discountAmount;
+            const tax = (order && order.tax != null) ? order.tax : 0;
+            const total = (order && order.total != null) ? order.total : (afterDiscount + tax);
+            return { subtotal, discount, discountAmount, tax, afterDiscount, total };
         }
 
         function generateQuickNav() {
@@ -1104,6 +1133,7 @@
             try {
                 await window.LuccaDB.Users.login(user, pass);
                 const currentUser = window.LuccaDB.Users.getCurrentUser();
+                window.currentUser = currentUser || null;
                 if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'manager')) {
                     sessionStorage.setItem('posAdminAuthed', '1');
                     closeAdminLogin();
@@ -1119,6 +1149,7 @@
             } finally {
                 btn.textContent = 'دخول';
                 btn.disabled = false;
+                if (typeof applyVoidPermission === 'function') applyVoidPermission();
             }
         }
 
@@ -1672,6 +1703,8 @@
         function showServerSettings() {
             const input = document.getElementById('serverUrlInput');
             input.value = localStorage.getItem('luccaServerUrl') || 'http://192.168.1.100:3000';
+            const dk = document.getElementById('deviceKeyInput');
+            if (dk) dk.value = localStorage.getItem('luccaApiKey') || '';
             document.getElementById('serverStatusMsg').textContent = '';
             document.getElementById('serverSettingsModal').classList.add('show');
         }
@@ -1694,13 +1727,45 @@
             try {
                 const res = await fetch(`${url}/api/public-key`);
                 if (res.ok) {
-                    const data = await res.json();
-                    document.getElementById('serverStatusMsg').textContent = '✅ السيرفر متصل - مفتاح API: ' + (data.apiKey || 'غير معروف');
+                    document.getElementById('serverStatusMsg').textContent = '✅ السيرفر متصل';
                 } else {
                     document.getElementById('serverStatusMsg').textContent = '❌ السيرفر لا يستجيب';
                 }
             } catch(e) {
                 document.getElementById('serverStatusMsg').textContent = '❌ فشل الاتصال: ' + e.message;
+            }
+        }
+
+        // H1: حفظ مفتاح الجهاز المزوَّد محلياً (يُخزَّن في localStorage بعد التزويد فقط — لا حرفي في الكود)
+        function saveDeviceKey() {
+            const key = document.getElementById('deviceKeyInput').value.trim();
+            const msg = document.getElementById('deviceKeyMsg');
+            if (!key) { msg.textContent = '❌ اكتب المفتاح أولاً'; return; }
+            localStorage.setItem('luccaApiKey', key);
+            msg.textContent = '✅ تم حفظ مفتاح الجهاز';
+        }
+
+        // H1: الحصول على مفتاح الجهاز من الخادم عبر جلسة مسؤول (provision-device). لا يُخزَّن أي secret في السورس.
+        async function getDeviceKeyFromServer() {
+            const url = document.getElementById('serverUrlInput').value.trim();
+            const msg = document.getElementById('deviceKeyMsg');
+            if (!url) { msg.textContent = '❌ اكتب رابط السيرفر أولاً'; return; }
+            const token = sessionStorage.getItem('luccaToken') || '';
+            if (!token) { msg.textContent = '❌ يجب تسجيل الدخول كمسؤول أولاً للحصول على المفتاح'; return; }
+            try {
+                const res = await fetch(`${url}/api/auth/provision-device`, {
+                    method: 'POST', headers: { 'Authorization': 'Bearer ' + token },
+                    signal: AbortSignal.timeout(5000)
+                });
+                const data = await res.json();
+                if (res.ok && data.deviceKey) {
+                    document.getElementById('deviceKeyInput').value = data.deviceKey;
+                    msg.textContent = '✅ تم جلب مفتاح الجهاز — اضغط حفظ المفتاح';
+                } else {
+                    msg.textContent = '❌ ' + (data.error || 'غير مصرح (يلزم admin)');
+                }
+            } catch(e) {
+                msg.textContent = '❌ فشل الاتصال: ' + e.message;
             }
         }
 
@@ -2079,9 +2144,8 @@
         }
 
         function generateWhatsAppMessage(order, items, subtotal) {
-            const discount = order.discount || 0;
-            const discountAmount = subtotal * (discount / 100);
-            const total = subtotal - discountAmount;
+            const t = orderTotalsForDisplay(order, subtotal);
+            const total = t.total;
             const tableLabel = order.tableId === 'takeaway' || order.tableId == 0 ? '🛵 تيك أواي' : `🪑 طاولة ${order.tableId || '-'}`;
             return `☕ *Lucca Caffè*\n━━━━━━━━━━━━\n${tableLabel}\n📅 ${new Date().toLocaleDateString('ar-EG')}\n━━━━━━━━━━━━\n*الطلب:*\n${items.map(i => `• ${i.name} x${i.quantity} = ${(i.price * i.quantity).toFixed(0)} ج.م`).join('\n')}\n━━━━━━━━━━━━\n💵 *الإجمالي: ${total.toFixed(0)} ج.م*\n━━━━━━━━━━━━\nشكراً لزيارتكم! 🙏`;
         }
@@ -2303,9 +2367,11 @@
             const now = new Date();
             const dateStr = now.toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
             const timeStr = now.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
-            const discount = formData.discount || 0;
-            const discountAmount = subtotal * (discount / 100);
-            const total = subtotal - discountAmount;
+            const t = orderTotalsForDisplay(order, subtotal);
+            const discount = t.discount;
+            const discountAmount = t.discountAmount;
+            const tax = t.tax;
+            const total = t.total;
 
             const cafeInfo = window._cachedCafeInfo || { name: 'LUCCA', address: 'شارع محمد علي - بورسعيد', phone: '01010058989' };
             const currency = localStorage.getItem('luccaCurrency') || 'ج.م';
@@ -2391,6 +2457,11 @@
                             <div style="display:flex;justify-content:space-between;margin:6px 0;font-size:13px;color:#e67e22;">
                                 <span>خصم (${discount}%)</span>
                                 <span>-${discountAmount.toFixed(0)} ${currency}</span>
+                            </div>` : ''}
+                            ${tax > 0 ? `
+                            <div style="display:flex;justify-content:space-between;margin:6px 0;font-size:13px;color:#888;">
+                                <span>ضريبة القيمة المضافة</span>
+                                <span>${tax.toFixed(0)} ${currency}</span>
                             </div>` : ''}
                             <div style="display:flex;justify-content:space-between;margin:12px 0 0;padding-top:12px;border-top:2px solid #1a1a1a;font-size:20px;font-weight:900;color:#1a1a1a;">
                                 <span>الإجمالي</span>
@@ -2945,12 +3016,16 @@
                 setTimeout(async () => {
                     try {
                         const serverUrl = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
-                        const apiKey = localStorage.getItem('luccaApiKey') || 'lucca-secret-key';
+                        const apiKey = localStorage.getItem('luccaApiKey') || '';
+                        const sessTok = sessionStorage.getItem('luccaToken') || '';
+                        const syncHeaders = { 'Content-Type': 'application/json' };
+                        if (sessTok) syncHeaders['Authorization'] = 'Bearer ' + sessTok;
+                        else if (apiKey) syncHeaders['x-api-key'] = apiKey;
                         const controller = new AbortController();
                         const timer = setTimeout(() => controller.abort(), 3000);
                         await fetch(`${serverUrl}/api/sync`, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                            headers: syncHeaders,
                             body: JSON.stringify({
                                 orders: await LuccaDB.Orders.getAll(),
                                 customers: await LuccaDB.Customers.getAll(),
@@ -3044,6 +3119,21 @@
         async function selectPaymentAndClose(method, type) {
             document.getElementById('paymentSelectModal').classList.remove('show');
 
+            // F4 §3: منع عمليات النقد (الكاش) عند عدم وجود شيفت/صندوق مفتوح — مع رسالة واضحة.
+            // العمليات غير النقدية (فيزا/محفظة/تحويل) تُسمح دائماً.
+            if (type === 'cash' || type === 'نقدي' || method === 'cash') {
+                try {
+                    if (window.LuccaDB && window.LuccaDB.CashRegister) {
+                        const drawer = await window.LuccaDB.CashRegister.getActiveDrawer();
+                        if (!drawer) {
+                            showToast('لا يوجد شيفت مفتوح لهذا الصندوق. افتح الشيفت أولاً.', 'error');
+                            setOrderStatus('لا يوجد شيفت مفتوح لهذا الصندوق.', 'error');
+                            return;
+                        }
+                    }
+                } catch(e) {}
+            }
+
             // Update the hidden select
             const pmSelect = document.getElementById('paymentMethod');
             if (pmSelect) {
@@ -3069,22 +3159,61 @@
             const tableNum = document.getElementById('tableSelect').value;
             const paymentMethod = document.getElementById('paymentMethod').value || 'cash';
 
+            // C1: تعريف كل المتغيرات قبل أي استخدام (إصلاح Temporal Dead Zone).
+            let order = null;
+            let items = [];
+            let formData = { customerName: '', customerPhone: '', customerNotes: '', discount: 0, paymentMethod };
+            let totals = { subtotal: 0, discount: 0, discountAmount: 0, tax: 0, afterDiscount: 0, total: 0 };
+
             try {
-                // Use professional checkout — closes order, saves invoice+payment, frees table atomically
+                // جلب أحدث بيانات الطلب (قبل الإغلاق) لتحديد الإجماليات الصحيحة
+                const allOrdersBefore = await LuccaDB.Orders.getAll();
+                const pendingOrder = allOrdersBefore.find(o => o.id === currentOrderId);
+                items = (pendingOrder && pendingOrder.items) || buildOrderPayload();
+                formData = {
+                    customerName: (pendingOrder && pendingOrder.customerName) || collectCustomerForm().customerName || '',
+                    customerPhone: (pendingOrder && pendingOrder.customerPhone) || document.getElementById('customerPhoneInput')?.value?.trim() || '',
+                    customerNotes: (pendingOrder && pendingOrder.customerNotes) || document.getElementById('customerNotesInput')?.value?.trim() || '',
+                    discount: (pendingOrder && pendingOrder.discount != null) ? pendingOrder.discount : (parseFloat(document.getElementById('discountInput')?.value) || 0),
+                    paymentMethod
+                };
+
+                // C4: استخدم الإجماليات المخزّنة في سجل الطلب (شاملة الضريبة)
+                totals = orderTotalsForDisplay(pendingOrder, calcOrderTotals(items, formData.discount).subtotal);
+
+                // استخدم checkout الاحترافي — يُغلق الطلب ويحفظ الفاتورة+الدفع ويحرّر الطاولة
                 const closedOrder = await LuccaDB.Orders.checkout(currentOrderId, paymentMethod);
                 const orderId = currentOrderId;
                 currentOrderId = null;
 
+                // Fetch the latest committed order data for invoice display
+                const allOrders = await LuccaDB.Orders.getAll();
+                order = allOrders.find(o => o.id === orderId) || closedOrder;
+                if (order) {
+                    // تحديث المتغيرات من السجل المحفوظ النهائي (مصدر الحقيقة)
+                    items = (order && order.items) || items;
+                    formData = {
+                        customerName: (order.customerName) || '',
+                        customerPhone: (order.customerPhone) || '',
+                        customerNotes: (order.customerNotes) || '',
+                        discount: (order.discount) || formData.discount || 0,
+                        paymentMethod: paymentMethod || 'cash'
+                    };
+                    totals = orderTotalsForDisplay(order, totals.subtotal);
+                }
+
+                const { subtotal, discount, discountAmount, tax, total } = totals;
+
                 // ===== LOYALTY POINTS =====
                 try {
-                    const custPhone = (order && order.customerPhone) || formData.customerPhone;
+                    const custPhone = formData.customerPhone;
                     if(custPhone && window.LuccaDB.CustomerLoyalty && total > 0){
                         const result = await window.LuccaDB.CustomerLoyalty.addPoints(custPhone, total, orderId);
                         if(result && result.earned > 0){
                             setTimeout(()=>{ setOrderStatus('⭐ تم إضافة '+result.earned+' نقطة ولاء ('+result.total+' إجمالي)', 'success'); }, 1500);
                         }
                     }
-                } catch(e){}
+                } catch(e){ console.error('[Loyalty]', e); }
 
                 // ===== CASH REGISTER =====
                 try {
@@ -3093,27 +3222,12 @@
                         await window.LuccaDB.CashRegister.recordTransaction(drawer.id, 'sale', total, paymentMethod, 'طلب #'+orderId);
                         await checkCashDrawerStatus();
                     }
-                } catch(e){}
-
-                // Fetch the latest order data for invoice display
-                const allOrders = await LuccaDB.Orders.getAll();
-                const order = allOrders.find(o => o.id === orderId) || closedOrder;
-                const items = (order && order.items) || [];
-                const formData = {
-                    customerName: (order && order.customerName) || '',
-                    customerPhone: (order && order.customerPhone) || '',
-                    customerNotes: (order && order.customerNotes) || '',
-                    discount: (order && order.discount) || 0,
-                    paymentMethod: paymentMethod || 'cash'
-                };
-                const subtotal = items.reduce((s, i) => s + ((i.price || 0) * (i.quantity || 1)), 0);
-                const discount = formData.discount || 0;
-                const total = subtotal - (subtotal * discount / 100);
+                } catch(e){ console.error('[CashRegister]', e); }
 
                 // Show invoice in modal
                 const modal = document.getElementById('invoiceModal');
                 const content = document.getElementById('invoiceContent');
-                const fullHtml = generateInvoiceHTML(order, formData, subtotal, false);
+                const fullHtml = generateInvoiceHTML(order, formData, subtotal);
                 content.innerHTML = fullHtml;
                 modal.classList.add('show');
 
@@ -3183,9 +3297,11 @@
             const now = new Date();
             const dateStr = now.toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
             const timeStr = now.toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' });
-            const discount = formData.discount || 0;
-            const discountAmount = subtotal * (discount / 100);
-            const total = subtotal - discountAmount;
+            const t = orderTotalsForDisplay(order, subtotal);
+            const discount = formData.discount || t.discount || 0;
+            const discountAmount = t.discountAmount;
+            const tax = t.tax;
+            const total = t.total;
             const items = order.items || [];
             const _pm2 = (formData.paymentMethod || '').toLowerCase();
             const payMethod = /card|فيزا|كارت|visa/i.test(_pm2) ? '💳 فيزا' : /transfer|تحويل|بنك/i.test(_pm2) ? '🏦 تحويل' : /whatsapp|واتساب/i.test(_pm2) ? '📱 واتساب' : '💵 كاش';
@@ -3228,12 +3344,12 @@
                         body {
                             font-family: 'Segoe UI', Tahoma, 'Arial', sans-serif;
                             font-size: 14px;
-                            padding: 4px 3px;
+                            padding: 3px 3px;
                             direction: rtl;
                             color: #000;
                             width: 72mm;
                             background: #fff;
-                            line-height: 1.45;
+                            line-height: 1.3;
                             font-weight: 700;
                         }
                         .receipt { padding: 1px; }
@@ -3241,48 +3357,48 @@
                         /* ===== BRAND HEADER ===== */
                         .brand {
                             text-align: center;
-                            padding-bottom: 8px;
-                            margin-bottom: 2px;
+                            padding-bottom: 4px;
+                            margin-bottom: 1px;
                         }
                         .brand-line {
                             width: 100%;
-                            height: 4px;
+                            height: 3px;
                             background: #000;
-                            margin-bottom: 10px;
+                            margin-bottom: 6px;
                         }
                         .brand-name {
-                            font-size: 34px;
+                            font-size: 28px;
                             font-weight: 800;
-                            letter-spacing: 10px;
+                            letter-spacing: 8px;
                             color: #000;
                             line-height: 1.05;
                         }
                         .brand-sub {
-                            font-size: 12px;
+                            font-size: 11px;
                             font-weight: 700;
-                            letter-spacing: 5px;
+                            letter-spacing: 4px;
                             color: #000;
-                            margin-top: 4px;
+                            margin-top: 2px;
                             text-transform: uppercase;
                         }
                         .brand-tagline {
-                            font-size: 10px;
+                            font-size: 9px;
                             font-weight: 500;
                             color: #444;
-                            margin-top: 4px;
+                            margin-top: 2px;
                         }
                         .brand-contact {
-                            font-size: 12px;
+                            font-size: 11px;
                             font-weight: 600;
                             color: #000;
-                            margin-top: 8px;
-                            line-height: 1.7;
+                            margin-top: 4px;
+                            line-height: 1.5;
                         }
                         .brand-line-bottom {
                             width: 100%;
                             height: 2px;
                             background: #000;
-                            margin-top: 10px;
+                            margin-top: 5px;
                         }
 
                         /* ===== RECEIPT NUMBER BAR ===== */
@@ -3291,8 +3407,8 @@
                             font-size: 13px;
                             font-weight: 700;
                             letter-spacing: 2px;
-                            padding: 6px 0;
-                            margin: 5px 0;
+                            padding: 4px 0;
+                            margin: 3px 0;
                             background: #eee;
                             border: 1px solid #000;
                         }
@@ -3302,15 +3418,15 @@
                             display: flex;
                             justify-content: space-between;
                             font-size: 12px;
-                            padding: 3px 0;
+                            padding: 2px 0;
                         }
                         .info-row .lbl { color: #333; }
                         .info-row .val { font-weight: 700; color: #000; }
 
                         /* ===== DIVIDERS ===== */
-                        .sep { border: none; border-top: 1px dashed #000; margin: 7px 0; }
-                        .sep-thick { border: none; border-top: 3px solid #000; margin: 7px 0; }
-                        .sep-dots { border: none; border-top: 1px dotted #777; margin: 5px 0; }
+                        .sep { border: none; border-top: 1px dashed #000; margin: 4px 0; }
+                        .sep-thick { border: none; border-top: 3px solid #000; margin: 4px 0; }
+                        .sep-dots { border: none; border-top: 1px dotted #777; margin: 3px 0; }
 
                         /* ===== ITEMS ===== */
                         .items-header {
@@ -3319,7 +3435,7 @@
                             font-size: 11px;
                             font-weight: 700;
                             color: #000;
-                            padding: 5px 0 3px;
+                            padding: 3px 0 2px;
                             border-bottom: 2px solid #000;
                             text-transform: uppercase;
                             letter-spacing: 1px;
@@ -3328,7 +3444,7 @@
                             display: flex;
                             justify-content: space-between;
                             align-items: flex-start;
-                            padding: 5px 0;
+                            padding: 3px 0;
                             border-bottom: 1px dotted #999;
                             font-size: 13px;
                             line-height: 1.4;
@@ -3367,22 +3483,22 @@
                         }
 
                         /* ===== TOTALS ===== */
-                        .totals { margin-top: 5px; }
+                        .totals { margin-top: 3px; }
                         .total-line {
                             display: flex;
                             justify-content: space-between;
                             font-size: 13px;
-                            padding: 3px 0;
+                            padding: 2px 0;
                             color: #000;
                             font-weight: 600;
                         }
                         .total-line.discount { color: #000; font-weight: 700; }
                         .total-line.final {
-                            font-size: 26px;
+                            font-size: 24px;
                             font-weight: 900;
                             color: #000;
-                            padding: 8px 2px;
-                            margin-top: 6px;
+                            padding: 5px 2px;
+                            margin-top: 4px;
                             border-top: 3px solid #000;
                             border-bottom: 3px solid #000;
                         }
@@ -3394,7 +3510,7 @@
                             justify-content: space-between;
                             font-size: 12px;
                             font-weight: 600;
-                            padding: 5px 0;
+                            padding: 3px 0;
                             color: #000;
                         }
                         .payment-badge {
@@ -3404,33 +3520,33 @@
 
                         /* ===== NOTES ===== */
                         .notes {
-                            margin-top: 7px;
-                            padding: 7px;
+                            margin-top: 4px;
+                            padding: 4px;
                             background: #f0f0f0;
                             border: 1px dashed #000;
                             font-size: 12px;
                             color: #000;
                             font-weight: 500;
-                            line-height: 1.5;
+                            line-height: 1.45;
                         }
 
                         /* ===== FOOTER ===== */
                         .footer {
                             text-align: center;
-                            margin-top: 12px;
-                            padding-top: 8px;
+                            margin-top: 8px;
+                            padding-top: 5px;
                         }
                         .footer-stars {
-                            font-size: 12px;
+                            font-size: 11px;
                             letter-spacing: 4px;
                             color: #000;
-                            margin-bottom: 6px;
+                            margin-bottom: 4px;
                         }
                         .footer-thanks {
-                            font-size: 15px;
+                            font-size: 14px;
                             font-weight: 900;
                             color: #000;
-                            margin-bottom: 3px;
+                            margin-bottom: 2px;
                         }
                         .footer-sub {
                             font-size: 11px;
@@ -3439,14 +3555,14 @@
                             line-height: 1.6;
                         }
                         .footer-emoji {
-                            font-size: 14px;
-                            margin: 5px 0;
+                            font-size: 13px;
+                            margin: 3px 0;
                         }
 
                         /* ===== BARCODE ===== */
                         .barcode {
                             text-align: center;
-                            margin: 10px 0;
+                            margin: 6px 0;
                         }
                         .barcode-lines {
                             display: flex;
@@ -3534,6 +3650,10 @@
                         ${discount > 0 ? `<div class="total-line discount">
                             <span>خصم ${discount}%</span>
                             <span>-${discountAmount.toFixed(0)} ج.م</span>
+                        </div>` : ''}
+                        ${tax > 0 ? `<div class="total-line">
+                            <span>ضريبة القيمة المضافة</span>
+                            <span>${tax.toFixed(0)} ج.م</span>
                         </div>` : ''}
                         <div class="total-line final">
                             <span class="total-label">الإجمالي</span>
@@ -4063,9 +4183,11 @@
                 const now = new Date();
                 const dateStr = now.toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
                 const timeStr = now.toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' });
-                const discount = formData.discount || 0;
-                const discountAmount = subtotal * (discount / 100);
-                const total = subtotal - discountAmount;
+                const t = orderTotalsForDisplay(order, subtotal);
+                const discount = formData.discount || t.discount || 0;
+                const discountAmount = t.discountAmount;
+                const tax = t.tax;
+                const total = t.total;
                 const items = order.items || [];
                 const tableLabel = order.tableId === 'takeaway' || order.tableId == 0 ? 'تيك أواي' : 'طاولة ' + (order.tableId || '-');
                 const itemCount = items.reduce((s, i) => s + (i.quantity || 1), 0);
@@ -4083,7 +4205,7 @@
                 const modeReset = ESC + '\x21\x00';
                 const nl = '\x0a';
                 const cut = GS + '\x56\x00';
-                const feed = ESC + '\x64\x04';
+                const feed = ESC + '\x64\x01';
                 const utf8 = ESC + '\x74\x11';
 
                 const w = (s, len=32) => String(s || '').padEnd(len, ' ');
@@ -4103,9 +4225,7 @@
                 r.push(init + utf8 + boldOn);
                 // BRAND - double height, centered
                 r.push(modeTall + center + 'LUCCA' + modeReset + nl);
-                r.push(center + 'Caffe Italiano' + nl);
-                r.push(modeReset + center + 'بورسعيد - شارع محمد علي' + nl);
-                r.push(center + '01010058989' + nl);
+                r.push(modeReset + center + 'بورسعيد - شارع محمد علي - 01010058989' + nl);
                 r.push(div + nl);
                 r.push('فاتورة #' + String(order.id || '').padStart(4, '0') + w('') + dateStr + nl);
                 r.push(tableLabel + w('') + timeStr + nl);
@@ -4130,10 +4250,13 @@
                 if (discount > 0) {
                     r.push('خصم ' + discount + '%:' + w('') + '-' + String(discountAmount.toFixed(0)) + ' ج.م' + nl);
                 }
+                if (tax > 0) {
+                    r.push('ضريبة:' + w('') + String(tax.toFixed(0)) + ' ج.م' + nl);
+                }
                 // TOTAL - double height
                 r.push(modeTall + 'الإجمالي:' + w('') + String(total.toFixed(0)) + ' ج.م' + modeReset + nl);
-                if (formData.customerNotes) r.push(nl + 'ملاحظات: ' + formData.customerNotes + nl);
-                r.push(nl + center + 'شكراً لزيارتكم!' + nl);
+                if (formData.customerNotes) r.push('ملاحظات: ' + formData.customerNotes + nl);
+                r.push(center + 'شكراً لزيارتكم!' + nl);
                 r.push(center + 'Buon Appetito!' + nl);
                 r.push(boldOff + feed + cut);
                 return r.join('');
@@ -4492,8 +4615,22 @@
         }
 
         // ==================== إلغاء / استرداد طلب ====================
+        // صلاحية منفصلة للبييع/الاسترداد: مدير/أدمن فقط (refunds.void).
+        // يمنع الكاشير/الديفايس/المطبخ، ويُلزم سبباً، ويحفظ الموظف الأصلي + مَن ألغى.
+        function canVoidRefund() {
+            const cu = window.currentUser;
+            if (!cu) return false;
+            if (cu.role === 'admin' || cu.role === 'manager') return true;
+            if (Array.isArray(cu.scopes)) return cu.scopes.includes('refunds.void');
+            return false;
+        }
+        function applyVoidPermission() {
+            const btn = document.getElementById('voidOrderBtn');
+            if (btn) btn.style.display = canVoidRefund() ? '' : 'none';
+        }
         let _voidOrderId = null;
         async function openVoidOrderModal() {
+            if (!canVoidRefund()) { showToast('ليس لديك صلاحية الإلغاء/الاسترداد (مدير/أدمن فقط)'); return; }
             // If we have a current order loaded, void that one
             if (currentOrderId) {
                 _voidOrderId = currentOrderId;
@@ -4530,10 +4667,36 @@
 
         async function confirmVoidOrder() {
             if (!_voidOrderId) return;
-            const reason = document.getElementById('voidReason').value;
+            if (!canVoidRefund()) { showToast('ليس لديك صلاحية الإلغاء/الاسترداد (مدير/أدمن فقط)'); return; }
+            const reason = document.getElementById('voidReason').value.trim();
             const note = document.getElementById('voidReasonNote').value.trim();
+            // السبب إلزامي
+            if (!reason) { showToast('يجب إدخال سبب الإلغاء/الاسترداد'); document.getElementById('voidReason').focus(); return; }
 
             try {
+                // يحاول التسجيل الخادمي أولاً (يسجل الموظف الأصلي + مَن ألغى في audit + refund)
+                if (window.ServerAPI && ServerAPI.post && navigator.onLine !== false) {
+                    try {
+                        await ServerAPI.post('/api/orders/' + _voidOrderId + '/void', {
+                            reason: reason, note: note
+                        });
+                        document.getElementById('voidOrderModal').classList.remove('show');
+                        document.getElementById('orderSearchModal').classList.remove('show');
+                        await loadTables();
+                        if (typeof performOrderSearch === 'function') await performOrderSearch();
+                        setOrderStatus(`❌ تم إلغاء وتسجيل استرداد طلب #${_voidOrderId} (السبب: ${reason})`, 'success');
+                        showToast('تم إلغاء الطلب وتسجيل الاسترداد على الخادم');
+                        _voidOrderId = null;
+                        _viewingOrderId = null;
+                        return;
+                    } catch(e) {
+                        // فشل خادمي -> المتابعة محلياً
+                        console.error('[void server]', e);
+                        if (e && e.status === 403) { showToast('ليس لديك صلاحية الإلغاء/الاسترداد'); return; }
+                        if (e && e.status === 400) { showToast(e.message || 'سبب الإلغاء إلزامي'); return; }
+                    }
+                }
+
                 const orders = await LuccaDB.Orders.getAll();
                 const order = orders.find(o => o.id === _voidOrderId);
                 if (!order) { showToast('الطلب غير موجود'); return; }
@@ -4549,15 +4712,38 @@
                         note: note,
                         refundMethod: order.paymentMethod || 'cash',
                         createdBy: window.currentUser?.name || 'system',
+                        userId: window.currentUser?.id != null ? window.currentUser.id : null,
                         date: new Date().toISOString()
                     });
                 } catch(e) {}
 
-                // 2. Add void metadata to order
+                // 1b. Record cash-drawer refund so reconciliation stays correct
+                try {
+                    const drawer = await LuccaDB.CashRegister.getActiveDrawer();
+                    if (drawer && refundAmount > 0) {
+                        await LuccaDB.CashRegister.recordTransaction(drawer.id, 'refund', refundAmount, order.paymentMethod || 'cash', 'استرداد طلب #'+_voidOrderId);
+                        if (typeof checkCashDrawerStatus === 'function') await checkCashDrawerStatus();
+                    }
+                } catch(e) { console.error('[CashRegister refund]', e); }
+
+                // 1c. Audit: no silent void/refund
+                try {
+                    if (LuccaDB.AuditLogs && LuccaDB.AuditLogs.log) {
+                        await LuccaDB.AuditLogs.log('order.void_refund', 'orders', _voidOrderId,
+                            { total: order.total, paymentStatus: order.paymentStatus },
+                            { refundAmount, reason, note },
+                            window.currentUser?.name || 'system');
+                    }
+                } catch(e) { console.error('[Audit refund]', e); }
+
+                // 2. Add void metadata to order (يسجل مَن ألغى + الموظف الأصلي)
                 order.status = 'cancelled';
                 order.voidReason = reason;
                 order.voidNote = note;
                 order.voidedAt = new Date().toISOString();
+                order.voidedBy = (window.currentUser && (window.currentUser.name || window.currentUser.username)) || 'system';
+                order.voidedByRole = window.currentUser?.role || null;
+                order.originalEmployee = order.createdBy || order.userId || null;
                 order.paymentStatus = 'refunded';
                 order.refundAmount = refundAmount;
                 await LuccaDB.db.put('orders', order);
@@ -4779,7 +4965,11 @@
                 const items = this.get();
                 if (!items.length) return;
                 const serverUrl = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
-                const apiKey = localStorage.getItem('luccaApiKey') || 'lucca-secret-key';
+                const apiKey = localStorage.getItem('luccaApiKey') || '';
+                const sessTok = sessionStorage.getItem('luccaToken') || '';
+                const qHeaders = { 'Content-Type': 'application/json' };
+                if (sessTok) qHeaders['Authorization'] = 'Bearer ' + sessTok;
+                else if (apiKey) qHeaders['x-api-key'] = apiKey;
                 const remaining = [];
                 for (const item of items) {
                     if (item.retries > 15) continue; // give up
@@ -4792,7 +4982,7 @@
                     const timeout = setTimeout(() => controller.abort(), 4000);
                     const res = await fetch(url, {
                         method,
-                        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                        headers: qHeaders,
                         body: (method !== 'DELETE' && method !== 'GET') ? JSON.stringify(item.data) : undefined,
                         signal: controller.signal
                     });
@@ -4903,7 +5093,7 @@
             const syncBar = document.createElement('div');
             syncBar.id = 'syncStatusBar';
             syncBar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;height:28px;background:var(--bg-card,#1a1a2e);border-top:1px solid var(--border,#2a2a3e);display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:0.7rem;color:var(--text-secondary,#888);z-index:9999;gap:12px;';
-            syncBar.innerHTML = '<span id="syncStatusIcon">🔄</span><span id="syncStatusText">جاري التحقق...</span><span id="updateBadge" style="display:none;background:#e74c3c;color:white;padding:1px 6px;border-radius:8px;cursor:pointer" onclick="checkAppUpdate()">⬆️ تحديث</span><span id="syncStatusQueue"></span>';
+            syncBar.innerHTML = '<span id="syncStatusIcon">🔄</span><span id="syncStatusText">جاري التحقق...</span><span id="updateBadge" style="display:none;background:#e74c3c;color:white;padding:1px 6px;border-radius:8px;cursor:pointer" onclick="checkAppUpdate()">⬆️ تحديث</span><span id="syncStatusQueue"></span><span id="luccaRunningVersion" style="font-weight:bold;color:#c9a227">v…</span>';
             document.body.appendChild(syncBar);
 
             function updateSyncUI(){
@@ -4946,53 +5136,78 @@
             initAutoUpdate();
         }
 
-        // ===== AUTO UPDATE SYSTEM =====
+        // ===== AUTO UPDATE SYSTEM (real, electron-updater) =====
         function initAutoUpdate(){
-            // Electron auto-updater events
-            if(window.electronAPI){
-                window.electronAPI.onUpdateAvailable(function(data){
-                    showToast('🔄 تحديث جديد متاح: v'+data.version);
-                    const badge = document.getElementById('updateBadge');
-                    if(badge){ badge.style.display='inline-block'; badge.textContent='⬆️ تحديث v'+data.version; }
-                });
-                window.electronAPI.onUpdateDownloaded(function(data){
-                    showToast('✅ تم تحميل التحديث v'+data.version+' - يُعاد التشغيل تلقائياً');
-                    setTimeout(()=>{ window.electronAPI.installUpdate(); }, 3000);
-                });
-                window.electronAPI.onUpdateProgress(function(data){
-                    const text = document.getElementById('syncStatusText');
-                    if(text) text.textContent = 'جاري تحميل التحديث... '+data.percent+'%';
-                });
-                // Check version on startup
-                window.electronAPI.getVersion().then(function(v){
-                    window._appVersion = v.version;
-                    const queue = document.getElementById('syncStatusQueue');
-                    if(queue) queue.textContent = 'v'+v.version;
-                });
+            if(!window.electronAPI) return;
+            var badge = document.getElementById('updateBadge');
+            var queue = document.getElementById('syncStatusQueue');
+            var verLbl = document.getElementById('luccaRunningVersion');
+            function setVersionLabel(ver){
+                window._appVersion = ver;
+                if(queue) queue.textContent = 'v'+ver;
+                if(verLbl) verLbl.textContent = 'تشغيل v'+ver;
             }
 
-            // Also check via GitHub raw (for non-Electron)
-            if(navigator.onLine){
-                fetch('https://raw.githubusercontent.com/anamasry300-ai/Lucca_menu-/main/version.json')
-                    .then(r => r.json())
-                    .then(remote => {
-                        const local = window._appVersion || '1.0.0';
-                        if(remote.version !== local){
-                            const badge = document.getElementById('updateBadge');
-                            if(badge){
-                                badge.style.display = 'inline-block';
-                                badge.textContent = '⬆️ تحديث v'+remote.version;
-                                badge.onclick = function(){ window.open(remote.downloadUrl || 'https://github.com/anamasry300-ai/Lucca_menu-/releases', '_blank'); };
-                            }
-                        }
-                    })
-                    .catch(function(){});
-            }
+            window.electronAPI.getVersion().then(function(v){
+                setVersionLabel(v.version);
+            });
+
+            // Central state handler for the update state machine (main process)
+            window.electronAPI.onUpdateState(function(s){
+                // s = { state, currentVersion, targetVersion, error, percent }
+                if(queue && window._appVersion === undefined){
+                    setVersionLabel((s && s.currentVersion) || '?');
+                }
+                var text = document.getElementById('syncStatusText');
+                var st = s && s.state;
+                if(st === 'AVAILABLE'){
+                    if(badge){ badge.style.display='inline-block'; badge.textContent='🆕 يوجد تحديث جديد لـ Lucca POS'; badge.onclick = function(){ window.electronAPI.downloadUpdate(); }; }
+                    showToast('🆕 يوجد تحديث جديد لـ Lucca POS / الإصدار الحالي: '+(s.currentVersion||'?')+' / الإصدار الجديد: '+(s.targetVersion||'?'));
+                    // Auto-download the real installer (progress shown via onUpdateProgress),
+                    // then VERIFIED -> auto-install + restart below.
+                    window.electronAPI.downloadUpdate();
+                } else if(st === 'DOWNLOADING'){
+                    if(badge){ badge.style.display='inline-block'; badge.textContent='⏳ جاري تحميل التحديث...'; }
+                } else if(st === 'VERIFIED'){
+                    if(badge){ badge.style.display='inline-block'; badge.textContent='🔒 تم التحقق، جاري التثبيت...'; }
+                    showToast('✅ تم التحقق من التحديث. جاري التثبيت وإعادة التشغيل...');
+                    setTimeout(function(){ window.electronAPI.installUpdate(); }, 1500);
+                } else if(st === 'UPDATED'){
+                    showToast('✅ تم تحديث البرنامج إلى الإصدار '+(s.currentVersion||'')+' بنجاح. العمل لن يتأثر.');
+                } else if(st === 'FAILED'){
+                    var reason = (s && s.error) ? (' ('+s.error+')') : '';
+                    showToast('⚠️ فشل التحديث. لم يتم تغيير البرنامج. سيُحاول لاحقاً.'+ (s && s.offline ? '' : reason));
+                    if(badge){ badge.style.display='none'; }
+                    if(text) text.textContent = '';
+                } else if(st === 'IDLE'){
+                    // nothing to report
+                }
+                if(text && st === 'DOWNLOADING') text.textContent = 'جاري تحميل التحديث... '+(s.percent!==undefined?s.percent+'%':'');
+            });
+
+            window.electronAPI.onUpdateProgress(function(p){
+                var text = document.getElementById('syncStatusText');
+                if(text){ text.textContent = 'جاري تحميل التحديث... '+(p && p.percent!==undefined?p.percent+'%':''); }
+            });
+
+            // Auto-check on startup: check ONLY (no false "update available" offline).
+            // If offline, electron-updater throws -> engine reports FAILED(offline).
+            window.electronAPI.checkForUpdates().then(function(res){
+                if(res && res.offline){
+                    showToast('لا يمكن التحقق من وجود تحديث حاليًا. سيحاول البرنامج مرة أخرى عند توفر الإنترنت.');
+                }
+            }).catch(function(){
+                // offline or unreachable — POS keeps working (no false update banner)
+            });
         }
 
         function checkAppUpdate(){
             if(window.electronAPI){
-                window.electronAPI.checkForUpdates();
+                window.electronAPI.checkForUpdates().then(function(res){
+                    if(res && res.offline){
+                        showToast('لا يمكن التحقق من وجود تحديث حاليًا. سيحاول البرنامج مرة أخرى عند توفر الإنترنت.');
+                    }
+                });
             } else {
                 window.open('https://github.com/anamasry300-ai/Lucca_menu-/releases', '_blank');
             }
@@ -5252,7 +5467,8 @@ async function processAiCommand(text){
 
     // ===== AI POS ENGINE INTEGRATION =====
     // Route POS commands through the AI engine first
-    const posKeywords = ['افتح','فتح','اقفل','قفل','حط','حطيت','ضف','اضف','أضف','زود','شيل','امسح','احذف','حساب','ادفع','دفع','انقل','ادمج','قسم','اطبع','ابعت','خلي','غير','المطبخ','الطلب','الطلبات','ترابيزة','طاولة','table','كاش','فيزا','transfer','merge','split','print','pay','close','open','مبيعات','تقرير','الموظفين','حضور','انصراف','وردية','مصروف','مخزون','الطاولات','تعديل سعر','اضف منتج','المنتجات'];
+    const posKeywords = ['افتح','فتح','اقفل','قفل','حط','حطيت','ضف','اضف','أضف','زود','شيل','امسح','احذف','حساب','ادفع','دفع','انقل','ادمج','قسم','اطبع','ابعت','خلي','غير','المطبخ','الطلب','الطلبات','ترابيزة','طاولة','table','كاش','فيزا','transfer','merge','split','print','pay','close','open','مبيعات','تقرير','الموظفين','حضور','انصراف','وردية','مصروف','مخزون','الطاولات','تعديل سعر','اضف منتج','المنتجات','اشتريت','شراء','مشتريات','فاتورة']; 
+
     const isPosCommand = posKeywords.some(kw => t.includes(kw)) && window.aiPosEngine;
 
     if(isPosCommand) {
@@ -5667,14 +5883,12 @@ async function processAiCommand(text){
     if(matchAny(t,['مبيعات اليوم','sales today','today','اليوم','بائع ايه','ايام','مبيعاتي','ايراد','عائد'])){
         try{
             const orders = await window.LuccaDB.Orders.getAll();
+            const refunds = await window.LuccaDB.db.getAll('refunds');
             const today = new Date().toISOString().slice(0,10);
-            const todayOrders = orders.filter(o=>{
-                const d = (o.createdAt||o.date||'').slice(0,10);
-                return d === today;
-            });
-            const total = todayOrders.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);
-            const count = todayOrders.length;
-            const paid = todayOrders.filter(o=>o.paymentStatus==='paid'||o.status==='paid').length;
+            const fin = computeNetSales(orders, refunds, today);
+            const total = fin.sales;
+            const count = fin.count;
+            const paid = fin.count;
             const avg = count > 0 ? Math.round(total/count) : 0;
 
             let html = '<table class="ai-table"><tr><th>المقياس</th><th>القيمة</th></tr>';
@@ -5682,6 +5896,7 @@ async function processAiCommand(text){
             html += '<tr><td>عدد الطلبات</td><td>'+count+'</td></tr>';
             html += '<tr><td>متوسط الطلب</td><td>'+formatMoney(avg)+' ل.س</td></tr>';
             html += '<tr><td>طلبات مدفوعة</td><td>'+paid+'</td></tr>';
+            if(fin.refunds > 0) html += '<tr><td>استردادات اليوم</td><td style="color:#ff6b6b">'+formatMoney(fin.refunds)+' ل.س</td></tr>';
             html += '</table>';
 
             return aiBotReply('📊 **مبيعات اليوم ('+today+'):**', [{text:'تقرير تفصيلي',cmd:'daily_report'},{text:'المصروفات',cmd:'expenses'}]);
@@ -5694,16 +5909,17 @@ async function processAiCommand(text){
             const orders = await window.LuccaDB.Orders.getAll();
             const expenses = await window.LuccaDB.Expenses.getAll();
             const today = new Date().toISOString().slice(0,10);
-            const tOrders = orders.filter(o=>(o.createdAt||o.date||'').slice(0,10)===today);
+            const fin = computeNetSales(orders, await window.LuccaDB.db.getAll('refunds'), today);
+            const tOrders = fin.count;
             const tExpenses = expenses.filter(e=>(e.createdAt||e.date||'').slice(0,10)===today);
-            const sales = tOrders.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);
+            const sales = fin.sales;
             const expTotal = tExpenses.reduce((s,e)=>s+Number(e.amount||0),0);
             const profit = sales - expTotal;
 
             let html = '<table class="ai-table">';
             html += '<tr><th>البند</th><th>المبلغ</th></tr>';
             html += '<tr><td>📦 إجمالي المبيعات</td><td><b>'+formatMoney(sales)+' ل.س</b></td></tr>';
-            html += '<tr><td>🔢 عدد الطلبات</td><td>'+tOrders.length+'</td></tr>';
+            html += '<tr><td>🔢 عدد الطلبات</td><td>'+tOrders+'</td></tr>';
             html += '<tr><td>💸 المصروفات</td><td style="color:#ff6b6b">'+formatMoney(expTotal)+' ل.س</td></tr>';
             html += '<tr><td>💰 صافي الربح</td><td style="color:'+(profit>=0?'#51cf66':'#ff6b6b')+'"><b>'+formatMoney(profit)+' ل.س</b></td></tr>';
             html += '</table>';
@@ -6467,13 +6683,14 @@ async function processAiCommand(text){
             const today = new Date().toISOString().slice(0,10);
             const month = today.slice(0,7);
             // Today
-            const todayOrders = orders.filter(o=>(o.createdAt||o.date||'').slice(0,10)===today);
-            const todaySales = todayOrders.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);
+            const todayRefunds = await window.LuccaDB.db.getAll('refunds');
+            const todayOrders = orders.filter(o=>(o.paymentStatus==='paid'||o.status==='completed'||o.status==='closed') && (o.createdAt||o.date||'').slice(0,10)===today);
+            const todaySales = computeNetSales(orders, todayRefunds, today).sales;
             const todayExpenses = expenses.filter(e=>(e.createdAt||e.date||'').slice(0,10)===today);
             const todayExpTotal = todayExpenses.reduce((s,e)=>s+Number(e.amount||0),0);
             // This month
-            const monthOrders = orders.filter(o=>(o.createdAt||o.date||'').slice(0,7)===month);
-            const monthSales = monthOrders.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);
+            const monthOrders = orders.filter(o=>(o.paymentStatus==='paid'||o.status==='completed'||o.status==='closed') && (o.createdAt||o.date||'').slice(0,7)===month);
+            const monthSales = computeNetSales(orders, todayRefunds, month).sales;
             const monthExpenses = expenses.filter(e=>(e.createdAt||e.date||'').slice(0,7)===month);
             const monthExpTotal = monthExpenses.reduce((s,e)=>s+Number(e.amount||0),0);
             const monthPurchases = purchases.filter(p=>(p.date||p.createdAt||'').slice(0,7)===month);
@@ -6517,6 +6734,63 @@ async function processAiCommand(text){
         }
     } catch(e){}
 
+    // ===== OLLAMA STATUS / TOGGLE =====
+    if(matchAny(t,['حالة الذكاء','الذكاء المحلي','ollama status','تفعيل الذكاء','تعطيل الذكاء','ai status','المساعد المحلي'])){
+        try{
+            if(window.OllamaAI){
+                const on = window.OllamaAI.isEnabled();
+                let status = on ? '✅ مفعّل' : '⛔ معطّل';
+                if(on) status += (await window.OllamaAI.isAvailable()) ? ' — متصل بـ Ollama ✓' : ' — ⚠️ Ollama غير متصل (شغّل الخادم)';
+                let models = '';
+                try{
+                    const list = await window.OllamaAI.listModels();
+                    models = '\n📦 النماذج المتاحة:\n' + (list.length ? list.map(m=>'• '+m).join('\n') : '—');
+                }catch(e){}
+                return aiBotReply('🧠 **حالة الذكاء المحلي (Ollama / Qwen)**\n\n' + status + models + '\n\nللتبديل اكتب: "فعّل الذكاء" أو "عطّل الذكاء"',[
+                    {text: on?'عطّل الذكاء':'فعّل الذكاء', cmd: on?'disable_ai_local':'enable_ai_local'},
+                    {text:'تقرير يومي',cmd:'daily_report'}
+                ]);
+            }else{
+                return aiBotReply('⚠️ محرك الذكاء المحلي غير محمّل. أعد تشغيل التطبيق.');
+            }
+        }catch(e){ return aiBotReply('❌ خطأ: '+e.message); }
+    }
+    if(matchAny(t,['disable_ai_local','تعطيل الذكاء','عطّل الذكاء','ايقاف الذكاء'])){
+        if(window.OllamaAI && window.OllamaAI.setEnabled){ window.OllamaAI.setEnabled(false); return aiBotReply('⛔ تم تعطيل المساعد المحلي (Qwen).'); }
+    }
+    if(matchAny(t,['enable_ai_local','تفعيل الذكاء','فعّل الذكاء'])){
+        if(window.OllamaAI && window.OllamaAI.setEnabled){ window.OllamaAI.setEnabled(true); return aiBotReply('✅ تم تفعيل المساعد المحلي (Qwen).'); }
+    }
+
+    // ===== OLLAMA LOCAL AI (Qwen) ASSISTANT FALLBACK =====
+    if(window.OllamaAI && window.OllamaAI.isEnabled && window.OllamaAI.isEnabled() && !text.startsWith('_')){
+        try{
+            const aiOn = await window.OllamaAI.isAvailable();
+            if(aiOn){
+                aiShowTyping();
+                const liveData = await buildLiveContext();
+                const system = 'أنت مساعد "باتمان" المحاسب الذكي لتطبيق كافيه لوكا (Lucca POS).' +
+                    'أنت تعمل محليًا بدون إنترنت. ستحصل على بيانات حية من النظام بصيغة JSON.' +
+                    'أجب بالعربية بإيجاز واحترافية. إذا كان السؤال محاسبيًا (مبيعات/مصروف/أرباح/تقارير)' +
+                    'استخدم الأرقام الحية المقدمة. احسب الربح = الإيرادات - المصروفات.' +
+                    'إن لم تكن الإجابة واضحة أو غير متوفرة، قل ذلك بصراحة ولا تخترع أرقامًا.';
+                const user = 'بيانات حية من النظام:\n' + liveData + '\n\nسؤال الزبون/المستخدم:\n' + text;
+                const res = await window.OllamaAI.chat(system, user, { temperature: 0.3, timeout: 90000, numCtx: 8192 });
+                aiHideTyping();
+                if(res.ok && res.text){
+                    try{ await window.LuccaDB.BotMemory.logInteraction(text, 'ollama', res.text.substring(0,500)); }catch(e){}
+                    return aiBotReply('🧠 **رد باتمان المحلي (Qwen):**\n\n' + res.text + '\n\n<sub>⚡ رد محلي بدون إنترنت</sub>',[
+                        {text:'تقرير يومي',cmd:'daily_report'},
+                        {text:'مبيعات اليوم',cmd:'today_sales'},
+                        {text:'تسجيل مصروف',cmd:'add_expense'}
+                    ]);
+                }
+            }
+        }catch(e){
+            console.error('[Batman Ollama] Error:', e);
+        }
+    }
+
     // ===== LOG THIS INTERACTION =====
     try{ await window.LuccaDB.BotMemory.logInteraction(text, 'unhandled', ''); } catch(e){}
 
@@ -6529,6 +6803,50 @@ async function processAiCommand(text){
         {text:'الموظفين',cmd:'manage_employees'},
         {text:'الفواتير',cmd:'invoices_list'}
     ]);
+}
+
+// تجميع سياق حي مبسط من قاعدة البيانات للمساعد المحلي
+async function buildLiveContext(){
+    const ctx = {};
+    try{
+        const orders = window.LuccaDB && window.LuccaDB.Orders ? await window.LuccaDB.Orders.getAll() : [];
+        ctx.ordersCount = (orders||[]).length;
+        const today = new Date().toISOString().slice(0,10);
+        const todayOrders = (orders||[]).filter(o => (o.date||o.createdAt||'').slice(0,10) === today);
+        const completed = todayOrders.filter(o => o.paymentStatus==='paid' || o.status==='completed' || o.status==='closed');
+        const ctxRefundsT = (await window.LuccaDB.db.getAll('refunds')).filter(r=>(r.createdAt||r.updatedAt||r.date||'').slice(0,10)===today).reduce((s,r)=>s+Number(r.amount||0),0);
+        ctx.todayRevenue = completed.reduce((s,o)=>s+(o.total||o.totalAmount||0),0) - ctxRefundsT;
+        ctx.todayOrders = todayOrders.length;
+        ctx.todayCompleted = completed.length;
+    }catch(e){}
+    try{
+        const exp = window.LuccaDB && window.LuccaDB.Expenses ? await window.LuccaDB.Expenses.getAll() : [];
+        ctx.expensesCount = (exp||[]).length;
+    }catch(e){}
+    try{
+        const prods = window.LuccaDB && window.LuccaDB.Products ? await window.LuccaDB.Products.getActive() : [];
+        ctx.productCount = (prods||[]).length;
+    }catch(e){}
+    try{
+        ctx.tablesOpen = (await window.LuccaDB.Tables.getAll()).filter(t=>String(t.status)==='occupied'||String(t.status)==='open').length;
+    }catch(e){}
+    try{
+        const allRefundsT = await window.LuccaDB.db.getAll('refunds');
+        const allRefundSum = allRefundsT.reduce((s,r)=>s+Number(r.amount||0),0);
+        ctx.totalRevenue = (orders||[]).filter(o => o.paymentStatus==='paid' || o.status==='completed' || o.status==='closed')
+            .reduce((s,o)=>s+(o.total||o.totalAmount||0),0) - allRefundSum;
+    }catch(e){}
+    return JSON.stringify(ctx);
+}
+
+// إجمالي المبيعات الصافي = Σ أوامر مدفوعة (paymentStatus='paid'، بدون حساسية حالة) − Σ استردادات اليوم/الشهر
+// مطابق لتعريف تقرير الإقفال اليومي (getDailyClosingReport) في database.js
+function computeNetSales(orders, refunds, prefix){
+    const paid = (orders||[]).filter(o => String(o.paymentStatus||'').toLowerCase()==='paid' && (o.createdAt||o.date||'').slice(0, prefix.length) === prefix);
+    const sales = paid.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);
+    const ref = (refunds||[]).filter(r=>(r.createdAt||r.updatedAt||r.date||'').slice(0, prefix.length) === prefix);
+    const refundTotal = ref.reduce((s,r)=>s+Number(r.amount||0),0);
+    return { sales: sales - refundTotal, count: paid.length, refunds: refundTotal, salesGross: sales };
 }
 
 function formatMoney(n){ return (Number(n)||0).toLocaleString('ar-EG',{maximumFractionDigits:0}); }
