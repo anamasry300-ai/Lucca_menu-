@@ -34,6 +34,7 @@
       "ocr-adapter.js",
       "invoice-scanner.js",
       "menu-data.js",
+      "vendor/**/*",
       "version.json",
       "icon.ico",
       "package.json"
