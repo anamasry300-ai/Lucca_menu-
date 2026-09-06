@@ -1538,23 +1538,122 @@ body {
 
 .tables-main-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
     padding: 4px;
+    align-items: start;
 }
-.tables-main-grid .table-card {
-    min-height: 110px;
-    padding: 18px 10px;
+
+/* خريطة الأقسام (مستطيلين تحت بعض + تيك أواي في الركن) */
+.tables-main-grid.map-layout {
+    grid-template-columns: 1fr 1fr minmax(200px, auto);
+    grid-template-areas:
+        "indoor indoor takeaway"
+        "outdoor outdoor takeaway";
+    grid-auto-rows: minmax(140px, auto);
+}
+
+.floor-section {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-2xl);
+    padding: 16px 16px 20px;
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    overflow: hidden;
+}
+.floor-section::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 5px;
+    background: linear-gradient(90deg, var(--zone-accent), transparent 70%);
+}
+.floor-section.indoor { grid-area: indoor; }
+.floor-section.outdoor { grid-area: outdoor; }
+.floor-section.takeaway { grid-area: takeaway; }
+
+.floor-section.takeaway {
+    border-color: #7DD3FC;
+    background: linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 55%, #BAE6FD 100%);
+    cursor: pointer;
+    transition: all 0.25s;
+}
+.floor-section.takeaway:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: #38BDF8;
+}
+.floor-section.takeaway .takeaway-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 14px 8px 6px;
+}
+.floor-section.takeaway .takeaway-big {
+    font-size: 3.2rem;
+    line-height: 1;
+    filter: drop-shadow(0 4px 8px rgba(14,165,233,0.25));
+}
+.floor-section.takeaway .takeaway-hint {
+    font-size: 0.78rem;
+    color: #0369A1;
+    font-weight: 700;
+}
+
+.floor-section-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.floor-section-icon {
+    font-size: 1.05rem;
+    width: 30px; height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--zone-accent) 14%, transparent);
+    border-radius: 9px;
+}
+.floor-section-name {
+    font-weight: 800;
+    color: var(--text);
+    font-size: 0.98rem;
+}
+.floor-section-count {
+    margin-inline-start: auto;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    background: rgba(0,0,0,0.05);
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-weight: 700;
+}
+.floor-section-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 10px;
+}
+
+.tables-main-grid .table-card,
+.floor-section-grid .table-card {
+    min-height: 104px;
+    padding: 16px 8px;
     border-radius: var(--radius-xl);
     border: 2px solid transparent;
     position: relative;
 }
-.tables-main-grid .table-card .card-num {
-    font-size: 1.8rem;
+.tables-main-grid .table-card .card-num,
+.floor-section-grid .table-card .card-num {
+    font-size: 1.7rem;
 }
-.tables-main-grid .table-card .card-status {
+.tables-main-grid .table-card .card-status,
+.floor-section-grid .table-card .card-status {
     font-size: 0.72rem;
 }
+.floor-section .card-zone-badge { display: none; }
 
 /* Back to tables button */
 .back-to-tables-btn {
@@ -1586,9 +1685,15 @@ body {
 }
 
 @media (max-width: 600px) {
-    .tables-main-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
-    .tables-main-grid .table-card { min-height: 90px; padding: 14px 6px; }
-    .tables-main-grid .table-card .card-num { font-size: 1.4rem; }
+    .tables-main-grid.map-layout {
+        grid-template-columns: 1fr;
+        grid-template-areas: "indoor" "outdoor" "takeaway";
+    }
+    .floor-section-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+    .tables-main-grid .table-card,
+    .floor-section-grid .table-card { min-height: 92px; padding: 14px 6px; }
+    .tables-main-grid .table-card .card-num,
+    .floor-section-grid .table-card .card-num { font-size: 1.4rem; }
     .tables-main-header { flex-direction: column; gap: 12px; text-align: center; padding: 16px; }
     .tables-main-actions { justify-content: center; }
     .header { position: relative; }

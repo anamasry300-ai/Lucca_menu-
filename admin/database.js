@@ -139,8 +139,7 @@ class LuccaDatabase {
                         if (cursor) {
                             const t = cursor.value;
                             if (!t.zone) {
-                                t.zone = 'صالة';
-                                if (t.number >= 11) t.zone = 'VIP';
+                                t.zone = 'داخلي';
                                 cursor.update(t);
                             }
                             cursor.continue();
@@ -881,13 +880,23 @@ const Users = {
 const Tables = {
     async init() {
         const tables = await db.getAll('tables');
+        const expectedZone = (num) => (num <= 7 ? 'خارجي' : 'داخلي');
         if (tables.length === 0) {
-            const zones = ['صالة', 'VIP', 'خارجي', 'أرجيلة'];
-            const zoneMap = [null, 'صالة','صالة','صالة','صالة','صالة','صالة','صالة','VIP','VIP','VIP','VIP','خارجي','خارجي','أرجيلة'];
             for (let i = 1; i <= 14; i++) {
-                const t = { id: i, number: i, status: 'available', capacity: i <= 7 ? 4 : 6, currentOrder: null, zone: zoneMap[i] || 'صالة' };
+                const t = { id: i, number: i, status: 'available', capacity: i <= 7 ? 4 : 6, currentOrder: null, zone: expectedZone(i) };
                 await db.put('tables', t);
             }
+        } else {
+            // تطبيع: خارجي 1-7 / داخلي 8+
+            let changed = false;
+            for (const t of tables) {
+                if (t.zone !== expectedZone(t.number)) {
+                    t.zone = expectedZone(t.number);
+                    await db.put('tables', t);
+                    changed = true;
+                }
+            }
+            if (changed) console.log('[Tables] zones normalized: خارجي 1-7 / داخلي 8+');
         }
     },
 
@@ -905,7 +914,7 @@ const Tables = {
     async add(tableData) {
         const all = await db.getAll('tables');
         const maxId = all.reduce((m, t) => Math.max(m, t.id || 0), 0);
-        const table = { id: maxId + 1, number: tableData.number, status: 'available', capacity: tableData.capacity || 4, currentOrder: null, zone: tableData.zone || 'صالة' };
+        const table = { id: maxId + 1, number: tableData.number, status: 'available', capacity: tableData.capacity || 4, currentOrder: null, zone: tableData.zone || 'داخلي' };
         await db.put('tables', table);
         ServerAPI.put('tables', table.id, table).catch(() => {});
         return table;
@@ -944,7 +953,7 @@ const Tables = {
 
     async getZones() {
         const all = await db.getAll('tables');
-        return [...new Set(all.map(t => t.zone || 'صالة'))].sort();
+        return [...new Set(all.map(t => t.zone || 'داخلي'))].sort();
     }
 };
 

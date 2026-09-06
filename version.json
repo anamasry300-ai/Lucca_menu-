@@ -1,7 +1,7 @@
 {
-    "version": "1.3.1",
-    "releaseDate": "2026-09-06",
-    "releaseNotes": "Hotfix v1.3.1: kitchen.html now included in packaged build (kitchen screen opens from the cashier 'Kitchen' button). v1.3.0 = Unified final release: all updates consolidated in single master project (Lucca_menu-). Fixes include: admin auth, Safe Sync atomic rollback (syncId identity), duplicate-merge prevention, offline recovery, retry re-upload. Batman AI monitor + inventory/stock alerts + continuous snapshot analysis via Ollama. Ollama qwen2.5-coder:7b tuned (numPredict cap, keep_alive -1, timeout-safe fallback when Ollama is down). Excel/CSV file reports via Batman (SheetJS vendored offline for .xlsx). OCR invoice scanning backend. All features verified (48/48 post-merge checks PASS). Backup of older 1.2.1 build (pre Batman/OCR/xlsx) archived for reference.",
+    "version": "1.3.2",
+    "releaseDate": "2026-09-07",
+    "releaseNotes": "v1.3.2: Main screen floor-map layout — 2 real zones only (خارجي Outdoor = tables 1-7, داخلي Indoor = 8-14) plus a dedicated takeaway 'تيك أواي' box that opens an order with no table. Legacy zone names (صالة/VIP/أرجيلة) auto-normalized by table number on startup. Previous: v1.3.1 hotfix (kitchen.html packaged). v1.3.0 = unified final release consolidated in single master project (Lucca_menu-): admin auth, Safe Sync atomic rollback, duplicate-merge prevention, offline recovery, Batman AI monitor + inventory/stock alerts + snapshots via Ollama, Excel/CSV reports (SheetJS vendored), OCR invoice scanning. 48/48 post-merge checks PASS.",
     "minVersion": "1.0.0",
     "forceUpdate": false,
     "downloadUrl": "https://github.com/anamasry300-ai/Lucca_menu-/releases"
