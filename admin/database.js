@@ -967,8 +967,8 @@ const Orders = {
         const discount = parseFloat(options.discount) || 0;
         const discountAmount = subtotal * (discount / 100);
         const afterDiscount = subtotal - discountAmount;
-        const taxRate = parseFloat(await Settings.get('taxRate')) || 0;
-        const tax = options.applyTax !== false ? afterDiscount * (taxRate / 100) : 0;
+        // الضريبة ملغاة (قرار الإدارة) — لا تُحتسب منذ الآن
+        const tax = 0;
         const order = {
             tableId: tableId || null,
             items: items || [],
@@ -1069,8 +1069,8 @@ const Orders = {
         order.discountType = options.discountType || 'percent';
         const discountAmount = order.discountType === 'percent' ? order.subtotal * (discount / 100) : discount;
         const afterDiscount = order.subtotal - discountAmount;
-        const taxRate = parseFloat(await Settings.get('taxRate')) || 14;
-        order.tax = afterDiscount * (taxRate / 100);
+        // الضريبة ملغاة (قرار الإدارة) — لا تُحتسب في الإجمالي ولا تُخزَّن في السجل
+        order.tax = 0;
         order.total = afterDiscount + order.tax;
 
         let id;
@@ -1287,8 +1287,8 @@ const Orders = {
             const discount = item.discount || 0;
             const discountAmount = item.subtotal * (discount / 100);
             const afterDiscount = item.subtotal - discountAmount;
-            const taxRate = parseFloat(await Settings.get('taxRate')) || 14;
-            item.tax = afterDiscount * (taxRate / 100);
+            // الضريبة ملغاة (قرار الإدارة)
+            item.tax = 0;
             item.total = afterDiscount + item.tax;
         }
         await db.put('orders', item);
@@ -2167,7 +2167,25 @@ const Employees = {
     // إنشاء دعوة لموظف بالبريد (إداري/مدير). الخادم ينشئ الموظف + حساباً غير مفعّل + رمز دعوة.
     // الدور يُحدَّد بالنظام (داخل الدعوة) لا باختيار الموظف.
     async invite(payload) {
-        const res = await ServerAPI.post('/api/employees/invite', payload);
+        let res;
+        try {
+            res = await ServerAPI.post('/api/employees/invite', payload);
+        } catch (e) {
+            // الخادم غير متاح (وضع منفصل/أوفلاين): نُنشئ الموظف محلياً فقط حتى لا تفشل الإضافة،
+            // ونعيد علامة local ليُرافقها المتصل برسالة واضحة (الدعوة تتطلب تشغيل الخادم لاحقاً).
+            const local = {
+                name: payload.name,
+                email: payload.email || null,
+                employeeCode: payload.employeeCode || null,
+                phone: payload.phone || '',
+                role: payload.role || 'cashier',
+                salary: payload.salary || 0,
+                active: true,
+                createdAt: new Date().toISOString()
+            };
+            await db.add('employees', local);
+            return { local: true, name: payload.name };
+        }
         if (!res || !res.inviteToken) throw new Error('لم يتم إنشاء الدعوة');
         // نسجّل الدعوة محلياً لعرض حالتها (Pending/Activated/Expired) في إدارة الموظفين.
         try {
@@ -2361,7 +2379,7 @@ const Shifts = {
         return db.getAll('shifts');
     },
 
-    async start(employeeId, notes = '') {
+    async start(employeeId, notes = '', options = {}) {
         const today = new Date().toISOString().split('T')[0];
         const existing = await this.getByEmployeeAndDate(employeeId, today);
         if (existing) throw new Error('تم تسجيل شيفت للموظف اليوم');
@@ -2371,6 +2389,8 @@ const Shifts = {
             startTime: new Date().toISOString(),
             endTime: null,
             notes,
+            shiftType: options.shiftType || null,
+            label: options.label || null,
             status: 'active'
         };
         const serverResult = await ServerAPI.add('shifts', shift);

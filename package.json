@@ -1,9 +1,9 @@
 {
   "name": "lucca-caffe-pos",
-  "version": "1.3.2",
-  "description": "Lucca Caffè - نظام إدارة المقهى",
+  "version": "1.3.5",
+  "description": "Lucca Caffأ¨ - ظ†ط¸ط§ظ… ط¥ط¯ط§ط±ط© ط§ظ„ظ…ظ‚ظ‡ظ‰",
   "main": "main.js",
-  "author": "Lucca Caffè",
+  "author": "Lucca Caffأ¨",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
@@ -30,6 +30,7 @@
       "sync-engine.js",
       "forecasting.js",
       "knowledge-base.js",
+      "knowledge/**/*",
       "report-export.js",
       "supabase-db.js",
       "ollama-adapter.js",

@@ -8,6 +8,9 @@
     <script src="database.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="../supabase-db.js"></script>
+    <script src="../knowledge/data.js"></script>
+    <script src="../knowledge/importer.js"></script>
+    <script src="admin-analytics.js"></script>
     <style>
         :root {
             --primary-dark: #1E3A8A;
@@ -592,6 +595,61 @@
             color: var(--text-secondary);
             font-weight: 500;
         }
+
+        /* ===== Quick Facts Strip ===== */
+        .quick-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .quick-chip {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: var(--shadow);
+        }
+        .quick-chip .qc-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+        .quick-chip b {
+            font-size: 0.95rem;
+            color: var(--text);
+        }
+        .quick-chip-shift select {
+            border: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text);
+            border-radius: 6px;
+            padding: 3px 6px;
+            font-size: .8rem;
+            max-width: 120px;
+        }
+
+        /* ===== Alerts (مع توصية) ===== */
+        .alert-card {
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
+            padding: 16px 18px;
+            border-radius: var(--radius);
+            margin-bottom: 12px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+        }
+        .alert-card .a-icon { font-size: 1.3rem; line-height: 1; }
+        .alert-card .a-title { font-weight: 700; margin-bottom: 2px; }
+        .alert-card .a-msg { font-size: 0.875rem; color: var(--text-secondary); }
+        .alert-card .a-numbers { font-size: 0.75rem; margin-top: 4px; }
+        .alert-card .a-rec { font-size: 0.8125rem; margin-top: 6px; padding: 6px 10px; border-radius: 8px; background: var(--border-light); color: var(--text-secondary); }
+        .alert-card.warning { border-color: var(--warning); background: var(--warning-surface); }
+        .alert-card.danger { border-color: var(--danger); background: var(--danger-surface); }
+        .alert-card.info { border-color: var(--primary); background: var(--info-surface); }
 
         /* ===== Charts ===== */
         .chart-container {
@@ -1659,28 +1717,47 @@
                             <div class="kpi-trend neutral" id="kpiAvgTrend">—</div>
                         </div>
                         <div class="kpi-value" id="kpiAvgOrder">0</div>
-                        <div class="kpi-label">متوسط الطلب</div>
+                        <div class="kpi-label">متوسط الفاتورة</div>
                     </div>
                     <div class="kpi-card orange">
                         <div class="kpi-header">
-                            <div class="kpi-icon">🏷️</div>
+                            <div class="kpi-icon">💸</div>
                         </div>
-                        <div class="kpi-value" id="kpiDiscounts">0</div>
-                        <div class="kpi-label">الخصومات</div>
+                        <div class="kpi-value" id="kpiExpenses">0</div>
+                        <div class="kpi-label">المصروفات</div>
                     </div>
                     <div class="kpi-card red">
                         <div class="kpi-header">
                             <div class="kpi-icon">↩️</div>
                         </div>
                         <div class="kpi-value" id="kpiRefunds">0</div>
-                        <div class="kpi-label">المرتجعات</div>
+                        <div class="kpi-label">المرتجعات/الإلغاء</div>
                     </div>
-                    <div class="kpi-card green" id="kpiProfitCard">
+                    <div class="kpi-card green">
                         <div class="kpi-header">
                             <div class="kpi-icon">📈</div>
+                            <span class="badge badge-warning" id="kpiProfitFlag" style="font-size:0.65rem;align-self:flex-start">تقديري</span>
                         </div>
                         <div class="kpi-value" id="kpiProfit">—</div>
-                        <div class="kpi-label">صافي الربح</div>
+                        <div class="kpi-label" id="kpiProfitLabel">صافي الربح التقديري</div>
+                    </div>
+                </div>
+
+                <div class="quick-strip" id="quickStrip">
+                    <div class="quick-chip"><span class="qc-label">الخصومات</span><b id="qDiscounts">0</b></div>
+                    <div class="quick-chip"><span class="qc-label">كاش متوقع (الصندوق المفتوح)</span><b id="qCash">—</b></div>
+                    <div class="quick-chip"><span class="qc-label">قيمة المخزون</span><b id="qInvValue">0</b></div>
+                    <div class="quick-chip"><span class="qc-label">مخزون منخفض</span><b id="qLowStock">0</b></div>
+                    <div class="quick-chip"><span class="qc-label">نفاد</span><b id="qOutOfStock">0</b></div>
+                    <div class="quick-chip"><span class="qc-label">طلبات مفتوحة</span><b id="qOpenOrders">0</b></div>
+                    <div class="quick-chip"><span class="qc-label">مقارنة بالفترة السابقة</span><b id="qPrevSales">—</b></div>
+                    <div class="quick-chip quick-chip-shift">
+                        <span class="qc-label">الشيفت</span>
+                        <b id="qShiftStatus" style="white-space:nowrap">لا يوجد نشط</b>
+                        <select id="qShiftEmp" title="اختر الموظف"><option value="">الموظف…</option></select>
+                        <button class="btn btn-secondary btn-sm" onclick="quickStartShift('manual')" title="ابدأ شيفت يدوي">▶ ابدأ</button>
+                        <button class="btn btn-success btn-sm" onclick="quickStartShift('auto')" title="شيفت تلقائي حسب الوقت (صباحي 8–5 / مسائي 5–1)">⚡ تلقائي</button>
+                        <button class="btn btn-warning btn-sm" onclick="quickEndShift()" title="إنهاء الشيفت">⏹</button>
                     </div>
                 </div>
 
@@ -2535,32 +2612,30 @@ function handleGlobalSearch(val){
 }
 
 // ===== DASHBOARD =====
+// مصدر البيانات الوحيد: window.LuccaDB عبر AdminAnalytics (لا سيرفر، لا fallback متفرقة).
 async function refreshDashboard(){
     const {from, to} = getDateRange();
     try {
-        const [kpis, salesByDay, categories, payments, topProducts, liveOrders, tables, insights, alerts] = await Promise.all([
-            apiFetch('/dashboard/kpis?from='+from+'&to='+to),
-            apiFetch('/dashboard/sales-by-day?from='+from+'&to='+to),
-            apiFetch('/dashboard/sales-by-category?from='+from+'&to='+to),
-            apiFetch('/dashboard/payments?from='+from+'&to='+to),
-            apiFetch('/dashboard/top-products?from='+from+'&to='+to+'&limit=8'),
-            apiFetch('/dashboard/live-orders'),
-            apiFetch('/dashboard/tables'),
-            apiFetch('/dashboard/insights?from='+from+'&to='+to),
-            apiFetch('/dashboard/alerts')
-        ]);
-        renderKPIs(kpis);
-        renderSalesChart(salesByDay);
-        renderCategoryAnalytics(categories);
-        renderPaymentAnalytics(payments);
-        renderTopProducts(topProducts);
-        renderLiveOrders(liveOrders);
-        renderTablesStatus(tables);
-        renderInsights(insights);
-        renderAlerts(alerts);
+        if(!window.AdminAnalytics) throw new Error('طبقة التحليلات غير محمّلة');
+        const data = await window.AdminAnalytics.compute(window.LuccaDB, {from, to});
+        renderDashboard(data);
     } catch(e){
         document.getElementById('kpiGrid').innerHTML = '<div class="alert alert-danger">خطأ في تحميل البيانات: '+e.message+'</div>';
     }
+}
+
+function renderDashboard(d){
+    renderKPIs(d);
+    renderQuickStrip(d);
+    quickLoadShiftStatus();
+    renderSalesChart(d.salesByDay);
+    renderCategoryAnalytics(d.salesByCategory);
+    renderPaymentAnalytics(d.payments);
+    renderTopProducts(d.topProducts);
+    renderLiveOrders(d.liveOrders);
+    renderTablesStatus(d.tables);
+    renderInsights(d.insights);
+    renderAlerts(d.alerts);
 }
 
 function renderKPIs(d){
@@ -2573,16 +2648,48 @@ function renderKPIs(d){
         else if(v < 0){ el.textContent='↓ '+Math.abs(v).toFixed(1)+'%'; el.className='kpi-trend down'; }
         else { el.textContent='— 0%'; el.className='kpi-trend neutral'; }
     };
-    set('kpiSales', formatMoney(d.sales?.value||0));
-    setTrend('kpiSalesTrend', d.sales?.change);
-    set('kpiOrders', d.orders?.value||0);
-    setTrend('kpiOrdersTrend', d.orders?.change);
-    set('kpiAvgOrder', formatMoney(d.avgOrder?.value||0));
-    setTrend('kpiAvgTrend', d.avgOrder?.change);
-    set('kpiDiscounts', formatMoney(d.discounts?.value||0));
-    set('kpiRefunds', formatMoney(d.refunds?.value||0));
-    if(d.grossProfit) set('kpiProfit', formatMoney(d.grossProfit.value)+' ('+d.grossProfit.margin?.toFixed(1)+'%)');
-    else set('kpiProfit', 'بيانات التكلفة غير متاحة');
+    set('kpiSales', formatMoney(d.kpis?.sales?.value||0));
+    setTrend('kpiSalesTrend', d.kpis?.sales?.change);
+    set('kpiOrders', d.kpis?.orders?.value||0);
+    setTrend('kpiOrdersTrend', d.kpis?.orders?.change);
+    set('kpiAvgOrder', formatMoney(d.kpis?.avgOrder?.value||0));
+    setTrend('kpiAvgTrend', d.kpis?.avgOrder?.change);
+    set('kpiExpenses', formatMoney(d.expenses?.total||0));
+    set('kpiRefunds', formatMoney(d.kpis?.refunds?.value||0));
+    const p = d.profit || {};
+    const missingClock = p.missingCost ? ' (~'+(p.missingProducts||0)+' بلا تكلفة)' : '';
+    if(p.coverage > 0 && p.missingCost){
+        const flag = document.getElementById('kpiProfitFlag');
+        if(flag){ flag.textContent='تقديري'; flag.style.display='inline-block'; }
+        set('kpiProfitLabel', 'صافي الربح التقديري — تغطية التكلفة '+(Math.round(p.coverage))+'%');
+    } else if(p.coverage <= 0){
+        const flag = document.getElementById('kpiProfitFlag');
+        if(flag) flag.style.display='none';
+        set('kpiProfit', 'غير متاح');
+        set('kpiProfitLabel', 'لا يمكن حساب الربح — لا توجد تكلفة بضاعة مسجلة');
+        return;
+    }
+    set('kpiProfit', formatMoney(p.netProfit));
+}
+
+// شريط الحقائق السريعة (أرقام حقيقية من نفس الطبقة)
+function renderQuickStrip(d){
+    const set = (id, val) => { const el=document.getElementById(id); if(el) el.textContent=val; };
+    const setMoney = (id, val) => { const el=document.getElementById(id); if(el) el.textContent=formatMoney(val); };
+    setMoney('qDiscounts', d.kpis?.discounts?.value||0);
+    elCashExpected();
+    setMoney('qInvValue', d.inventory?.inventoryValue||0);
+    set('qLowStock', d.inventory?.lowStock||0);
+    set('qOutOfStock', d.inventory?.outOfStock||0);
+    set('qOpenOrders', d.liveOrders?.length||0);
+    setMoney('qPrevSales', d.prev?.net||0);
+    function elCashExpected(){
+        const el = document.getElementById('qCash'); if(!el) return;
+        const od = d.openDrawer;
+        if(!od){ el.textContent='لا صندوق مفتوح'; return; }
+        const expected = (od.startingCash||0) + (od.totalCashSales||0) - (od.totalExpenses||0) - (od.totalRefunds||0);
+        el.textContent = formatMoney(expected) + (od.closingCash!=null ? ' (الفعلي '+formatMoney(od.closingCash)+')' : '');
+    }
 }
 
 function renderSalesChart(data){
@@ -2675,16 +2782,19 @@ function renderLiveOrders(data){
 
 function renderTablesStatus(data){
     const el = document.getElementById('tablesStatusPanel');
-    if(!data||!data.tables||data.tables.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">🪑</div><p>لا توجد طاولات</p></div>'; return; }
+    // يدعم الشكل الموحد {tables, summary} أو مصفوفة مباشرة
+    const rows = Array.isArray(data) ? data : (data && data.tables);
+    if(!rows||rows.length===0){ el.innerHTML='<div class="empty-state"><div class="icon">🪑</div><p>لا توجد طاولات</p></div>'; return; }
     let html = '<div class="table-grid">';
-    data.tables.forEach(t=>{
+    rows.forEach(t=>{
         const st = t.status||'available';
         html += '<div class="table-cell '+st+'"><div style="font-size:1.2rem;font-weight:800">'+t.number+'</div><div style="font-size:0.7rem;opacity:0.7">'+(t.capacity||'')+' أشخاص</div></div>';
     });
     html += '</div>';
-    if(data.summary&&data.summary.length){
+    const summary = Array.isArray(data) ? null : (data && data.summary);
+    if(summary&&summary.length){
         html += '<div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap">';
-        data.summary.forEach(s=>{
+        summary.forEach(s=>{
             const label = s.status==='available'?'متاحة':s.status==='occupied'?'مشغولة':s.status==='reserved'?'محجوزة':s.status;
             const cls = s.status==='available'?'badge-success':s.status==='occupied'?'badge-danger':'badge-warning';
             html += '<span class="badge '+cls+'">'+label+': '+s.count+'</span>';
@@ -2707,10 +2817,20 @@ function renderInsights(data){
 
 function renderAlerts(data){
     const el = document.getElementById('alertsPanel');
+    if(!el) return;
     if(!data||data.length===0){ el.innerHTML=''; return; }
-    let html = '';
+    let html = '<div class="section-title" style="margin-top:4px">🔔 التنبيهات الذكية</div>';
     data.forEach(d=>{
-        html += '<div class="alert alert-'+(d.severity==='danger'?'danger':'warning')+'">'+d.message+'</div>';
+        const sev = d.severity==='danger'?'danger':d.severity==='warning'?'warning':'info';
+        const icon = sev==='danger'?'🚨':sev==='warning'?'⚠️':'💡';
+        html += '<div class="alert-card '+sev+'">' +
+            '<div class="a-icon">'+icon+'</div>' +
+            '<div style="flex:1">' +
+                '<div class="a-title">'+(d.title||d.message)+'</div>' +
+                '<div class="a-msg">'+(d.message||'')+'</div>' +
+                (d.numbers?'<div class="a-numbers">📐 '+d.numbers+'</div>':'') +
+                (d.recommendation?'<div class="a-rec">💡 توصية: '+d.recommendation+'</div>':'') +
+            '</div></div>';
     });
     el.innerHTML = html;
 }
@@ -3220,8 +3340,11 @@ async function addEmployee(){
             if(inv && inv.inviteToken){
                 const link = inviteLinkFor(inv.inviteToken);
                 showInviteLink(link);
+                showToast('تم إنشاء الموظف والدعوة — رابط التفعيل منسوخ');
+            } else if(inv && inv.local){
+                showToast('تمت إضافة الموظف محلياً — إنشاء الدعوة عبر البريد يتطلب تشغيل الخادم','warning');
             }
-            loadEmployees(); showToast('تم إنشاء الموظف والدعوة');
+            loadEmployees();
             ['empName','empEmail','empCode','empPhone','empSalary'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
             return;
         }
@@ -3243,6 +3366,7 @@ async function inviteEmployeeForm(employeeId){
     if(!provided || !provided.trim()) return;
     const r = await window.LuccaDB.Employees.invite({ name: name||prompt('اسم الموظف:', name), email: provided.trim(), role });
     if(r && r.inviteToken){ showInviteLink(inviteLinkFor(r.inviteToken), name||r.name); loadEmployees(); }
+    else if(r && r.local){ showToast('تمت إضافة الموظف محلياً — الدعوة تتطلب تشغيل الخادم','warning'); loadEmployees(); }
 }
 
 function inviteLinkFor(token){
@@ -3353,6 +3477,80 @@ async function endShift(){
     const empId = document.getElementById('shiftEmployee').value;
     if(!empId){ showToast('اختر الموظف','error'); return; }
     try { await window.LuccaDB.Shifts.end(Number(empId)); loadShifts(); showToast('تم إنهاء الوردية'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== الشيفت السريع (شريط اللوحة العلوي) =====
+// تلقائي: صباحي 08:00–17:00 / مسائي 17:00–01:00.
+function shiftPeriodNow(){
+    const h = new Date().getHours();
+    return (h >= 8 && h < 17)
+        ? { type:'morning', label:'صباحي (08:00–17:00)' }
+        : { type:'night', label:'مسائي (17:00–01:00)' };
+}
+
+async function quickPickEmployee(pickFromSelect){
+    if(pickFromSelect){
+        const v = document.getElementById('qShiftEmp')?.value;
+        if(v) return Number(v);
+        return null;
+    }
+    const emps = await window.LuccaDB.Employees.getActive();
+    if(window.currentUser){
+        const u = window.currentUser;
+        const match = emps.find(e =>
+            (u.employeeId && String(e.id) === String(u.employeeId)) ||
+            (u.username && e.name && e.name.trim() === String(u.username).trim()) ||
+            (u.name && e.name && e.name.trim() === String(u.name).trim()));
+        if(match) return Number(match.id);
+    }
+    if(emps.length === 1) return Number(emps[0].id);
+    return null;
+}
+
+async function quickStartShift(mode){
+    try{
+        const empId = await quickPickEmployee(mode !== 'auto');
+        if(!empId){ showToast('اختر الموظف من الشريط أعلاه','error'); return; }
+        const period = shiftPeriodNow();
+        const res = await window.LuccaDB.Shifts.start(Number(empId), mode==='auto' ? period.label : 'بدء يدوي', mode==='auto' ? { shiftType: period.type, label: period.label } : {});
+        quickLoadShiftStatus(); loadShifts();
+        showToast(mode==='auto' ? 'تم بدء الشيفت التلقائي: '+period.label : 'تم بدء الوردية');
+    }catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function quickEndShift(){
+    const empId = await quickPickEmployee(true);
+    if(!empId){ showToast('اختر الموظف من الشريط','error'); return; }
+    try{
+        await window.LuccaDB.Shifts.end(Number(empId));
+        quickLoadShiftStatus(); loadShifts();
+        showToast('تم إنهاء الوردية');
+    }catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+async function quickLoadShiftStatus(){
+    const el = document.getElementById('qShiftStatus');
+    const sel = document.getElementById('qShiftEmp');
+    try{
+        if(!el && !sel) return;
+        const emps = await window.LuccaDB.Employees.getActive();
+        if(sel){
+            const current = sel.value || '';
+            sel.innerHTML = '<option value="">الموظف…</option>' + emps.map(e=>'<option value="'+e.id+'">'+(e.name||'موظف')+'</option>').join('');
+            if(current) sel.value = current;
+        }
+        const shifts = await window.LuccaDB.Shifts.getToday();
+        const activeShift = shifts.find(s=>s.status==='active');
+        if(el){
+            if(!activeShift){ el.textContent='لا يوجد نشط'; return; }
+            const empId = activeShift.employeeId ?? activeShift.employee_id;
+            const emp = emps.find(e=>String(e.id)===String(empId));
+            const st = activeShift.startTime || activeShift.start_time || '';
+            const t = String(st).slice(11,16);
+            const label = (activeShift.label||'') ? activeShift.label.split(' (')[0] : (activeShift.shiftType ? (activeShift.shiftType==='morning'?'صباحي':'مسائي') : 'شيفت');
+            el.textContent = (emp?emp.name+' — ':'') + label + ' · من '+t;
+        }
+    }catch(e){}
 }
 
 // ===== مطابقة الوردية اليومية (Shift Reconciliation) =====
@@ -3721,18 +3919,19 @@ async function loadReport(type){
     const title = document.getElementById('reportTitle');
     output.style.display = 'block';
     content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-    const titles = {sales:'تقرير المبيعات',orders:'تقرير الطلبات',payments:'تقرير المدفوعات',products:'تقرير المنتجات',categories:'تقرير الأقسام',employees:'تقرير الموظفين',discounts:'تقرير الخصومات',refunds:'تقرير المرتجعات',profit:'تقرير الأرباح',inventory:'تقرير المخزون',shifts:'تقرير الورديات',expenses:'تقرير المصروفات',cash:'ملخص الصندوق'};
+    const titles = {sales:'تقرير المبيعات',orders:'تقرير الطلبات',payments:'تقرير المدفوعات',products:'تقرير المنتجات',categories:'تقرير الأقسام',employees:'تقرير الموظفين',discounts:'تقرير الخصومات',refunds:'تقرير المرتجعات',profit:'تقرير الأرباح والتكلفة',inventory:'تقرير المخزون',shifts:'تقرير الورديات',expenses:'تقرير المصروفات',cost:'تحليل التكلفة والربحية',cash:'ملخص الصندوق'};
     title.textContent = titles[type]||'تقرير';
     try {
+        // كل التقارير من نفس طبقة الحسابات الموحدة (نفس مصدر لوحة التحكم و Batman)
+        const d = await window.AdminAnalytics.compute(window.LuccaDB, {from, to});
         let html = '';
         if(type==='sales'){
-            const d = await apiFetch('/dashboard/sales-by-day?from='+from+'&to='+to);
-            const k = await apiFetch('/dashboard/kpis?from='+from+'&to='+to);
-            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card green"><div class="kpi-value">'+formatMoney(k.sales?.value||0)+'</div><div class="kpi-label">صافي المبيعات</div></div><div class="kpi-card blue"><div class="kpi-value">'+(k.orders?.value||0)+'</div><div class="kpi-label">الطلبات</div></div><div class="kpi-card purple"><div class="kpi-value">'+formatMoney(k.avgOrder?.value||0)+'</div><div class="kpi-label">متوسط الطلب</div></div></div>';
+            const k = d.kpis;
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card green"><div class="kpi-value">'+formatMoney(k.sales.value)+'</div><div class="kpi-label">صافي المبيعات</div></div><div class="kpi-card blue"><div class="kpi-value">'+k.orders.value+'</div><div class="kpi-label">الطلبات</div></div><div class="kpi-card purple"><div class="kpi-value">'+formatMoney(k.avgOrder.value)+'</div><div class="kpi-label">متوسط الفاتورة</div></div></div>';
             html += '<table class="data-table"><thead><tr><th>التاريخ</th><th>الطلبات</th><th>الإيراد</th></tr></thead><tbody>';
-            d.forEach(r=>{ html += '<tr><td>'+r.date+'</td><td>'+r.orders+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
+            d.salesByDay.forEach(r=>{ html += '<tr><td>'+r.date+'</td><td>'+r.orders+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
             html += '</tbody></table>';
-            currentReportData = d;
+            currentReportData = d.salesByDay;
         } else if(type==='orders'){
             const orders = await window.LuccaDB.Orders.getByDateRange(from, to);
             html += '<table class="data-table"><thead><tr><th>رقم</th><th>الطاولة</th><th>العميل</th><th>الإجمالي</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>';
@@ -3740,91 +3939,68 @@ async function loadReport(type){
             html += '</tbody></table>';
             currentReportData = orders;
         } else if(type==='payments'){
-            const d = await apiFetch('/dashboard/payments?from='+from+'&to='+to);
             html += '<table class="data-table"><thead><tr><th>الطريقة</th><th>العدد</th><th>الإجمالي</th><th>النسبة</th></tr></thead><tbody>';
-            d.forEach(r=>{ html += '<tr><td>'+r.method+'</td><td>'+r.count+'</td><td>'+formatMoney(r.total)+'</td><td>'+(r.percentage||0).toFixed(1)+'%</td></tr>'; });
+            d.payments.forEach(r=>{ html += '<tr><td>'+r.method+'</td><td>'+r.count+'</td><td>'+formatMoney(r.total)+'</td><td>'+(r.percentage||0).toFixed(1)+'%</td></tr>'; });
             html += '</tbody></table>';
-            currentReportData = d;
+            currentReportData = d.payments;
         } else if(type==='products'){
-            const d = await apiFetch('/dashboard/products?from='+from+'&to='+to);
             html += '<table class="data-table"><thead><tr><th>المنتج</th><th>القسم</th><th>السعر</th><th>التكلفة</th><th>الكمية</th><th>الإيراد</th></tr></thead><tbody>';
-            d.forEach(r=>{ html += '<tr><td>'+(r.name||r.nameAr||'')+'</td><td>'+(r.categoryName||r.category||'—')+'</td><td>'+formatMoney(r.price)+'</td><td>'+formatMoney(r.costPrice||0)+'</td><td>'+(r.qtySold||0)+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
+            d.productsReport.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.categoryName||'—')+'</td><td>'+formatMoney(r.price)+'</td><td>'+formatMoney(r.costPrice||0)+'</td><td>'+(r.qtySold||0)+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
             html += '</tbody></table>';
-            currentReportData = d;
+            currentReportData = d.productsReport;
         } else if(type==='categories'){
-            const d = await apiFetch('/dashboard/categories?from='+from+'&to='+to);
             html += '<table class="data-table"><thead><tr><th>القسم</th><th>المنتجات</th><th>الكمية</th><th>الإيراد</th></tr></thead><tbody>';
-            d.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.productCount||0)+'</td><td>'+(r.qtySold||0)+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
+            d.categoriesReport.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.productCount||0)+'</td><td>'+(r.qtySold||0)+'</td><td>'+formatMoney(r.revenue)+'</td></tr>'; });
             html += '</tbody></table>';
-            currentReportData = d;
-        } else if(type==='employees'){
-            const d = await apiFetch('/dashboard/employees?from='+from+'&to='+to);
+            currentReportData = d.categoriesReport;
+        } else if(type==='employees' || type==='shifts'){
             html += '<table class="data-table"><thead><tr><th>الموظف</th><th>الطلبات</th><th>المبيعات</th><th>المتوسط</th></tr></thead><tbody>';
-            d.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.orders||0)+'</td><td>'+formatMoney(r.sales)+'</td><td>'+formatMoney(r.avgOrder)+'</td></tr>'; });
+            d.employeesReport.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.orders||0)+'</td><td>'+formatMoney(r.sales)+'</td><td>'+formatMoney(r.avgOrder)+'</td></tr>'; });
             html += '</tbody></table>';
-            currentReportData = d;
+            currentReportData = d.employeesReport;
         } else if(type==='discounts'){
-            const d = await apiFetch('/dashboard/discounts?from='+from+'&to='+to);
-            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card blue"><div class="kpi-value">'+(d.totalOrders||0)+'</div><div class="kpi-label">إجمالي الطلبات</div></div><div class="kpi-card orange"><div class="kpi-value">'+(d.discountedOrders||0)+'</div><div class="kpi-label">طلبات بخصم</div></div><div class="kpi-card red"><div class="kpi-value">'+formatMoney(d.totalDiscounts||0)+'</div><div class="kpi-label">إجمالي الخصومات</div></div></div>';
-            currentReportData = [d];
+            const dd = d.discountsReport;
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card blue"><div class="kpi-value">'+(dd.totalOrders||0)+'</div><div class="kpi-label">إجمالي الطلبات</div></div><div class="kpi-card orange"><div class="kpi-value">'+(dd.discountedOrders||0)+'</div><div class="kpi-label">طلبات بخصم</div></div><div class="kpi-card red"><div class="kpi-value">'+formatMoney(dd.totalDiscounts||0)+'</div><div class="kpi-label">إجمالي الخصومات</div></div></div>';
+            currentReportData = [dd];
         } else if(type==='refunds'){
-            const d = await apiFetch('/dashboard/refunds-voids?from='+from+'&to='+to);
-            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card red"><div class="kpi-value">'+(d.refundCount||0)+'</div><div class="kpi-label">مرتجعات ('+formatMoney(d.refundTotal||0)+')</div></div><div class="kpi-card orange"><div class="kpi-value">'+(d.voidCount||0)+'</div><div class="kpi-label">إلغاءات ('+formatMoney(d.voidTotal||0)+')</div></div></div>';
-            currentReportData = [d];
+            const rr = d.refundsReport;
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card red"><div class="kpi-value">'+(rr.refundCount||0)+'</div><div class="kpi-label">مرتجعات ('+formatMoney(rr.refundTotal||0)+')</div></div><div class="kpi-card orange"><div class="kpi-value">'+(rr.voidCount||0)+'</div><div class="kpi-label">إلغاءات ('+formatMoney(rr.voidTotal||0)+')</div></div></div>';
+            currentReportData = [rr];
         } else if(type==='profit'){
-            const k = await apiFetch('/dashboard/kpis?from='+from+'&to='+to);
-            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card green"><div class="kpi-value">'+(k.grossProfit?formatMoney(k.grossProfit.value):'بيانات غير متاحة')+'</div><div class="kpi-label">صافي الربح</div></div><div class="kpi-card purple"><div class="kpi-value">'+(k.grossProfit?k.grossProfit.margin?.toFixed(1)+'%':'—')+'</div><div class="kpi-label">هامش الربح</div></div></div>';
-            currentReportData = [k];
+            const p = d.profit;
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card green"><div class="kpi-value">'+formatMoney(p.grossProfit)+'</div><div class="kpi-label">إجمالي الربح</div></div><div class="kpi-card purple"><div class="kpi-value">'+p.margin.toFixed(1)+'%</div><div class="kpi-label">هامش الربح</div></div></div>';
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card blue"><div class="kpi-value">'+formatMoney(p.expensesTotal)+'</div><div class="kpi-label">المصروفات</div></div><div class="kpi-card green"><div class="kpi-value">'+formatMoney(p.netProfit)+'</div><div class="kpi-label">صافي الربح</div></div><div class="kpi-card orange"><div class="kpi-value">'+Math.round(p.coverage)+'%</div><div class="kpi-label">تغطية بيانات التكلفة</div></div></div>';
+            if(p.missingCost){
+                html += '<div class="alert alert-warning" style="margin-bottom:12px">⚠️ '+(p.missingProducts>0?'منتجات بدون تكلفة ('+p.missingProducts+'): ':'')+'بيانات التكلفة غير مكتملة — الأرقام أعلاه تقديرية ('+Math.round(p.coverage)+'% من الإيرادات مشمولة بتكلفة فعلية). لا يمكن إعلانها كأرباح دقيقة حتى تُسجّل تكلفة كل المنتجات.</div>';
+            }
+            currentReportData = [p];
         } else if(type==='inventory'){
-            const d = await apiFetch('/dashboard/inventory');
-            html += '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)"><div class="kpi-card blue"><div class="kpi-value">'+(d.totalItems||0)+'</div><div class="kpi-label">إجمالي الأصناف</div></div><div class="kpi-card orange"><div class="kpi-value">'+(d.lowStock||0)+'</div><div class="kpi-label">مخزون منخفض</div></div><div class="kpi-card red"><div class="kpi-value">'+(d.outOfStock||0)+'</div><div class="kpi-label">نفذ من المخزون</div></div></div>';
-            if(d.items?.length){
+            const inv = d.inventory;
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)"><div class="kpi-card blue"><div class="kpi-value">'+inv.totalItems+'</div><div class="kpi-label">إجمالي الأصناف</div></div><div class="kpi-card orange"><div class="kpi-value">'+inv.lowStock+'</div><div class="kpi-label">مخزون منخفض</div></div><div class="kpi-card red"><div class="kpi-value">'+inv.outOfStock+'</div><div class="kpi-label">نفذ من المخزون</div></div><div class="kpi-card purple"><div class="kpi-value">'+formatMoney(inv.inventoryValue)+'</div><div class="kpi-label">قيمة المخزون</div></div></div>';
+            if(inv.items.length){
                 html += '<table class="data-table"><thead><tr><th>المنتج</th><th>الكمية</th><th>الوحدة</th><th>التكلفة</th><th>الحد الأدنى</th><th>الحالة</th></tr></thead><tbody>';
-                d.items.forEach(i=>{
-                    const st = (i.quantity||0)<=0?'🔴 نفد':(i.quantity||0)<=(i.minStock||0)?'🟡 منخفض':'🟢 متوفر';
+                inv.items.forEach(i=>{
+                    const st = i.status==='out'?'🔴 نفد':i.status==='low'?'🟡 منخفض':'🟢 متوفر';
                     html += '<tr><td>'+(i.name||'')+'</td><td>'+(i.quantity||0)+'</td><td>'+(i.unit||'—')+'</td><td>'+formatMoney(i.cost||0)+'</td><td>'+(i.minStock||0)+'</td><td>'+st+'</td></tr>';
                 });
                 html += '</tbody></table>';
             }
-            currentReportData = d.items || [];
-        } else if(type==='shifts'){
-            const d = await apiFetch('/dashboard/employees?from='+from+'&to='+to);
-            html += '<table class="data-table"><thead><tr><th>الموظف</th><th>الطلبات</th><th>المبيعات</th><th>المتوسط</th></tr></thead><tbody>';
-            d.forEach(r=>{ html += '<tr><td>'+(r.name||'')+'</td><td>'+(r.orders||0)+'</td><td>'+formatMoney(r.sales)+'</td><td>'+formatMoney(r.avgOrder)+'</td></tr>'; });
-            html += '</tbody></table>';
-            currentReportData = d;
+            currentReportData = inv.items;
         } else if(type==='cost'){
-            const products = await window.LuccaDB.Products.getAll();
-            const categories = await window.LuccaDB.Categories.getAll();
-            const orders = await window.LuccaDB.Orders.getAll();
-            const orderItems = await window.LuccaDB.db.getAll('order_items');
-            const catMap = {}; categories.forEach(c=>{ catMap[c.id]=c.nameAr||c.name; });
-            // Calculate product stats
-            const prodStats = {};
-            orderItems.forEach(oi => {
-                const pid = oi.productId || oi.product_id;
-                if (!pid) return;
-                if (!prodStats[pid]) prodStats[pid] = { sold: 0, revenue: 0 };
-                prodStats[pid].sold += oi.quantity || 1;
-                prodStats[pid].revenue += (oi.price || 0) * (oi.quantity || 1);
-            });
-            // Build cost analysis
+            const p = d.profit;
             let totalRevenue = 0, totalCost = 0;
-            const rows = products.filter(p => p.available !== 0).map(p => {
-                const st = prodStats[p.id] || { sold: 0, revenue: 0 };
-                const foodCost = (p.cost || 0) * st.sold;
-                const foodCostPct = st.revenue > 0 ? ((foodCost / st.revenue) * 100) : 0;
-                const profit = st.revenue - foodCost;
-                const profitMargin = st.revenue > 0 ? ((profit / st.revenue) * 100) : 0;
-                totalRevenue += st.revenue;
+            const rows = d.productsReport.filter(r=>r.qtySold>0).map(r=>{
+                const foodCost = (r.costPrice||0) * r.qtySold;
+                const foodCostPct = r.revenue > 0 ? ((foodCost / r.revenue) * 100) : 0;
+                const profit = r.revenue - foodCost;
+                const profitMargin = r.revenue > 0 ? ((profit / r.revenue) * 100) : 0;
+                totalRevenue += r.revenue;
                 totalCost += foodCost;
-                // Menu engineering: high profit & high volume = star
                 let classification = '—';
-                if (st.sold > 0 && profitMargin > 0) {
-                    const avgProfit = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
-                    classification = profitMargin > 65 && st.sold > 5 ? '⭐ نجم' : profitMargin > 65 ? '❓ اللغز' : st.sold > 5 ? '🐴 الحصان' : '🐕 الكلب';
+                if (r.qtySold > 0 && profitMargin > 0) {
+                    classification = profitMargin > 65 && r.qtySold > 5 ? '⭐ نجم' : profitMargin > 65 ? '❓ اللغز' : r.qtySold > 5 ? '🐴 الحصان' : '🐕 الكلب';
                 }
-                return { name: p.nameAr || p.name, cat: catMap[p.categoryId] || '—', price: p.price || 0, cost: p.cost || 0, foodCostPct, profitMargin, sold: st.sold, revenue: st.revenue, classification };
+                return { name: r.name, cat: r.categoryName, price: r.price, cost: r.costPrice, foodCostPct, profitMargin, sold: r.qtySold, revenue: r.revenue, classification };
             });
             rows.sort((a, b) => b.revenue - a.revenue);
             const avgFoodCost = totalRevenue > 0 ? ((totalCost / totalRevenue) * 100) : 0;
@@ -3832,38 +4008,43 @@ async function loadReport(type){
             html += '<div class="kpi-card green"><div class="kpi-value">' + formatMoney(totalRevenue) + '</div><div class="kpi-label">إجمالي الإيراد</div></div>';
             html += '<div class="kpi-card orange"><div class="kpi-value">' + formatMoney(totalCost) + '</div><div class="kpi-label">تكلفة الطعام</div></div>';
             html += '<div class="kpi-card blue"><div class="kpi-value">' + avgFoodCost.toFixed(1) + '%</div><div class="kpi-label">متوسط نسبة التكلفة</div></div>';
-            html += '<div class="kpi-card purple"><div class="kpi-value">' + formatMoney(totalRevenue - totalCost) + '</div><div class="kpi-label">صافي الربح</div></div>';
+            html += '<div class="kpi-card purple"><div class="kpi-value">' + formatMoney(totalRevenue - totalCost) + '</div><div class="kpi-label">إجمالي الربح (تقديري)</div></div>';
             html += '</div>';
-            // Cost alert
+            if (p.missingCost) {
+                html += '<div class="alert alert-warning" style="margin-bottom:12px">⚠️ هناك منتجات بدون تكلفة مسجلة — النسب أعلاه تحتسب على المبيعات ذات التكلفة فقط وما يظهر ربحاً قد يكون مبالغاً.</div>';
+            }
             if (avgFoodCost > 35) {
                 html += '<div style="padding:12px;background:rgba(255,107,107,.1);border:1px solid var(--danger);border-radius:8px;margin-bottom:12px;color:var(--danger)">⚠️ نسبة تكلفة الطعام مرتفعة (' + avgFoodCost.toFixed(1) + '%). النسبة المثالية تحت 30%. حاول تخفيف التكاليف أو رفع الأسعار.</div>';
             }
-            html += '<table class="data-table"><thead><tr><th>المنتج</th><th>القسم</th><th>السعر</th><th>التكلفة</th><th>% التكلفة</th><th>% الربح</th><th>الكمية</th><th>الإيراد</th><th>التصنيف</th></tr></thead><tbody>';
-            rows.forEach(r => {
-                const costColor = r.foodCostPct > 35 ? 'var(--danger)' : r.foodCostPct > 30 ? 'var(--warning)' : 'var(--success)';
-                html += '<tr><td><b>' + r.name + '</b></td><td>' + r.cat + '</td><td>' + formatMoney(r.price) + '</td><td>' + formatMoney(r.cost) + '</td><td style="color:' + costColor + ';font-weight:700">' + r.foodCostPct.toFixed(1) + '%</td><td>' + r.profitMargin.toFixed(1) + '%</td><td>' + r.sold + '</td><td>' + formatMoney(r.revenue) + '</td><td>' + r.classification + '</td></tr>';
-            });
-            html += '</tbody></table>';
+            if(!rows.length) html += '<div class="empty-state"><div class="icon">🧮</div><p>لا توجد مبيعات في هذه الفترة لتحليلها</p></div>';
+            if(rows.length){
+                html += '<table class="data-table"><thead><tr><th>المنتج</th><th>القسم</th><th>السعر</th><th>التكلفة</th><th>% التكلفة</th><th>% الربح</th><th>الكمية</th><th>الإيراد</th><th>التصنيف</th></tr></thead><tbody>';
+                rows.forEach(r => {
+                    const costColor = r.foodCostPct > 35 ? 'var(--danger)' : r.foodCostPct > 30 ? 'var(--warning)' : 'var(--success)';
+                    html += '<tr><td><b>' + r.name + '</b></td><td>' + r.cat + '</td><td>' + formatMoney(r.price) + '</td><td>' + formatMoney(r.cost) + '</td><td style="color:' + costColor + ';font-weight:700">' + r.foodCostPct.toFixed(1) + '%</td><td>' + r.profitMargin.toFixed(1) + '%</td><td>' + r.sold + '</td><td>' + formatMoney(r.revenue) + '</td><td>' + r.classification + '</td></tr>';
+                });
+                html += '</tbody></table>';
+            }
             currentReportData = rows;
         } else if(type==='expenses'){
-            const d = await apiFetch('/dashboard/expenses?from='+from+'&to='+to);
-            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card red"><div class="kpi-value">'+formatMoney(d.total||0)+'</div><div class="kpi-label">إجمالي المصروفات ('+(d.count||0)+')</div></div><div class="kpi-card orange"><div class="kpi-value">'+formatMoney(Math.round((d.total||0)/Math.max(1,(d.count||0))))+'</div><div class="kpi-label">متوسط المصروف</div></div></div>';
+            const ex = d.expenses;
+            html += '<div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)"><div class="kpi-card red"><div class="kpi-value">'+formatMoney(ex.total)+'</div><div class="kpi-label">إجمالي المصروفات ('+ex.count+')</div></div><div class="kpi-card orange"><div class="kpi-value">'+formatMoney(ex.avg)+'</div><div class="kpi-label">متوسط المصروف</div></div></div>';
             html += '<h3>حسب الفئة</h3><table class="data-table"><thead><tr><th>الفئة</th><th>العدد</th><th>الإجمالي</th></tr></thead><tbody>';
-            (d.byCategory||[]).forEach(r=>{ html += '<tr><td>'+(r.name||'—')+'</td><td>'+(r.count||0)+'</td><td>'+formatMoney(r.total)+'</td></tr>'; });
+            (ex.byCategory||[]).forEach(r=>{ html += '<tr><td>'+(r.name||'—')+'</td><td>'+(r.count||0)+'</td><td>'+formatMoney(r.total)+'</td></tr>'; });
             html += '</tbody></table>';
             html += '<h3>حسب الموظف</h3><table class="data-table"><thead><tr><th>الموظف</th><th>العدد</th><th>الإجمالي</th></tr></thead><tbody>';
-            (d.byEmployee||[]).forEach(r=>{ html += '<tr><td>'+(r.name||'—')+'</td><td>'+(r.count||0)+'</td><td>'+formatMoney(r.total)+'</td></tr>'; });
+            (ex.byEmployee||[]).forEach(r=>{ html += '<tr><td>'+(r.name||'—')+'</td><td>'+(r.count||0)+'</td><td>'+formatMoney(r.total)+'</td></tr>'; });
             html += '</tbody></table>';
-            currentReportData = (d.byCategory||[]);
+            currentReportData = ex.byCategory;
         } else if(type==='cash'){
             const drawers = await window.LuccaDB.CashRegister.getAllDrawers();
             const today = new Date().toISOString().slice(0,10);
-            const rows = drawers.filter(d => (d.openedAt||'').slice(0,10)>=from && (d.openedAt||'').slice(0,10)<=to && (d.openedAt||'').slice(0,10)<=(to||today));
+            const rows = drawers.filter(dr => (dr.openedAt||'').slice(0,10)>=from && (dr.openedAt||'').slice(0,10)<=to && (dr.openedAt||'').slice(0,10)<=(to||today));
             html += '<table class="data-table"><thead><tr><th>الفتح</th><th>الإغلاق</th><th>الأساسي</th><th>كاش</th><th>كارت</th><th>مصروفات</th><th>مرتجعات</th><th>متوقع</th><th>الفعلي</th><th>الفرق</th><th>الحالة</th></tr></thead><tbody>';
-            rows.forEach(d=>{
-                const exp = d.startingCash + (d.totalCashSales||0) - (d.totalExpenses||0) - (d.totalRefunds||0);
-                const diff = d.difference != null ? d.difference : (d.closingCash!=null? d.closingCash-exp : null);
-                html += '<tr><td>'+formatDate(d.openedAt)+'</td><td>'+(d.closedAt?formatDate(d.closedAt):'—')+'</td><td>'+formatMoney(d.startingCash)+'</td><td>'+formatMoney(d.totalCashSales||0)+'</td><td>'+formatMoney(d.totalCardSales||0)+'</td><td>'+formatMoney(d.totalExpenses||0)+'</td><td>'+formatMoney(d.totalRefunds||0)+'</td><td>'+formatMoney(exp)+'</td><td>'+(d.closingCash!=null?formatMoney(d.closingCash):'—')+'</td><td>'+(diff!=null?formatMoney(diff):'—')+'</td><td>'+((d.status==='open')?'مفتوح':'مغلق')+'</td></tr>';
+            rows.forEach(dr=>{
+                const exp = dr.startingCash + (dr.totalCashSales||0) - (dr.totalExpenses||0) - (dr.totalRefunds||0);
+                const diff = dr.difference != null ? dr.difference : (dr.closingCash!=null? dr.closingCash-exp : null);
+                html += '<tr><td>'+formatDate(dr.openedAt)+'</td><td>'+(dr.closedAt?formatDate(dr.closedAt):'—')+'</td><td>'+formatMoney(dr.startingCash)+'</td><td>'+formatMoney(dr.totalCashSales||0)+'</td><td>'+formatMoney(dr.totalCardSales||0)+'</td><td>'+formatMoney(dr.totalExpenses||0)+'</td><td>'+formatMoney(dr.totalRefunds||0)+'</td><td>'+formatMoney(exp)+'</td><td>'+(dr.closingCash!=null?formatMoney(dr.closingCash):'—')+'</td><td>'+(diff!=null?formatMoney(diff):'—')+'</td><td>'+((dr.status==='open')?'مفتوح':'مغلق')+'</td></tr>';
             });
             html += '</tbody></table>';
             if(!rows.length) html = '<div class="empty-state"><div class="icon">🪙</div><p>لا توجد بيانات صندوق لهذه الفترة</p></div>';
@@ -4561,16 +4742,47 @@ async function processAdminBot(text){
     // أوامر تأكيد/إلغاء باتمان
     if(t==='batman_confirm'){ return executeBatmanConfirmed(); }
     if(t==='batman_cancel'){ batmanPending=null; return aiBotReply('تم الإلغاء'); }
-    if(matchAny(t,['مبيعات','today','sales','اليوم'])){
-        try{const orders=await window.LuccaDB.Orders.getAll();const today=new Date().toISOString().slice(0,10);const tO=orders.filter(o=>(o.createdAt||o.date||'').slice(0,10)===today&&o.paymentStatus==='paid');const total=tO.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);let h='<table class="ai-table"><tr><th>المقياس</th><th>القيمة</th></tr><tr><td>المبيعات</td><td><b>'+total.toLocaleString()+' ل.س</b></td></tr><tr><td>الطلبات</td><td>'+tO.length+'</td></tr><tr><td>متوسط الطلب</td><td>'+(tO.length?Math.round(total/tO.length):0).toLocaleString()+' ل.س</td></tr></table>';return aiBotReply('📊 **مبيعات اليوم:**'+h,[{text:'تقرير تفصيلي',cmd:'report'},{text:'المصروفات',cmd:'expenses'}]);}catch(e){return aiBotReply('❌ '+e.message);}  
-    }
-    if(matchAny(t,['تقرير','report'])){
-        try{const orders=await window.LuccaDB.Orders.getAll();const expenses=await window.LuccaDB.Expenses.getAll();const today=new Date().toISOString().slice(0,10);const tO=orders.filter(o=>(o.createdAt||o.date||'').slice(0,10)===today&&o.paymentStatus==='paid');const tE=expenses.filter(e=>(e.createdAt||e.date||'').slice(0,10)===today);const sales=tO.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);const exp=tE.reduce((s,e)=>s+Number(e.amount||0),0);let h='<table class="ai-table"><tr><th>البند</th><th>المبلغ</th></tr><tr><td>المبيعات</td><td><b>'+sales.toLocaleString()+' ل.س</b></td></tr><tr><td>الطلبات</td><td>'+tO.length+'</td></tr><tr><td>المصروفات</td><td style="color:#ff6b6b">'+exp.toLocaleString()+' ل.س</td></tr><tr><td>الربح</td><td style="color:'+(sales-exp>=0?'#51cf66':'#ff6b6b')+'"><b>'+(sales-exp).toLocaleString()+' ل.س</b></td></tr></table>';return aiBotReply('📊 **التقرير اليومي:**'+h);}catch(e){return aiBotReply('❌ '+e.message);}
+    if((matchAny(t,['مبيعات','today','sales','اليوم']) || matchAny(t,['تقرير','report'])) && !matchAny(t,['من الملف','الملف','من excel','من اكسيل','excel','اكسيل','حلل الملف','تحليل الملف'])){
+        // نفس طبقة الحسابات الموحدة → نفس أرقام اللوحة تماماً
+        try{
+            if(!window.AdminAnalytics) return aiBotReply('⚠️ طبقة التحليلات غير محمّلة');
+            const today = new Date().toISOString().slice(0,10);
+            const d = await window.AdminAnalytics.compute(window.LuccaDB, {from: today, to: today});
+            const k = d.kpis, p = d.profit;
+            let h = '<table class="ai-table"><tr><th>المقياس</th><th>القيمة</th></tr>' +
+                '<tr><td>صافي المبيعات</td><td><b>'+formatMoney(k.sales.value)+' ل.س</b></td></tr>' +
+                '<tr><td>الطلبات</td><td>'+k.orders.value+'</td></tr>' +
+                '<tr><td>متوسط الفاتورة</td><td>'+formatMoney(k.avgOrder.value)+' ل.س</td></tr>' +
+                '<tr><td>المصروفات</td><td style="color:#ff6b6b">'+formatMoney(d.expenses.total)+' ل.س</td></tr>' +
+                '<tr><td>الخصومات</td><td>'+formatMoney(k.discounts.value)+' ل.س</td></tr>' +
+                '<tr><td>المرتجعات/الإلغاء</td><td style="color:#ff6b6b">'+formatMoney(k.refunds.value)+' ل.س</td></tr>';
+            if(p.coverage > 0){
+                h += '<tr><td>الربح التقديري</td><td style="color:'+(p.netProfit>=0?'#51cf66':'#ff6b6b')+'"><b>'+formatMoney(p.netProfit)+' ل.س</b></td></tr>';
+            } else {
+                h += '<tr><td>الربح</td><td style="color:#94a3b8">لا يمكن حسابه — لا توجد تكلفة بضاعة</td></tr>';
+            }
+            h += '</table>';
+            const isReport = matchAny(t,['تقرير','report']);
+            return aiBotReply((isReport?'📋 **التقرير اليومي (من طبقة الحسابات الموحدة):**':'📊 **مبيعات اليوم:**') + h, [
+                {text:'تفاصيل المصروفات',cmd:'expenses'},
+                {text:'المخزون',cmd:'inventory'},
+                {text:'التنبيهات',cmd:'alerts'}
+            ]);
+        }catch(e){return aiBotReply('❌ '+e.message);}
     }
     if(matchAny(t,['الموظفين','موظف','employees'])){try{const emps=await window.LuccaDB.Employees.getAll();let h='<table class="ai-table"><tr><th>الاسم</th><th>الدور</th><th>الحالة</th></tr>';emps.forEach(e=>{h+='<tr><td>'+(e.name||'')+'</td><td>'+(e.role||'')+'</td><td>'+(e.active?'✅':'❌')+'</td></tr>';});h+='</table>';return aiBotReply('👥 **الموظفين:**'+h,[{text:'حضور',cmd:'checkin'},{text:'وردية',cmd:'shift'}]);}catch(e){return aiBotReply('❌ '+e.message);}}
     if(matchAny(t,['حضور','checkin'])){try{const emps=await window.LuccaDB.Employees.getAll();const btns=emps.filter(e=>e.active!==0).map(e=>({text:e.name,cmd:'ci_'+e.id}));return aiBotReply('👥 اختر الموظف:',btns);}catch(e){return aiBotReply('❌ '+e.message);}}
     if(t.startsWith('ci_')){const id=Number(t.replace('ci_',''));try{await window.LuccaDB.Attendance.checkIn(id);const emps=await window.LuccaDB.Employees.getAll();const emp=emps.find(e=>e.id===id);return aiBotReply('✅ تم حضور '+(emp?.name||'')+' - '+new Date().toLocaleTimeString('ar-EG'));}catch(e){return aiBotReply('❌ '+e.message);}}
-    if(matchAny(t,['وردية','shift'])){return aiBotReply('🕐 إدارة الورديات:',[{text:'بدء وردية',cmd:'start_shift'},{text:'انهاء وردية',cmd:'end_shift'}]);}
+    if(t==='shift_auto' || matchAny(t,['شيفت تلقائي','ابدأ شيفت تلقائي','بدء تلقائي','تلقائي'])){
+        try{ await quickStartShift('auto'); return aiBotReply('⚡ شيفت تلقائي:\n'+document.getElementById('qShiftStatus').textContent); }catch(e){ return aiBotReply('❌ '+e.message); }
+    }
+    if(t==='end_shift' || matchAny(t,['انهاء وردية','إنهاء وردية','إنهاء الشيفت','اغلق الشيفت'])){
+        try{ await quickEndShift(); return aiBotReply('⏹ تم إنهاء الوردية'); }catch(e){ return aiBotReply('❌ '+e.message); }
+    }
+    if(t==='start_shift' || matchAny(t,['ابدأ شيفت','بدء وردية','شيفت يدوي','ابدأ يدوي'])){
+        try{ await quickStartShift('manual'); return aiBotReply('▶ '+(document.getElementById('qShiftStatus').textContent||'تم بدء الوردية')); }catch(e){ return aiBotReply('❌ '+e.message); }
+    }
+    if(matchAny(t,['وردية','shift'])){return aiBotReply('🕐 **إدارة الورديات:**',[{text:'⚡ تلقائي حسب الوقت',cmd:'shift_auto'},{text:'▶ بدء يدوي',cmd:'start_shift'},{text:'⏹ إنهاء',cmd:'end_shift'}]);}
     if(matchAny(t,['المنتجات','منتج','products'])){
         try{const prods=await window.LuccaDB.Products.getActive();let h='<table class="ai-table"><tr><th>المنتج</th><th>السعر</th></tr>';prods.slice(0,8).forEach(p=>{h+='<tr><td>'+(p.nameAr||p.name||'')+'</td><td>'+(p.price||0).toLocaleString()+' ل.س</td></tr>';});h+='</table>';return aiBotReply('🛒 **المنتجات ('+prods.length+')**: '+h,[{text:'اضافة منتج',cmd:'add_prod'}]);}catch(e){return aiBotReply('❌ '+e.message);}
     }
@@ -4598,11 +4810,36 @@ async function processAdminBot(text){
     }
     // ===== COST CONTROL =====
     if(matchAny(t,['تكلفة','cost','نسبة التكلفة','food cost','هامش الربح','profit margin'])){
-        try{const products=await window.LuccaDB.Products.getAll();const orderItems=await window.LuccaDB.db.getAll('order_items');const prodStats={};orderItems.forEach(oi=>{const pid=oi.productId||oi.product_id;if(!pid)return;if(!prodStats[pid])prodStats[pid]={sold:0,revenue:0};prodStats[pid].sold+=oi.quantity||1;prodStats[pid].revenue+=(oi.price||0)*(oi.quantity||1);});let totalRev=0,totalCost=0;const rows=products.map(p=>{const st=prodStats[p.id]||{sold:0,revenue:0};const fc=(p.cost||0)*st.sold;const fcp=st.revenue>0?((fc/st.revenue)*100):0;totalRev+=st.revenue;totalCost+=fc;return{name:p.nameAr||p.name,price:p.price||0,cost:p.cost||0,fcp,sold:st.sold,revenue:st.revenue};}).filter(r=>r.sold>0).sort((a,b)=>b.revenue-a.revenue).slice(0,8);const avgFC=totalRev>0?((totalCost/totalRev)*100):0;let h='<table class="ai-table"><tr><th>المنتج</th><th>% التكلفة</th><th>% الربح</th><th>الكمية</th></tr>';rows.forEach(r=>{h+='<tr><td>'+r.name+'</td><td style="color:'+(r.fcp>35?'#ff6b6b':r.fcp>30?'#ffd43b':'#51cf66')+'">'+r.fcp.toFixed(1)+'%</td><td>'+(100-r.fcp).toFixed(1)+'%</td><td>'+r.sold+'</td></tr>';});h+='</table>';return aiBotReply('🧮 **تكلفة الطعام ('+avgFC.toFixed(1)+'%):** '+h,[{text:'تقرير تفصيلي',cmd:'cost_report'}]);}catch(e){return aiBotReply('❌ '+e.message);}
+        try{
+            if(!window.AdminAnalytics) return aiBotReply('⚠️ طبقة التحليلات غير محمّلة');
+            const today = new Date().toISOString().slice(0,10);
+            const d = await window.AdminAnalytics.compute(window.LuccaDB, {from: today, to: today});
+            const p = d.profit;
+            const sold = d.productsReport.filter(r=>r.qtySold>0).sort((a,b)=>b.revenue-a.revenue).slice(0,8).map(r=>{
+                const fcp = r.revenue>0 ? ((r.costPrice||0)*r.qtySold/r.revenue*100) : 0;
+                return {name:r.name, fcp, margin:100-fcp, sold:r.qtySold, hasCost: !!(r.costPrice&&r.costPrice>0)};
+            });
+            let h = '<table class="ai-table"><tr><th>المنتج</th><th>% التكلفة</th><th>% الربح</th><th>الكمية</th></tr>';
+            sold.forEach(r=>{
+                const c = r.hasCost ? (r.fcp>35?'#ff6b6b':r.fcp>30?'#ffd43b':'#51cf66') : '#94a3b8';
+                h+='<tr><td>'+r.name+'</td><td style="color:'+c+'">'+(r.hasCost?r.fcp.toFixed(1)+'%':'لا تكلفة')+'</td><td>'+(r.hasCost?r.margin.toFixed(1)+'%':'—')+'</td><td>'+r.sold+'</td></tr>';
+            });
+            h+='</table>';
+            return aiBotReply('🧮 **تكلفة الطعام اليوم (من نفس المصدر):** '+h+(p.missingCost?'<br><small style="color:#94a3b8">⚠️ '+(p.missingProducts||0)+' منتج بلا تكلفة — النسب جزئية.</small>':''),[{text:'تقرير تفصيلي',cmd:'cost_report'}]);}catch(e){return aiBotReply('❌ '+e.message);}
     }
-    // ===== ACCOUNTING =====
+    // ===== ACCOUNTING (شهري، من نفس الطبقة) =====
     if(matchAny(t,['حسابات','accounting','P&L','الميزانية','المال','financial','الربح والخسارة','تقرير مالي'])){
-        try{const orders=await window.LuccaDB.Orders.getAll();const expenses=await window.LuccaDB.Expenses.getAll();const month=new Date().toISOString().slice(0,7);const mO=orders.filter(o=>(o.createdAt||o.date||'').slice(0,7)===month&&o.paymentStatus==='paid');const mE=expenses.filter(e=>(e.createdAt||e.date||'').slice(0,7)===month);const sales=mO.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);const exp=mE.reduce((s,e)=>s+Number(e.amount||0),0);const profit=sales-exp;const margin=sales>0?((profit/sales)*100):0;let h='<table class="ai-table"><tr><th>البند</th><th>المبلغ</th></tr><tr><td>إيرادات المبيعات</td><td style="color:#51cf66"><b>'+sales.toLocaleString()+' ل.س</b></td></tr><tr><td>المصروفات</td><td style="color:#ff6b6b">-'+exp.toLocaleString()+' ل.س</td></tr><tr><td><b>صافي الربح</b></td><td style="color:'+(profit>=0?'#51cf66':'#ff6b6b')+'"><b>'+profit.toLocaleString()+' ل.س ('+margin.toFixed(1)+'%)</b></td></tr></table>';return aiBotReply('📊 **التقرير المالي الشهري:** '+h,[{text:'المصروفات',cmd:'expenses'},{text:'المبيعات',cmd:'sales'}]);}catch(e){return aiBotReply('❌ '+e.message);}
+        try{
+            if(!window.AdminAnalytics) return aiBotReply('⚠️ طبقة التحليلات غير محمّلة');
+            const d = await window.AdminAnalytics.compute(window.LuccaDB, {from: new Date().toISOString().slice(0,7)+'-01', to: new Date().toISOString().slice(0,10)});
+            const k = d.kpis, p = d.profit;
+            const margin = k.sales.value>0 ? ((k.sales.value - d.expenses.total)/k.sales.value*100) : 0;
+            let h = '<table class="ai-table"><tr><th>البند</th><th>المبلغ</th></tr>' +
+                '<tr><td>صافي المبيعات</td><td style="color:#51cf66"><b>'+formatMoney(k.sales.value)+' ل.س</b></td></tr>' +
+                '<tr><td>المصروفات</td><td style="color:#ff6b6b">-'+formatMoney(d.expenses.total)+' ل.س</td></tr>';
+            if(p.coverage>0) h += '<tr><td>تكلفة البضاعة (تقديرية)</td><td style="color:#ff6b6b">-'+formatMoney(p.costedCost??0)+' ل.س</td></tr>';
+            h += '<tr><td><b>صافي الربح</b></td><td style="color:'+((k.sales.value-d.expenses.total)>=0?'#51cf66':'#ff6b6b')+'"><b>'+formatMoney(k.sales.value-d.expenses.total)+' ل.س ('+margin.toFixed(1)+'%)</b></td></tr></table>';
+            return aiBotReply('📊 **التقرير المالي (الشهر الحالي):** '+h+(p.missingCost?'<br><small style="color:#94a3b8">⚠️ الربح يعكس الإيرادات ناقص المصروفات فقط؛ بيانات التكلفة غير مكتملة ('+Math.round(p.coverage)+'% تغطية).</small>':''),[{text:'المصروفات',cmd:'expenses'},{text:'المبيعات',cmd:'sales'}]);}catch(e){return aiBotReply('❌ '+e.message);}
     }
     // ===== FORECASTING =====
     if(matchAny(t,['توقع','forecast','تنبؤ','predict','اليوم الأفضل','best day','reorder','إعادة طلب'])){
@@ -4610,7 +4847,41 @@ async function processAdminBot(text){
     }
     // ===== INVENTORY STATUS =====
     if(matchAny(t,['المخزون','inventory','مخزون','stock'])){
-        try{const items=await window.LuccaDB.Inventory.getAll();const low=items.filter(i=>(i.quantity||0)<=(i.minStock||i.minQuantity||0));let h='<table class="ai-table"><tr><th>الصنف</th><th>الكمية</th><th>الحالة</th></tr>';items.slice(0,8).forEach(i=>{const status=(i.quantity||0)<=0?'❌ نفد':(i.quantity||0)<=(i.minStock||i.minQuantity||0)?'⚠️ منخفض':'✅ متوفر';h+='<tr><td>'+i.name+'</td><td>'+(i.quantity||0)+' '+(i.unit||'')+'</td><td>'+status+'</td></tr>';});h+='</table>';if(low.length)h+='<br>⚠️ '+low.length+' أصناف منخفضة المخزون!';return aiBotReply('📦 **المخزون ('+items.length+')**: '+h,[{text:'إضافة مخزون',cmd:'add_inventory'},{text:'الموردين',cmd:'suppliers'}]);}catch(e){return aiBotReply('❌ '+e.message);}
+        try{
+            if(!window.AdminAnalytics) return aiBotReply('⚠️ طبقة التحليلات غير محمّلة');
+            const today = new Date().toISOString().slice(0,10);
+            const d = await window.AdminAnalytics.compute(window.LuccaDB, {from: today, to: today});
+            const inv = d.inventory;
+            let h = '<table class="ai-table"><tr><th>الصنف</th><th>الكمية</th><th>الحالة</th></tr>';
+            inv.items.slice(0,8).forEach(i=>{
+                const status = i.status==='out'?'❌ نفد':i.status==='low'?'⚠️ منخفض':'✅ متوفر';
+                h+='<tr><td>'+i.name+'</td><td>'+(i.quantity||0)+' '+(i.unit||'')+'</td><td>'+status+'</td></tr>';
+            });
+            h+='</table>';
+            if(inv.outOfStock) h+='<br>🔴 '+inv.outOfStock+' نفد، ';
+            if(inv.lowStock) h+='⚠️ '+inv.lowStock+' منخفض';
+            h+='<br>💵 قيمة المخزون: '+formatMoney(inv.inventoryValue)+' ل.س';
+            return aiBotReply('📦 **المخزون ('+inv.totalItems+' أصناف):** '+h,[{text:'إضافة مخزون',cmd:'add_inventory'},{text:'الموردين',cmd:'suppliers'}]);}catch(e){return aiBotReply('❌ '+e.message);}
+    }
+    // ===== SMART ALERTS / INSIGHTS (تحليل حقيقي من نفس الطبقة) =====
+    if(matchAny(t,['تنبيهات','تنبيه','مشكلة','مشاكل','رؤى','روى','تحليل','توصيات','alerts','alert','insight','insights','الحالة التشغيلية','حالة اليوم']) && !matchAny(t,['من الملف','الملف','من excel','من اكسيل','excel','اكسيل','حلل الملف','تحليل الملف'])){
+        try{
+            if(!window.AdminAnalytics) return aiBotReply('⚠️ طبقة التحليلات غير محمّلة');
+            const today = new Date().toISOString().slice(0,10);
+            const d = await window.AdminAnalytics.compute(window.LuccaDB, {from: today, to: today});
+            let out = '🎯 **الحالة التشغيلية اليوم:**\n';
+            if(d.alerts.length){
+                out += '**التنبيهات:**\n';
+                d.alerts.slice(0,4).forEach(a=>{
+                    out += (a.severity==='danger'?'🚨 ':a.severity==='warning'?'⚠️ ':'💡 ') + a.title + ' — ' + a.message + '\n<small>توصية: ' + a.recommendation + '</small>\n';
+                });
+            } else {
+                out += '✅ لا توجد تنبيهات حرجة اليوم.\n';
+            }
+            out += '\n**رؤى سريعة:**\n';
+            d.insights.slice(0,4).forEach(i=>{ out += '• ' + i.message + '\n'; });
+            return aiBotReply(out, [{text:'التقرير',cmd:'report'},{text:'المخزون',cmd:'inventory'},{text:'المصروفات',cmd:'expenses'}]);
+        }catch(e){return aiBotReply('❌ '+e.message);}
     }
     // ===== SUPPLIERS =====
     if(matchAny(t,['الموردين','مورد','suppliers'])){
