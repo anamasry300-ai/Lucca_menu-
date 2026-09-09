@@ -314,7 +314,52 @@
     },
     async add(emp) { return _db.add('employees', { active: true, ...emp }); },
     async update(id, data) { return _db.put('employees', { ...data, id }); },
-    async delete(id) { return _db.delete('employees', id); }
+    async delete(id) { return _db.delete('employees', id); },
+    // الدعوة عبر البريد: نفس سلوك الطبقة المحلية — الخادم أولاً، ثم إنشاء محلي/بعيد عند تعذر الخادم.
+    async invite(payload) {
+      let res = null;
+      if (window.ServerAPI && typeof window.ServerAPI.post === 'function') {
+        try {
+          res = await window.ServerAPI.post('/api/employees/invite', payload);
+        } catch (e) { res = null; }
+      }
+      if (res && res.inviteToken) {
+        try {
+          await _db.add('invitations', {
+            id: res.inviteId, token: res.inviteToken, email: res.email, name: res.name,
+            role: res.role, employeeId: res.employeeId, status: 'pending',
+            expiresAt: res.expiresAt, createdAt: new Date().toISOString()
+          });
+        } catch (e) { /* تجاهل فشل تخزين سجل الدعوة */ }
+        return res;
+      }
+      // الخادم غير متاح → ننشئ الموظف مباشرة (لا ادعاء نجاح زائف: إن فشل الإدراج ستُرمى الأخطاء للواجهة).
+      const empId = await _db.add('employees', {
+        name: payload.name, email: payload.email || null, employeeCode: payload.employeeCode || null,
+        phone: payload.phone || '', role: payload.role || 'cashier', salary: payload.salary || 0,
+        active: true, createdAt: new Date().toISOString()
+      });
+      return { local: true, name: payload.name, id: empId };
+    },
+    async setStatus(id, active) {
+      try {
+        if (window.ServerAPI && typeof window.ServerAPI.post === 'function') {
+          await window.ServerAPI.post('/api/employees/' + Number(id) + '/status', { active: !!active });
+        }
+      } catch (e) { /* نبقي الحالة المحلية */ }
+      try { await _db.put('employees', { id, active: active ? 1 : 0 }); } catch (e) {}
+      return true;
+    },
+    async getInviteStatus(employeeId) {
+      try {
+        const all = await _db.getAll('invitations');
+        const inv = (all || []).find(i => String(i.employeeId) === String(employeeId));
+        if (!inv) return null;
+        if (inv.status === 'used') return 'used';
+        if (inv.expiresAt && new Date(inv.expiresAt).getTime() < Date.now()) return 'expired';
+        return 'pending';
+      } catch (e) { return null; }
+    }
   };
 
   const Attendance = {
@@ -340,30 +385,69 @@
 
   const Expenses = {
     async getAll() { return _db.getAll('expenses'); },
-    async add(exp) { return _db.add('expenses', { created_by: 'admin', ...exp }); },
+    async add(exp) {
+      // جدول expenses المتصل لا يحتوي عمود payment_method حالياً (سحبة المخطط ترفض الإدراج به).
+      // نحافظ على payment_method داخلياً للربط المحاسبي في الوردية، وننزعه من حمولة الإدراج.
+      const payload = { ...exp };
+      delete payload.paymentMethod;
+      const id = await _db.add('expenses', { created_by: 'admin', ...payload });
+      // ربط محاسبي بالمصروفات: كل مصروف يُسجَّل مرة واحدة، ويُحتسب في الوردية النقدية (الشيفت)
+      // إذا كانت هناك وردية مفتوحة — مثل الوضع غير المتصل تماماً. لا يُمنع المصروف هنا.
+      try {
+        const drawer = await CashRegister.getActiveDrawer();
+        if (drawer) await CashRegister.recordTransaction(drawer.id, 'expense', parseFloat(exp.amount || 0), exp.paymentMethod || 'cash', exp.description || 'مصروف');
+      } catch (e) { console.warn('[Expenses] drawer expense', e); }
+      return id;
+    },
     async delete(id) { return _db.delete('expenses', id); }
   };
 
   const Shifts = {
     async getAll() { return _db.getAll('shifts'); },
-    async start(employeeId, notes = '') {
+    async start(employeeId, notes = '', options = {}) {
+      const now = new Date().toISOString();
+      const today = now.split('T')[0];
+      const existing = await this.getByEmployeeAndDate(employeeId, today);
+      if (existing) throw new Error('تم تسجيل شيفت للموظف اليوم');
       return _db.add('shifts', {
-        employee_id: employeeId,
-        date: new Date().toISOString().split('T')[0],
-        start_time: new Date().toISOString(),
-        status: 'active',
-        notes
+        employeeId, date: today,
+        startTime: now, endTime: null,
+        notes,
+        shiftType: options.shiftType || null,
+        label: options.label || null,
+        status: 'active'
       });
     },
     async end(employeeId) {
       const all = await this.getAll();
       const today = new Date().toISOString().split('T')[0];
-      const shift = all.find(s => s.employee_id == employeeId && s.date === today && s.status === 'active');
-      if (shift) {
-        const endTime = new Date().toISOString();
-        const hours = Math.round((new Date(endTime) - new Date(shift.start_time)) / 3600000 * 10) / 10;
-        return _db.put('shifts', { ...shift, end_time: endTime, hours_worked: hours, status: 'completed' });
-      }
+      const shift = all.find(s => (s.employeeId == employeeId || s.employee_id == employeeId) && s.date === today && s.status === 'active');
+      if (!shift) throw new Error('لا يوجد شيفت نشط للموظف اليوم');
+      const endTime = new Date().toISOString();
+      const startTs = shift.startTime || shift.start_time;
+      const hours = Math.round((new Date(endTime) - new Date(startTs)) / 3600000 * 10) / 10;
+      return _db.put('shifts', { ...shift, endTime, status: 'completed', hoursWorked: hours });
+    },
+    async getByEmployeeAndDate(employeeId, date) {
+      const all = await this.getAll();
+      return all.find(s => (s.employeeId == employeeId || s.employee_id == employeeId) && s.date === date) || null;
+    },
+    async getActive() {
+      const all = await this.getAll();
+      return all.filter(s => s.status === 'active');
+    },
+    async getByDateRange(startDate, endDate) {
+      const all = await this.getAll();
+      return all.filter(s => s.date >= startDate && s.date <= endDate);
+    },
+    async getToday() {
+      const all = await this.getAll();
+      const today = new Date().toISOString().split('T')[0];
+      return all.filter(s => s.date === today);
+    },
+    async getByEmployee(employeeId) {
+      const all = await this.getAll();
+      return all.filter(s => s.employeeId == employeeId || s.employee_id == employeeId);
     }
   };
 
@@ -685,13 +769,196 @@
     tierColor(t) { return { diamond: '#00bfff', gold: '#ffd700', silver: '#c0c0c0' }[t] || '#cd7f32'; }
   };
 
-  // ===== Cash Register (Supabase fallback) =====
+  // ===== Cash Register (Online Adapter) =====
+  // الوردية النقدية (الشيفت/الصندوق) تُخزَّن محلياً (localStorage) حتى تعمل في الظرف المتصل
+  // بنفس سلوكها في الظرف غير المتصل (IndexedDB). لماذا محلياً؟ جدول cash_registers غير مضمون
+  // في قاعدة supabase ولم يتمّ تزويدها ببيانات — فلا نعتمد على مخطط غير مؤكد.
+  // سياسة الإدارة الجديدة: لا شرط لفتح وردية نقدية — العمليات النقدية مسموحة دائماً.
+  // إن كانت وردية مفتوحة تُربَط بها المعاملات تلقائياً للتدقيق (best-effort) ولا تُحجب أي عملية.
+  const _dcKey = 'lucca.cash_registers';
+  const _dcAll = () => { try { return JSON.parse(localStorage.getItem(_dcKey) || '[]'); } catch (e) { return []; } };
+  const _dcSave = (rows) => { try { localStorage.setItem(_dcKey, JSON.stringify(rows)); } catch (e) {} };
+  const _dcNextId = (rows) => (rows.reduce((mx, r) => Math.max(mx, Number(r.id) || 0), 0) + 1);
   const CashRegister = {
-    async getActiveDrawer() { const all = await _db.getAll('orders'); return null; },
-    async openDrawer() { return { drawer: { id: 1, status: 'open', startingCash: 0, currentCash: 0, totalCashSales: 0, totalCardSales: 0, totalExpenses: 0, totalRefunds: 0, transactionCount: 0, expectedCash: 0 } }; },
-    async closeDrawer() { return { drawer: { status: 'closed', difference: 0 } }; },
-    async recordTransaction() { return true; },
-    async getTodaySummary() { return { drawersCount: 0, totalCashSales: 0, totalCardSales: 0, totalExpenses: 0, totalRefunds: 0, transactionCount: 0, netCash: 0 }; }
+    async getActiveDrawer() {
+      const rows = _dcAll();
+      return rows.find(d => d.status === 'open') || null;
+    },
+    async openDrawer(startingCash, employeeId, notes) {
+      const rows = _dcAll();
+      const existing = rows.find(d => d.status === 'open');
+      if (existing) return { error: 'الصندوق مفتوح بالفعل! أغلقه أولاً.', drawer: existing };
+      let by = 'system';
+      try {
+        const cu = window.LuccaDB && window.LuccaDB.Users && window.LuccaDB.Users.getCurrentUser && window.LuccaDB.Users.getCurrentUser();
+        if (cu) by = (cu.name || cu.username || 'system');
+      } catch (e) {}
+      const drawer = {
+        id: _dcNextId(rows),
+        status: 'open',
+        startingCash: Number(startingCash) || 0,
+        currentCash: Number(startingCash) || 0,
+        openingCash: Number(startingCash) || 0,
+        employeeId: employeeId || null,
+        openedBy: by,
+        openedByUser: null,
+        closedBy: null,
+        closedByUser: null,
+        openedAt: new Date().toISOString(),
+        closedAt: null,
+        closingCash: null,
+        expectedCash: Number(startingCash) || 0,
+        difference: 0,
+        differenceType: 'balanced',
+        totalCashSales: 0,
+        totalCardSales: 0,
+        totalWalletSales: 0,
+        totalExpenses: 0,
+        totalRefunds: 0,
+        transactionCount: 0,
+        version: 1,
+        notes: notes || ''
+      };
+      rows.push(drawer);
+      _dcSave(rows);
+      return { drawer };
+    },
+    async closeDrawer(closingCash, notes) {
+      const rows = _dcAll();
+      const drawer = rows.find(d => d.status === 'open');
+      if (!drawer) return { error: 'لا يوجد صندوق مفتوح' };
+      drawer.status = 'closed';
+      drawer.closingCash = Number(closingCash) || 0;
+      drawer.closedAt = new Date().toISOString();
+      drawer.expectedCash = (Number(drawer.openingCash || drawer.startingCash) || 0)
+        + (Number(drawer.totalCashSales) || 0)
+        - (Number(drawer.totalExpenses) || 0)
+        - (Number(drawer.totalRefunds) || 0);
+      drawer.difference = (Number(drawer.closingCash) || 0) - drawer.expectedCash;
+      drawer.differenceType = drawer.difference > 0 ? 'overage' : (drawer.difference < 0 ? 'shortage' : 'balanced');
+      drawer.version = (Number(drawer.version) || 1) + 1;
+      if (notes) drawer.notes = (drawer.notes || '') + '\n' + notes;
+      _dcSave(rows);
+      return { drawer };
+    },
+    async recordTransaction(drawerId, type, amount, method, description) {
+      const rows = _dcAll();
+      const drawer = rows.find(d => String(d.id) === String(drawerId) || Number(d.id) === Number(drawerId));
+      if (!drawer) return null;
+      amount = Number(amount) || 0;
+      drawer.transactionCount = (drawer.transactionCount || 0) + 1;
+      const m = String(method || '').toLowerCase();
+      if (type === 'sale') {
+        if (m === 'cash' || m === 'كاش' || m === 'نقدي') {
+          drawer.totalCashSales = (drawer.totalCashSales || 0) + amount;
+          drawer.currentCash = (Number(drawer.currentCash) || 0) + amount;
+        } else if (m === 'wallet' || m === 'محفظة' || m === 'digital' || m === 'تحويل') {
+          drawer.totalWalletSales = (drawer.totalWalletSales || 0) + amount;
+        } else {
+          drawer.totalCardSales = (drawer.totalCardSales || 0) + amount;
+        }
+      } else if (type === 'expense') {
+        drawer.totalExpenses = (drawer.totalExpenses || 0) + amount;
+        drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
+      } else if (type === 'refund') {
+        drawer.totalRefunds = (drawer.totalRefunds || 0) + amount;
+        if (m === 'cash' || m === 'كاش' || m === 'نقدي') drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
+      }
+      drawer.expectedCash = (Number(drawer.openingCash || drawer.startingCash) || 0)
+        + (Number(drawer.totalCashSales) || 0)
+        - (Number(drawer.totalExpenses) || 0)
+        - (Number(drawer.totalRefunds) || 0);
+      _dcSave(rows);
+      return true;
+    },
+    async getDrawerStats(drawerId) {
+      const rows = _dcAll();
+      const drawer = rows.find(d => String(d.id) === String(drawerId) || Number(d.id) === Number(drawerId));
+      if (!drawer) return null;
+      return {
+        startingCash: drawer.startingCash,
+        currentCash: drawer.currentCash,
+        expectedCash: drawer.expectedCash,
+        difference: drawer.difference,
+        totalCashSales: drawer.totalCashSales,
+        totalCardSales: drawer.totalCardSales,
+        totalExpenses: drawer.totalExpenses,
+        totalRefunds: drawer.totalRefunds,
+        transactionCount: drawer.transactionCount,
+        totalSales: (Number(drawer.totalCashSales) || 0) + (Number(drawer.totalCardSales) || 0)
+      };
+    },
+    async getAllDrawers() {
+      return _dcAll();
+    },
+    async getTodaySummary() {
+      const rows = _dcAll();
+      const today = new Date().toISOString().slice(0, 10);
+      const todayDrawers = rows.filter(d => (d.openedAt || '').slice(0, 10) === today || (d.closedAt || '').slice(0, 10) === today);
+      let totalCash = 0, totalCard = 0, totalExpenses = 0, totalRefunds = 0, count = 0;
+      todayDrawers.forEach(d => {
+        totalCash += d.totalCashSales || 0;
+        totalCard += d.totalCardSales || 0;
+        totalExpenses += d.totalExpenses || 0;
+        totalRefunds += d.totalRefunds || 0;
+        count += d.transactionCount || 0;
+      });
+      return {
+        drawersCount: todayDrawers.length,
+        totalCashSales: totalCash,
+        totalCardSales: totalCard,
+        totalExpenses: totalExpenses,
+        totalRefunds: totalRefunds,
+        transactionCount: count,
+        netCash: totalCash - totalExpenses - totalRefunds
+      };
+    },
+    async getDailyClosingReport(dateStr) {
+      const day = dateStr || new Date().toISOString().slice(0, 10);
+      const rows = _dcAll();
+      const dayDrawers = rows.filter(d => (d.openedAt || '').slice(0, 10) === day || (d.closedAt || '').slice(0, 10) === day);
+      let totalCash = 0, totalCard = 0, totalWallet = 0, totalExp = 0, totalRef = 0;
+      dayDrawers.forEach(d => {
+        totalCash += Number(d.totalCashSales) || 0;
+        totalCard += Number(d.totalCardSales) || 0;
+        totalWallet += Number(d.totalWalletSales) || 0;
+        totalExp += Number(d.totalExpenses) || 0;
+        totalRef += Number(d.totalRefunds) || 0;
+      });
+      let revenue = 0, refundTotal = 0;
+      try {
+        const allOrders = await _db.getAll('orders');
+        const paidOrders = allOrders.filter(o => String(o.paymentStatus || '').toLowerCase() === 'paid' && (o.date || o.createdAt || '').slice(0, 10) === day);
+        revenue = paidOrders.reduce((s, o) => s + (Number(o.total) || 0), 0);
+      } catch (e) {}
+      try {
+        const allRefunds = await _db.getAll('refunds');
+        const dayRefs = allRefunds.filter(r => (r.createdAt || r.updatedAt || r.date || '').slice(0, 10) === day);
+        refundTotal = dayRefs.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+      } catch (e) {}
+      return {
+        date: day,
+        drawers: dayDrawers.map(d => ({
+          id: d.id, syncId: d.syncId, status: d.status,
+          openedBy: d.openedBy, closedBy: d.closedBy,
+          openedAt: d.openedAt, closedAt: d.closedAt,
+          openingCash: Number(d.openingCash || d.startingCash) || 0,
+          expectedCash: Number(d.expectedCash) || 0,
+          actualCash: Number(d.closingCash) || 0,
+          difference: Number(d.difference) || 0,
+          differenceType: d.differenceType || 'balanced',
+          totalCashSales: Number(d.totalCashSales) || 0,
+          totalCardSales: Number(d.totalCardSales) || 0,
+          totalWalletSales: Number(d.totalWalletSales) || 0,
+          totalExpenses: Number(d.totalExpenses) || 0,
+          totalRefunds: Number(d.totalRefunds) || 0,
+          transactionCount: d.transactionCount || 0
+        })),
+        revenue, refunds: refundTotal, netRevenue: revenue - refundTotal,
+        totals: { cash: totalCash, card: totalCard, wallet: totalWallet, expenses: totalExp, refunds: totalRef },
+        topItems: []
+      };
+    }
   };
 
   // ===== Expense Categories =====

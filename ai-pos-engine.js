@@ -206,6 +206,8 @@ class AIPosEngine {
             return { intent: 'view_products', needsConfirmation: false };
 
         // Employee Management
+        if (/(?:اض(?:ف|يف)\s*موظف|إضافة\s*موظف|موظف\s*جديد|add\s*employee)/i.test(t))
+            return { intent: 'add_employee', needsConfirmation: true, confirmType: 'employee' };
         if (/(?:حضور|attendance|حضو)/.test(t))
             return { intent: 'employee_attendance', needsConfirmation: false };
         if (/(?:انصراف|leave|离)/.test(t))
@@ -215,8 +217,16 @@ class AIPosEngine {
         if (/(?:وردية|shift)/.test(t))
             return { intent: 'manage_shift', needsConfirmation: false };
 
-        // Expense
-        if (/(?:مصروف|expense|مصروفات)/.test(t))
+        // Expense — عرض (قراءة) أو تسجيل (كتابة موثّقة بالحفظ الفعلي)
+        const expHint  = /(?:مصروف|صرفية|صرف|هدر|مواد|مواصلات|صيانة|نظافة|كهرباء|ماء|غاز|إيجار|أجرة|نثريات|نثريا|رواتب)/i;
+        const expWrite = /(?:سجلت|سجّل|سجّلت|سجل|تسجيل|اضف|أضف|إضافة|عملية|عندي|هناك|خصم)/i;
+        const expView  = /(?:اعرض|عرض|قائمة|الكل|كل|اليوم|شوف|بين|كم|اسأل)/i;
+        if (expHint.test(t) && !/(?:اشتر(?:يت|ى|ي)|شراء|مشتريات|فاتورة)/.test(t)) {
+            if ((expView.test(t) && !expWrite.test(t)) || (!expWrite.test(t) && !/\d/.test(t)))
+                return { intent: 'view_expenses', needsConfirmation: false };
+            return { intent: 'add_expense', needsConfirmation: true, confirmType: 'expense' };
+        }
+        if (expWrite.test(t) && /\d/.test(t) && /(?:مواد|مواصلات|صيانة|نظافة|كهرباء|ماء|غاز|إيجار|أجرة|نثريات|نثريا|رواتب|هدر)/i.test(t))
             return { intent: 'add_expense', needsConfirmation: true, confirmType: 'expense' };
 
         // Inventory
@@ -264,13 +274,29 @@ class AIPosEngine {
             add_product: () => this.toolAddProduct(params),
             delete_product: () => this.toolDeleteProduct(params),
             view_employees: () => this.toolViewEmployees(params),
+            employee_add: () => this.toolAddEmployee(params),
             employee_attendance: () => this.toolEmployeeAttendance(params),
             employee_leave: () => this.toolEmployeeLeave(params),
             manage_shift: () => this.toolManageShift(params),
             add_expense: () => this.toolAddExpense(params),
+            view_expenses: () => this.toolViewExpenses(params),
             add_purchase: () => this.toolAddPurchase(params),
             view_inventory: () => this.toolInventory(params),
-            view_tables: () => this.toolViewTables(params)
+            view_tables: () => this.toolViewTables(params),
+            // ===== العقل المحاسبي =====
+            sales_report: () => this.toolGetSalesReport(params),
+            expenses_report: () => this.toolGetExpenses(params),
+            purchases_report: () => this.toolGetPurchases(params),
+            inventory_value: () => this.toolGetInventory(params),
+            product_cost: () => this.toolGetProductCost(params),
+            food_cost: () => this.toolCalculateFoodCost(params),
+            gross_profit: () => this.toolCalculateGrossProfit(params),
+            gross_margin: () => this.toolCalculateGrossMargin(params),
+            prime_cost: () => this.toolCalculatePrimeCost(params),
+            drawer_status: () => this.toolGetCashRegisterStatus(params),
+            daily_summary: () => this.toolGetDailySummary(params),
+            product_profitability: () => this.toolGetProductProfitability(params),
+            export_report: () => this.toolExportAccountingReport(params)
         };
 
         if (tools[toolName]) {
@@ -1160,29 +1186,28 @@ class AIPosEngine {
 
     async toolAddExpense(params) {
         const text = params._rawText || '';
-        const m = text.match(/(\d+(?:[.,]\d+)?)/);
-        if (!m) return { success: false, message: '❌ حدد المبلغ.\nمثال: "مصروف 500 مشتريات خضار"' };
-        const amount = Number(m[1].replace(',', '.'));
-        // نزيل المبلغ وكلمات الأمر (سجل/مصروف/بمبلغ ...) لنبقي الوصف النظيف فقط،
-        // فلا يتبقى فعل الأمر في الوصف (مثل "سجل حليب").
-        const desc = text
-            .replace(/سجلت|سجّل|سجل|سجّلت|تسجيل|مصروف|expense|بمبلغ|\d+/gi, ' ')
-            .replace(/\s+/g, ' ').trim() || 'مصروف عام';
+        const r = await window.saveExpenseFromText(text);
+        if (r && r.ok) {
+            return { success: true, message: '✅ تم تسجيل المصروف فعلياً في النظام\n💰 المبلغ: ' + this._fmtMoney(r.amount) + ' ل.س\n📝 الوصف: ' + r.description + '\n👤 بواسطة: ' + r.by + (r.linkNote ? '\n' + r.linkNote : '') };
+        }
+        return { success: false, message: (r && r.message) || '❌ لم أتمكن من تسجيل المصروف.' };
+    }
+
+    async toolViewExpenses() {
         try {
-            // الهوية تُنبثق من مستخدم الجلسة داخل Expenses.add (createdBy/userId/employeeId)،
-            // لا `ai_assistant` — فلا نتحكم فيها من نص المستخدم هنا.
-            await window.LuccaDB.Expenses.add({
-                amount,
-                description: desc,
-                category: 'general',
-                date: new Date().toISOString()
-            });
-            let by = '—';
-            try {
-                const cu = window.LuccaDB && window.LuccaDB.Users && window.LuccaDB.Users.getCurrentUser && window.LuccaDB.Users.getCurrentUser();
-                if (cu) by = (cu.name || cu.username || '—');
-            } catch (e) { /* non-critical */ }
-            return { success: true, message: '✅ تم تسجيل المصروف\n💰 المبلغ: ' + this._fmtMoney(amount) + ' ل.س\n📝 الوصف: ' + desc + '\n👤 بواسطة: ' + by };
+            const all = await window.LuccaDB.Expenses.getAll();
+            const today = new Date().toISOString().slice(0, 10);
+            const tExp = all.filter(e => (e.createdAt || e.date || '').slice(0, 10) === today);
+            const total = tExp.reduce((s, e) => s + Number(e.amount || 0), 0);
+            let html = '';
+            if (tExp.length === 0) {
+                html = 'لا توجد مصروفات مسجلة اليوم.';
+            } else {
+                tExp.slice(-10).reverse().forEach(e => {
+                    html += '\n• ' + (e.description || 'مصروف') + ' — ' + this._fmtMoney(e.amount || 0) + ' ل.س' + ((e.createdAt || e.date) ? ' (' + String((e.createdAt || e.date)).slice(0, 16).replace('T', ' ') + ')' : '');
+                });
+            }
+            return { success: true, message: '💸 **مصروفات اليوم (' + today + '):**\n' + html + '\n\nإجمالي المصروفات: **' + this._fmtMoney(total) + ' ل.س**' };
         } catch (e) {
             return { success: false, message: '❌ ' + e.message };
         }
@@ -1575,8 +1600,536 @@ class AIPosEngine {
         }
     }
 
+    // ===== ===== ACCOUNTING BRAIN — العقل المحاسبي المحلي ===== =====
+    // كل الحسابات تتم في جافاسكريبت من بيانات قاعدة البيانات مباشرة (لا اعتماد على LLM).
+    // نظام الثقة: هذه الأدوات تُرجع أرقاماً حقيقية من DB فقط، وشرحها معدّ T ridig.
+
+    _dayOf(v) { return String(v || '').slice(0, 10); }
+
+    _periodRange(period) {
+        const now = new Date();
+        const fmt = d => d.toISOString().slice(0, 10);
+        const today = fmt(now);
+        if (period === 'yesterday') { const y = new Date(now); y.setDate(y.getDate() - 1); return { from: fmt(y), to: fmt(y) }; }
+        if (period === 'week') { const w = new Date(now); w.setDate(w.getDate() - 6); return { from: fmt(w), to: today }; }
+        if (period === 'month') { const m = new Date(now); m.setDate(1); return { from: fmt(m), to: today }; }
+        if (Array.isArray(period) && period.length === 2) {
+            return { from: this._dayOf(period[0]) || today, to: this._dayOf(period[1]) || today };
+        }
+        return { from: today, to: today }; // default today
+    }
+
+    _inRange(row, rng) {
+        const d = this._dayOf(row.date || row.createdAt || row.updatedAt);
+        return d && d >= rng.from && d <= rng.to;
+    }
+
+    async _salesStats(period) {
+        const rng = this._periodRange(period);
+        const orders = (await window.LuccaDB.Orders.getAll()) || [];
+        const paid = orders.filter(o => this._inRange(o, rng) &&
+            (o.paymentStatus === 'paid' || o.status === 'completed' || o.status === 'closed'));
+        const gross = paid.reduce((s, o) => s + Number(o.total || o.totalAmount || 0), 0);
+        let refunds = 0;
+        try {
+            const allRef = await window.LuccaDB.db.getAll('refunds');
+            refunds = allRef.filter(r => this._inRange({ date: r.date || r.createdAt || r.updatedAt }, rng))
+                .reduce((s, r) => s + Number(r.amount || 0), 0);
+        } catch (e) { /* optional */ }
+        return { range: rng, gross, refunds, net: gross - refunds, count: paid.length, orders: paid };
+    }
+
+    async _expensesStats(period, category) {
+        const rng = this._periodRange(period);
+        let list = [];
+        try { list = (await window.LuccaDB.Expenses.getAll()) || []; } catch (e) { list = []; }
+        list = list.filter(e => this._inRange(e, rng));
+        if (category) list = list.filter(e => String(e.category || '').toLowerCase() === String(category).toLowerCase());
+        return { range: rng, list, total: list.reduce((s, e) => s + Number(e.amount || 0), 0), count: list.length };
+    }
+
+    async _purchasesStats(period, supplier) {
+        const rng = this._periodRange(period);
+        let list = [];
+        try { list = (await window.LuccaDB.Purchases.getAll()) || []; } catch (e) { list = []; }
+        list = list.filter(p => this._inRange(p, rng));
+        if (supplier) {
+            const q = supplier.toLowerCase();
+            list = list.filter(p => String(p.supplier || '').toLowerCase().includes(q));
+        }
+        return { range: rng, list, total: list.reduce((s, p) => s + Number(p.total || 0), 0), count: list.length };
+    }
+
+    // 1) تقرير المبيعات التفصيلي لفترة
+    async toolGetSalesReport(params) {
+        try {
+            const period = (params && (params.period || params.range)) || 'today';
+            const s = await this._salesStats(period);
+            const aov = s.count > 0 ? s.net / s.count : 0;
+            let msg = '📊 **تقرير المبيعات' + (s.range.from === s.range.to ? ' (' + s.range.from + ')' : ' (' + s.range.from + ' → ' + s.range.to + ')') + ':**\n\n';
+            msg += '· إجمالي المبيعات (gross): **' + this._fmtMoney(s.gross) + ' ل.س**\n';
+            msg += '· المرتجعات: ' + this._fmtMoney(s.refunds) + ' ل.س\n';
+            msg += '· **صافي الإيرادات: ' + this._fmtMoney(s.net) + ' ل.س**\n';
+            msg += '· الفواتير المدفوعة: ' + s.count + '\n';
+            msg += '· متوسط قيمة الفاتورة (AOV): ' + this._fmtMoney(aov) + ' ل.س\n';
+            msg += '\n🧮 [حساب برمجي من قاعدة البيانات — مصدر موثوق]';
+            return { success: true, message: msg, data: s, tool: 'getSalesReport' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'getSalesReport' };
+        }
+    }
+
+    // 2) تقرير المصروفات حسب الفترة/الفئة
+    async toolGetExpenses(params) {
+        try {
+            const period = (params && params.period) || 'today';
+            const category = params && params.category;
+            const ex = await this._expensesStats(period, category);
+            let msg = '💸 **تقرير المصروفات' + (ex.range.from === ex.range.to ? ' (' + ex.range.from + ')' : ' (' + ex.range.from + ' → ' + ex.range.to + ')') + ':**\n\n';
+            msg += '· إجمالي المصروفات: **' + this._fmtMoney(ex.total) + ' ل.س** (' + ex.count + ' عملية)\n';
+            if (category) msg += '· الفئة: ' + category + '\n';
+            if (ex.list.length) {
+                const top = ex.list.slice().sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0)).slice(0, 10);
+                msg += '\n📋 **أعلى العمليات:**\n';
+                top.forEach(e => {
+                    msg += '  • ' + (e.description || e.category || 'مصروف') + ' — ' + this._fmtMoney(e.amount) + ' ل.س' +
+                        (e.paymentMethod && e.paymentMethod !== 'cash' ? ' [💳 ' + e.paymentMethod + ']' : ' [💵 نقدي]') + '\n';
+                });
+            }
+            msg += '\n🧮 [حساب برمجي من قاعدة البيانات]';
+            return { success: true, message: msg, data: ex, tool: 'getExpenses' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'getExpenses' };
+        }
+    }
+
+    // 3) تقرير المشتريات
+    async toolGetPurchases(params) {
+        try {
+            const period = (params && params.period) || 'today';
+            const supplier = params && params.supplier;
+            const p = await this._purchasesStats(period, supplier);
+            let msg = '🚚 **تقرير المشتريات' + (p.range.from === p.range.to ? ' (' + p.range.from + ')' : ' (' + p.range.from + ' → ' + p.range.to + ')') + ':**\n\n';
+            msg += '· إجمالي المشتريات: **' + this._fmtMoney(p.total) + ' ل.س** (' + p.count + ' فاتورة)\n';
+            if (p.list.length) {
+                msg += '\n📋 **الفاتورآت:**\n';
+                p.list.slice(0, 10).forEach(pp => {
+                    msg += '  • ' + (pp.supplier || 'مورد') + ' — ' + this._fmtMoney(pp.total) + ' ل.س' + (pp.date ? ' (' + this._dayOf(pp.date) + ')' : '') + '\n';
+                });
+            }
+            msg += '\n🧮 [حساب برمجي من قاعدة البيانات]';
+            return { success: true, message: msg, data: p, tool: 'getPurchases' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'getPurchases' };
+        }
+    }
+
+    // 4) تقييم المخزون الحالي
+    async toolGetInventory(params) {
+        try {
+            let list = [];
+            try { list = (await window.LuccaDB.Inventory.getAll()) || []; } catch (e) { list = []; }
+            let totalValue = 0;
+            let lowCount = 0;
+            list.forEach(i => {
+                const qty = Number(i.quantity || i.currentStock || 0);
+                const cost = Number(i.costPerUnit || i.cost || 0);
+                totalValue += qty * cost;
+                const min = Number(i.minStock != null ? i.minStock : (i.minQuantity || 0));
+                if (min > 0 && qty <= min) lowCount++;
+            });
+            let msg = '📦 **المخزون الحالي (' + list.length + ' صنف):**\n\n';
+            msg += '· القيمة الإجمالية: **' + this._fmtMoney(totalValue) + ' ل.س**\n';
+            msg += '· أصناف منخفضة/إنذار: ' + (lowCount ? '⚠️ ' + lowCount : '✅ لا يوجد') + '\n';
+            if (list.length) {
+                const top = list.slice().sort((a, b) => (Number(b.quantity || 0) * Number(b.costPerUnit || b.cost || 0)) - (Number(a.quantity || 0) * Number(a.costPerUnit || a.cost || 0))).slice(0, 10);
+                msg += '\n📋 **أعلى القيم:**\n';
+                top.forEach(i => {
+                    const qty = Number(i.quantity || i.currentStock || 0);
+                    msg += '  • ' + (i.name || i.productName || '—') + ': ' + qty + ' × ' + this._fmtMoney(Number(i.costPerUnit || i.cost || 0)) + ' = ' + this._fmtMoney(qty * Number(i.costPerUnit || i.cost || 0)) + ' ل.س\n';
+                });
+            }
+            msg += '\n🧮 [حساب برمجي من قاعدة البيانات]';
+            return { success: true, message: msg, data: { list, totalValue, lowCount }, tool: 'getInventory' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'getInventory' };
+        }
+    }
+
+    // 5) تكلفة صنف محدد (من الوصفات أو سعر التكلفة)
+    async toolGetProductCost(params) {
+        try {
+            const id = params && (params.productId != null ? params.productId : null);
+            const q = (params && (params.productName || params.name)) || '';
+            let products = [];
+            try { products = (await window.LuccaDB.Products.getActive()) || []; } catch (e) { products = []; }
+            let p = null;
+            if (id != null) p = products.find(x => String(x.id) === String(id));
+            if (!p && q) {
+                const s = q.toLowerCase();
+                p = products.find(x => String(x.name || '').toLowerCase().includes(s) || String(x.nameAr || '').toLowerCase().includes(s));
+            }
+            if (!p) return { success: false, message: '❌ لم أجد الصنف المطلوب في المنتجات.', tool: 'getProductCost' };
+
+            let cost = Number(p.cost || 0);
+            let viaRecipe = false;
+            try {
+                const rc = await window.LuccaDB.ProductRecipes.getRecipeCost(p.id);
+                if (isFinite(rc) && rc > 0) { cost = rc; viaRecipe = true; }
+            } catch (e) { /* cost only */ }
+
+            const price = Number(p.price || 0);
+            const margin = price > 0 ? (price - cost) / price * 100 : 0;
+            let msg = '🧮 **تكلفة الصنف — ' + (p.nameAr || p.name) + ':**\n\n';
+            msg += '· التكلفة: **' + this._fmtMoney(cost) + ' ل.س**' + (viaRecipe ? ' (من الوصفات)' : ' (سعر تكلفة مباشر)') + '\n';
+            msg += '· سعر البيع: ' + this._fmtMoney(price) + ' ل.س\n';
+            msg += '· هامش الصنف: ' + (margin >= 0 ? margin.toFixed(1) : '—') + '%\n';
+            msg += '\n🧮 [حساب برمجي من قاعدة البيانات]';
+            return { success: true, message: msg, data: { product: p, cost, price, margin, viaRecipe }, tool: 'getProductCost' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'getProductCost' };
+        }
+    }
+
+    // 6) نسبة تكلفة الطعام (Food Cost %)
+    async toolCalculateFoodCost(params) {
+        try {
+            const period = (params && params.period) || 'today';
+            // إن وُجد صنف: تكلفة الوصفة ÷ سعر البيع
+            if (params && (params.productId != null || params.productName)) {
+                const r = await this.toolGetProductCost(params);
+                if (!r.success) return r;
+                const d = r.data;
+                const pct = d.price > 0 ? d.cost / d.price * 100 : 0;
+                return {
+                    success: true,
+                    message: '🧮 **نسبة تكلفة الطعام (صنف ' + (d.product.nameAr || d.product.name) + '):**\n\n· Food Cost: **' + pct.toFixed(1) + '%**  (' + this._fmtMoney(d.cost) + ' ÷ ' + this._fmtMoney(d.price) + ')\n\n· المعدل المقبول: 28%-35%. ' + (pct <= 35 ? '✅ ضمن الحدود' : (pct <= 40 ? '⚠️ مرتفعة — راجع الوصفة/المشتريات' : '🔴 مرتفعة جداً — تدخل مطلوب')),
+                    data: { product: d.product, foodCostPercent: pct, cost: d.cost, price: d.price },
+                    tool: 'calculateFoodCost'
+                };
+            }
+            // فترة: تكلفة المبيعات التقريبية = المشتريات في الفترة (+ تغير المخزون)
+            const s = await this._salesStats(period);
+            const p = await this._purchasesStats(period);
+            const cogs = p.total;
+            const pct = s.net > 0 ? cogs / s.net * 100 : 0;
+            let msg = '🧮 **نسبة تكلفة الطعام (Food Cost %) — ' + (s.range.from === s.range.to ? s.range.from : s.range.from + ' → ' + s.range.to) + ':**\n\n';
+            msg += '· التكلفة التقريبية (مشتريات): ' + this._fmtMoney(cogs) + ' ل.س\n';
+            msg += '· صافي الإيرادات: ' + this._fmtMoney(s.net) + ' ل.س\n';
+            msg += '· **Food Cost: ' + pct.toFixed(1) + '%**\n';
+            msg += '· المعدل المقبول: 28%-35%. ' + (pct <= 35 ? '✅ ضمن الحدود' : (pct <= 40 ? '⚠️ مرتفعة' : '🔴 مرتفعة جداً')) + '\n';
+            msg += '\n_التكلفة تقريبية (مشتريات الفترة كسبيل لتكلفة المبيعات). الأدق: من الوصفات والمخزون._';
+            msg += '\n🧮 [حساب برمجي من قاعدة البيانات]';
+            return { success: true, message: msg, data: { foodCostPercent: pct, cogs, netSales: s.net }, tool: 'calculateFoodCost' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'calculateFoodCost' };
+        }
+    }
+
+    // 7) الربح الإجمالي (Gross Profit)
+    async toolCalculateGrossProfit(params) {
+        try {
+            const period = (params && params.period) || 'today';
+            const s = await this._salesStats(period);
+            const p = await this._purchasesStats(period);
+            const cogs = p.total;
+            const gross = s.net - cogs;
+            let msg = '🧮 **الربح الإجمالي (Gross Profit) — ' + (s.range.from === s.range.to ? s.range.from : s.range.from + ' → ' + s.range.to) + ':**\n\n';
+            msg += '· صافي الإيرادات: ' + this._fmtMoney(s.net) + ' ل.س\n';
+            msg += '· تكلفة المبيعات (تقريبي=مشتريات): ' + this._fmtMoney(cogs) + ' ل.س\n';
+            msg += '· **الربح الإجمالي: ' + this._fmtMoney(gross) + ' ل.س** ' + (gross >= 0 ? '✅' : '🔴 خسارة إجمالية') + '\n';
+            msg += '\n🧮 [حساب برمجي من قاعدة البيانات]';
+            return { success: true, message: msg, data: { grossProfit: gross, netSales: s.net, cogs }, tool: 'calculateGrossProfit' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'calculateGrossProfit' };
+        }
+    }
+
+    // 8) هامش الربح الإجمالي (Gross Margin %)
+    async toolCalculateGrossMargin(params) {
+        try {
+            const period = (params && params.period) || 'today';
+            const s = await this._salesStats(period);
+            const p = await this._purchasesStats(period);
+            const cogs = p.total;
+            const gross = s.net - cogs;
+            const margin = s.net > 0 ? gross / s.net * 100 : 0;
+            let msg = '🧮 **هامش الربح الإجمالي (Gross Margin %) — ' + (s.range.from === s.range.to ? s.range.from : s.range.from + ' → ' + s.range.to) + ':**\n\n';
+            msg += '· إجمالي المبيعات: ' + this._fmtMoney(s.gross) + ' ل.س | صافي: ' + this._fmtMoney(s.net) + ' ل.س\n';
+            msg += '· تكلفة المبيعات (تقريبي): ' + this._fmtMoney(cogs) + ' ل.س\n';
+            msg += '· **الهامش: ' + margin.toFixed(1) + '%** ' + (margin >= 60 ? '✅ ممتاز' : (margin >= 50 ? '⚠️ مقبول' : '🔴 ضعيف')) + '\n';
+            msg += '\n_المعدل الجيد في المطاعم: 60%-70%._';
+            msg += '\n🧮 [حساب برمجي من قاعدة البيانات]';
+            return { success: true, message: msg, data: { grossMargin: margin, grossProfit: gross }, tool: 'calculateGrossMargin' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'calculateGrossMargin' };
+        }
+    }
+
+    // 9) التكلفة الأولية (Prime Cost = مكونات + عمالة مباشرة)
+    async toolCalculatePrimeCost(params) {
+        try {
+            const period = (params && params.period) || 'today';
+            const s = await this._salesStats(period);
+            const p = await this._purchasesStats(period);
+            const ex = await this._expensesStats(period);
+            const foodCost = p.total;
+            const wages = ex.list.filter(e => {
+                const cat = String(e.category || '').toLowerCase();
+                const desc = String(e.description || '').toLowerCase();
+                return /راتب|رواتب|wages|salary/.test(cat) || /راتب|رواتب/.test(desc);
+            }).reduce((sum, e) => sum + Number(e.amount || 0), 0);
+            const prime = foodCost + wages;
+            const pct = s.net > 0 ? prime / s.net * 100 : 0;
+            let msg = '🧮 **التكلفة الأولية (Prime Cost) — ' + (s.range.from === s.range.to ? s.range.from : s.range.from + ' → ' + s.range.to) + ':**\n\n';
+            msg += '· مكونات (مشتريات): ' + this._fmtMoney(foodCost) + ' ل.س\n';
+            msg += '· عمالة مباشرة (رواتب): ' + this._fmtMoney(wages) + ' ل.س\n';
+            msg += '· **Prime Cost: ' + this._fmtMoney(prime) + ' ل.س = ' + pct.toFixed(1) + '% من الإيراد**\n';
+            msg += '· المرجع: الهدف ≤ 60%، والخطر فوق 70%. ' + (pct <= 60 ? '✅ جيد' : (pct <= 70 ? '⚠️ متوسط' : '🔴 خطر')) + '\n';
+            msg += '\n🧮 [حساب برمجي من قاعدة البيانات]';
+            return { success: true, message: msg, data: { primeCost: prime, foodCost, laborCost: wages, primePercent: pct }, tool: 'calculatePrimeCost' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'calculatePrimeCost' };
+        }
+    }
+
+    // 10) حالة الوردية النقدية (Cash Register Status)
+    async toolGetCashRegisterStatus(params) {
+        try {
+            let drawer = null, summary = null;
+            try {
+                if (window.LuccaDB.CashRegister && window.LuccaDB.CashRegister.getActiveDrawer) drawer = await window.LuccaDB.CashRegister.getActiveDrawer();
+            } catch (e) { drawer = null; }
+            try {
+                if (window.LuccaDB.CashRegister && window.LuccaDB.CashRegister.getTodaySummary) summary = await window.LuccaDB.CashRegister.getTodaySummary();
+            } catch (e) { summary = null; }
+            let msg = '💰 **حالة الوردية النقدية:**\n\n';
+            if (drawer) {
+                msg += '✅ وردية مفتوحة: **شيفت #' + drawer.id + '**\n';
+                if (drawer.openedAt || drawer.opened_at || drawer.createdAt) msg += '· فُتحت: ' + String(drawer.openedAt || drawer.opened_at || drawer.createdAt).slice(0, 16).replace('T', ' ') + '\n';
+                if (drawer.openingCash != null) msg += '· رصيد بدء التشغيل: ' + this._fmtMoney(drawer.openingCash) + ' ل.س\n';
+            } else {
+                msg += '❌ لا توجد وردية نقدية مفتوحة حالياً.\nالكاش يعمل مباشرة دون الحاجة لفتح وردية؛ فتح 💰 الصندوق اختياري للتسوية والإقفال.\n';
+            }
+            if (summary) {
+                msg += '\n📊 **ملخص اليوم (من الصندوق):**\n';
+                msg += '· كاش: ' + this._fmtMoney(summary.totalCashSales || 0) + ' ل.س\n';
+                msg += '· كارد: ' + this._fmtMoney(summary.totalCardSales || 0) + ' ل.س\n';
+                msg += '· مصروفات: ' + this._fmtMoney(summary.totalExpenses || 0) + ' ل.س\n';
+                msg += '· صافي النقد: **' + this._fmtMoney(summary.netCash || 0) + ' ل.س**\n';
+            }
+            msg += '\n📊 [بيان حي من قاعدة البيانات]';
+            return { success: true, message: msg, data: { drawer, summary }, tool: 'getCashRegisterStatus' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'getCashRegisterStatus' };
+        }
+    }
+
+    // 11) الملخص اليومي الشامل (Daily Summary)
+    async toolGetDailySummary(params) {
+        try {
+            const period = (params && params.period) || 'today';
+            const [s, ex, p, inv] = await Promise.all([
+                this._salesStats(period),
+                this._expensesStats(period),
+                this._purchasesStats(period),
+                (async () => {
+                    try { return (await window.LuccaDB.Inventory.getAll()) || []; } catch (e) { return []; }
+                })()
+            ]);
+            const profit = s.net - ex.total - p.total;
+            const low = inv.filter(i => Number(i.quantity || 0) <= Number(i.minStock != null ? i.minStock : (i.minQuantity || 0)));
+            const rangeLabel = s.range.from === s.range.to ? s.range.from : s.range.from + ' → ' + s.range.to;
+            let msg = '🗂️ **الملخص الشامل (' + rangeLabel + '):**\n\n';
+            msg += '📊 مبيعات: صافي **' + this._fmtMoney(s.net) + ' ل.س** (' + s.count + ' فاتورة) | إجمالي ' + this._fmtMoney(s.gross) + '\n';
+            msg += '💸 مصروفات: ' + this._fmtMoney(ex.total) + ' ل.س (' + ex.count + ' عملية)\n';
+            msg += '🚚 مشتريات: ' + this._fmtMoney(p.total) + ' ل.س (' + p.count + ' فاتورة)\n';
+            msg += '📦 مخزون إنذار منخفض: ' + (low.length ? '⚠️ ' + low.map(i => i.name).slice(0, 5).join('، ') : '✅ لا يوجد') + '\n';
+            msg += '\n🔢 **الربح التقديري: ' + this._fmtMoney(profit) + ' ل.س** ' + (profit >= 0 ? '✅' : '🔴') + '\n';
+            msg += '(المبيعات − المصروفات − المشتريات — تقديري، لا يشمل التكاليف الثابتة الشهرية والضرائب)\n';
+            msg += '\n📊 [بيان + حساب برمجي من قاعدة البيانات]';
+            return { success: true, message: msg, data: { sales: s, expenses: ex, purchases: p, lowStock: low, profit }, tool: 'getDailySummary' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'getDailySummary' };
+        }
+    }
+
+    // 12) ربحية الأصناف (Product Profitability)
+    async toolGetProductProfitability(params) {
+        try {
+            let products = [];
+            try { products = (await window.LuccaDB.Products.getActive()) || []; } catch (e) { products = []; }
+            const rows = [];
+            for (const pr of products.slice(0, 60)) {
+                const price = Number(pr.price || 0);
+                if (!price) continue;
+                let cost = Number(pr.cost || 0);
+                let viaRecipe = false;
+                try {
+                    const rc = await window.LuccaDB.ProductRecipes.getRecipeCost(pr.id);
+                    if (isFinite(rc) && rc > 0) { cost = rc; viaRecipe = true; }
+                } catch (e) { /* cost only */ }
+                rows.push({ name: pr.nameAr || pr.name, price, cost, viaRecipe, margin: price > 0 ? (price - cost) / price * 100 : 0 });
+            }
+            rows.sort((a, b) => b.margin - a.margin);
+            let msg = '🏆 **ربحية الأصناف (مرتبة تنازلياً):**\n\n';
+            if (!rows.length) msg += 'لا توجد أصناف مسعّرة.';
+            else {
+                msg += rows.slice(0, 15).map(r => {
+                    return '· ' + r.name + ': هامش **' + r.margin.toFixed(1) + '%** (' + this._fmtMoney(r.cost) + '/' + this._fmtMoney(r.price) + ' ل.س)' + (r.viaRecipe ? ' 🧪وصفة' : '');
+                }).join('\n');
+                msg += '\n\n⚠️ الأصناف بدون وصفة تُحسب بسعر التكلفة المباشر فقط.';
+            }
+            msg += '\n🧮 [حساب برمجي من قاعدة البيانات]';
+            return { success: true, message: msg, data: { rows }, tool: 'getProductProfitability' };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'getProductProfitability' };
+        }
+    }
+
+    // 13) تصدير تقرير محاسبي (CSV)
+    async toolExportAccountingReport(params) {
+        try {
+            const report = (params && params.report) || 'daily';
+            const period = (params && params.period) || 'today';
+            const rng = this._periodRange(period);
+            let rows = [];
+            let header = [];
+            if (report === 'sales') {
+                const s = await this._salesStats(period);
+                header = ['orderNumber', 'tableId', 'total', 'status', 'paymentStatus', 'date'];
+                rows = s.orders.map(o => [o.orderNumber || o.id, o.tableId || '', o.total || 0, o.status || '', o.paymentStatus || '', this._dayOf(o.date || o.createdAt)]);
+            } else if (report === 'expenses') {
+                const ex = await this._expensesStats(period);
+                header = ['id', 'description', 'amount', 'category', 'paymentMethod', 'createdBy', 'date'];
+                rows = ex.list.map(e => [e.id, e.description || '', e.amount || 0, e.category || '', e.paymentMethod || 'cash', e.createdBy || '', this._dayOf(e.date || e.createdAt)]);
+            } else if (report === 'purchases') {
+                const p = await this._purchasesStats(period);
+                header = ['id', 'supplier', 'total', 'items', 'date'];
+                rows = p.list.map(pp => [pp.id, pp.supplier || '', pp.total || 0, ((pp.items || []).length) || '', this._dayOf(pp.date || pp.createdAt)]);
+            } else if (report === 'inventory') {
+                let inv = [];
+                try { inv = (await window.LuccaDB.Inventory.getAll()) || []; } catch (e) {}
+                header = ['name', 'quantity', 'costPerUnit', 'value', 'minStock'];
+                rows = inv.map(i => [i.name || i.productName || '', i.quantity || 0, i.costPerUnit || i.cost || 0, (Number(i.quantity || 0) * Number(i.costPerUnit || i.cost || 0)), i.minStock || 0]);
+            } else { // daily ملخص
+                const [s, ex, p] = await Promise.all([this._salesStats(period), this._expensesStats(period), this._purchasesStats(period)]);
+                header = ['metric', 'value'];
+                rows = [
+                    ['date_range', (rng.from === rng.to ? rng.from : rng.from + '..' + rng.to)],
+                    ['net_sales', s.net], ['gross_sales', s.gross], ['refunds', s.refunds], ['paid_invoices', s.count],
+                    ['expenses', ex.total], ['expense_count', ex.count], ['purchases', p.total], ['purchase_count', p.count],
+                    ['estimated_profit', s.net - ex.total - p.total]
+                ];
+            }
+            const csv = this._toCSV(header, rows);
+            const filename = 'lucca-' + (report === 'inventory' ? 'inventory' : report === 'daily' ? 'summary' : report) + '-' + (rng.from === rng.to ? rng.from : rng.from + '-to-' + rng.to) + '.csv';
+            return {
+                success: true,
+                message: '📄 **التقرير جاهز للتصدير:**\n· ' + filename + '\n· الصفوف: ' + rows.length + '\n\n' + csv.slice(0, 220) + (csv.length > 220 ? '…' : ''),
+                data: { csv, filename, header, rows: rows.length },
+                tool: 'exportAccountingReport'
+            };
+        } catch (e) {
+            return { success: false, message: '❌ ' + e.message, tool: 'exportAccountingReport' };
+        }
+    }
+
+    // ===== مُوزّع الأوامر المحاسبية (Accounting Intent Dispatcher) =====
+    // يُستدعى من لوحة باتمان/الواجهة عند وجود نمط محاسبي، ويعيد الأداة الصحيحة.
+    async accountingCommand(text) {
+        const t = String(text || '').trim();
+        if (!t) return { success: false, message: '❌ أمر محاسبي فارغ.' };
+
+        // استخراج الفترة
+        let period = 'today';
+        if (/(أمس|امس|yesterday)/i.test(t)) period = 'yesterday';
+        else if (/(أسبوع|اسبوع|٧\s*أيام|7\s*أيام|منذ\s*أسبوع)/i.test(t)) period = 'week';
+        else if (/(شهر|شهري|الشهر|٣٠\s*يوم|30\s*يوم)/i.test(t)) period = 'month';
+
+        const params = { period };
+
+        // 1) حالة الوردية/الصندوق
+        if (/(حالة\s*(الصندوق|الوردية)|حالة\s*كاش|ordinate|الوردية\s*النقدية|الصندوق\s*النقدي\s*مفتوح|إغلاق\s*الوردية)/i.test(t)) {
+            return await this.executeTool('drawer_status', params);
+        }
+
+        // 2) تصدير
+        if (/(تصدير|export|csv|excel|فايل\s*تقرير)/i.test(t)) {
+            const report = /مشتريات/.test(t) ? 'purchases' : /مصروف/.test(t) ? 'expenses' : /مخزون/.test(t) ? 'inventory' : /مبيعات/.test(t) ? 'sales' : 'daily';
+            params.report = report;
+            return await this.executeTool('export_report', params);
+        }
+
+        // 3) تكلفة صنف محدد
+        if (/(تكلفة\s*صنف|كلفة\s*صنف|تكلفة\s*الوصفة|سعر\s*التكلفة\s*(لـ|ل))/i.test(t)) {
+            const nameMatch = t.match(/(?:لـ|للصنف|الصنف)\s*(.+)$/i);
+            if (nameMatch) { params.productName = nameMatch[1].trim(); return await this.executeTool('product_cost', params); }
+        }
+
+        // 4) نسبة تكلفة الطعام
+        if (/(تكلفة\s*الطعام|food\s*cost|نسبة\s*التكلفة\s*الطعام)/i.test(t)) {
+            return await this.executeTool('food_cost', params);
+        }
+
+        // 5) الربح الإجمالي / الهامش
+        if (/(ربح\s*إجمالي|الربح\s*الإجمالي|gross\s*profit)/i.test(t)) {
+            return await this.executeTool('gross_profit', params);
+        }
+        if (/(هامش\s*الربح|هامش|gross\s*margin|نسبة\s*الربح)/i.test(t)) {
+            return await this.executeTool('gross_margin', params);
+        }
+
+        // 6) التكلفة الأولية
+        if (/(?:(?:ال)?تكلفة\s*(?:ال)?أولية|prime\s*cost|تكلفة\s*تشغيل\s*(?:ال)?أولية)/i.test(t)) {
+            return await this.executeTool('prime_cost', params);
+        }
+
+        // 7) ربحية الأصناف
+        if (/(ربحية|الأصناف\s*الأكثر\s*ربحية|product\s*profitability|أقوى\s*الأصناف)/i.test(t)) {
+            return await this.executeTool('product_profitability', params);
+        }
+
+        // 8) ملخص شامل
+        if (/(ملخص\s*(اليوم|الشامل)|daily\s*summary|ملخص\s*شامل|تقرير\s*اليوم\s*الكامل)/i.test(t)) {
+            return await this.executeTool('daily_summary', params);
+        }
+
+        // 9) تقرير مبيعات تفصيلي (فقط عند صراحة "تقرير"/"تفاصيل")
+        if (/(تقرير\s*مبيعات|مبيعات\s*تفصيلي|إيرادات\s*الفترة|sales\s*report)/i.test(t)) {
+            return await this.executeTool('sales_report', params);
+        }
+
+        // 10) المصروفات التفصيلية
+        if (/(تقرير\s*مصروف|مصروفات\s*تفصيلي|تفاصيل\s*المصروفات|expense\s*report)/i.test(t)) {
+            return await this.executeTool('expenses_report', params);
+        }
+
+        // 11) المشتريات
+        if (/(تقرير\s*مشتريات|مشتريات\s*الفترة|purchase\s*report)/i.test(t)) {
+            return await this.executeTool('purchases_report', params);
+        }
+
+        // 12) قيمة المخزون
+        if (/(قيمة\s*المخزون|تكلفة\s*المخزون|إجمالي\s*المخزون|inventory\s*value)/i.test(t)) {
+            return await this.executeTool('inventory_value', params);
+        }
+
+        return null; // لا أمر محاسبي واضح — يدع المتصل يقرر
+    }
+
     _fmtMoney(n) {
         return (Number(n) || 0).toLocaleString('ar-EG');
+    }
+
+    _toCSV(headers, rows) {
+        const esc = v => {
+            const s = String(v == null ? '' : v);
+            return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+        };
+        const lines = [headers.map(esc).join(',')];
+        rows.forEach(r => lines.push(r.map(esc).join(',')));
+        return '\uFEFF' + lines.join('\r\n');
     }
 
     // ===== AUDIT LOGGING =====
@@ -1773,6 +2326,28 @@ class AIPosEngine {
             else params.note = userInput.replace(/(?:حط|ضف|أضف)\s+ملاحظة\s*/i, '').trim();
         }
 
+        // تسجيل المصروف: لا نطلب تأكيداً قبل التأكد من وجود مبلغ صالح — نسأل مباشرة إن ناقص.
+        if (intent === 'add_expense') {
+            const amt = params._rawText ? (params._rawText.match(/(\d+(?:[.,]\d+)?)/) || [])[1] : null;
+            if (!amt) {
+                this.pendingConfirmation = false;
+                return { success: false, message: '💸 لتسجيل مصروف اكتب المبلغ والوصف معاً.\nمثال: "سجل مصروف 500 كهرباء"\nأو: "عندي مصروف 75 نظافة"' };
+            }
+        }
+
+        if (intent === 'add_employee') {
+            const raw = params._rawText || '';
+            let name = raw.replace(/(اض(?:ف|يف)|إضافة|موظف(?:ين)?|employees?|add|جديد|بمرتب|براتب|راتب|مرتب|كاشير|مطبخ|خدمة|مدير|ويتر|cashier|kitchen|waiter|manager)/gi, ' ').replace(/(\d+(?:[.,]\d+)?)/g, ' ').replace(/\s+/g, ' ').trim();
+            if (/مدير|manager/i.test(raw)) params.role = 'مدير';
+            else if (/كاشير|cashier/i.test(raw)) params.role = 'كاشير';
+            else if (/مطبخ|kitchen/i.test(raw)) params.role = 'مطبخ';
+            else if (/خدمة|waiter|ويتر|سرفس/i.test(raw)) params.role = 'خدمة';
+            else params.role = 'موظف';
+            const salM = raw.match(/(\d+(?:[.,]\d+)?)/);
+            params.salary = salM ? Number(salM[1].replace(',', '.')) : 0;
+            params.employeeName = name || '';
+        }
+
         // Check confirmation requirement
         if (needsConfirmation) {
             this.pendingConfirmation = true;
@@ -1780,6 +2355,7 @@ class AIPosEngine {
             const confirmMessages = {
                 payment: '💰 تأكد الدفع على الطاولة ' + (tableNumber || this.context.currentTable || '?') + '?\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء',
                 delete: '⚠️ تأكد الحذف؟\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء',
+                employee: '👷 تأكد إضافة الموظف؟\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء',
                 expense: (() => {
                     const amt = params._rawText ? (params._rawText.match(/(\d+(?:[.,]\d+)?)/) || [])[1] : null;
                     return '💸 **تأكيد تسجيل المصروف**\n💰 المبلغ: ' + (amt ? this._fmtMoney(Number(amt.replace(',', '.'))) : '?') + ' ل.س\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء';
@@ -1795,3 +2371,63 @@ class AIPosEngine {
 
 // Global instance
 window.aiPosEngine = new AIPosEngine();
+
+// ===== SHARED VALIDATED EXPENSE SAVER =====
+// نقطة واحدة لتسجيل المصروف: تُستدعى من محرك الأوامر ومن محادثة باتمان ومن الواجهة.
+// لا تعرض رسالة نجاح أبداً قبل التأكد من نجاح `add` في قاعدة البيانات.
+window.saveExpenseFromText = async function (text) {
+    try {
+        const raw = String(text || '').trim();
+        const m = raw.match(/(\d+(?:[.,]\d+)?)/);
+        if (!m) {
+            return { ok: false, ask: true, message: '💸 لتسجيل مصروف اكتب المبلغ والوصف معاً.\nمثال: "سجل مصروف 500 كهرباء"\nأو: "عندي مصروف 75 نظافة"' };
+        }
+        const amount = Number(m[1].replace(',', '.'));
+        if (!isFinite(amount) || amount <= 0) {
+            return { ok: false, ask: true, message: '❌ المبلغ غير صالح (' + m[1] + '). اكتب رقماً أكبر من 0، مثل: "سجل مصروف 500 مواد خام".' };
+        }
+        let desc = raw
+            .replace(/(\d+(?:[.,]\d+)?)/g, ' ')
+            .replace(/(سجلت|سجّلت|سجّل|سجل|تسجيل|مصروف|expense|عملية|عندي|هناك|اصرف|صرف|اضف|أضف|إضافة|بمبلغ|خصم)/gi, ' ')
+            .replace(/(فيزا|كارد|card|محفظة|wallet|تحويل|حوالة|بنكي|بنك|bank|آجل|اجل|كاش|نقدي|نقدا|نقداً|cash|إلكتروني|الكتروني|مكالمة)/gi, ' ')
+            .replace(/(جنيهات|جنيه|جنية|EGP|ل\.س|ل س|جنيها|دولار|ريال|درهم)/gi, ' ')
+            .replace(/\s+/g, ' ').trim();
+        if (!desc || desc.length < 2) desc = 'مصروف عام';
+
+        // طريقة الدفع: نقدي افتراضياً. تبقى غير النقدية (فيزا/كارد/محفظة/تحويل/بنك/آجل) مسموحة
+        // دائماً ومستقلة عن الوردية النقدية — مصروف إداري محاسبي.
+        const PAY_NONCASH = /(فيزا|كارد|card|محفظة|wallet|تحويل|حوالة|بنكي|بنك|bank|آجل|اجل|إلكتروني|الكتروني|مكالمة)/i;
+        const PAY_CASH = /(كاش|نقدي|نقدا|نقداً|cash)/i;
+        let paymentMethod = 'cash';
+        if (PAY_NONCASH.test(raw)) paymentMethod = 'bank';
+        else if (PAY_CASH.test(raw)) paymentMethod = 'cash';
+
+        // سياسة الإدارة الجديدة: لا شرط لفتح وردية نقدية — المصروف النقدي يُسجَّل مباشرة،
+        // وإن كانت وردية (شيفت/صندوق) مفتوحة يُربَط بها تلقائياً للتدقيق فقط (best-effort).
+        let drawer = null;
+        try {
+            if (window.LuccaDB && window.LuccaDB.CashRegister) drawer = await window.LuccaDB.CashRegister.getActiveDrawer();
+        } catch (e) { /* best-effort — لا يُحجب التسجيل أبداً */ }
+
+        const id = await window.LuccaDB.Expenses.add({
+            amount,
+            description: desc,
+            category: 'general',
+            paymentMethod,
+            date: new Date().toISOString()
+        });
+        let by = '—';
+        try {
+            const cu = window.LuccaDB && window.LuccaDB.Users && window.LuccaDB.Users.getCurrentUser && window.LuccaDB.Users.getCurrentUser();
+            if (cu) by = (cu.name || cu.username || '—');
+        } catch (e) { /* non-critical */ }
+        const linkNote = drawer
+            ? '🔗 مُربوط بالوردية النقدية الفعالة (شيفت #' + drawer.id + ').'
+            : (paymentMethod !== 'cash'
+                ? '💳 مصروف غير نقدي — مستقل عن الوردية.'
+                : '💵 مصروف نقدي — لا يتطلب وردية مفتوحة (سياسة الإدارة الجديدة).');
+        return { ok: true, id, amount, description: desc, paymentMethod, by, drawerLinked: !!drawer, linkNote };
+    } catch (e) {
+        return { ok: false, message: '❌ فشل الحفظ فعلياً في قاعدة البيانات: ' + (e && e.message || 'خطأ غير معروف') };
+    }
+};

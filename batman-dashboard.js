@@ -800,8 +800,8 @@ window.BatmanDashboard = (function(){
             statCard('المدة', h.uptime, 'منذ الفتح')+
             statCard('آخر خطأ', h.lastError?h.lastError:'لا توجد', null)+
             '</div>'+
-            '<div class="bd-note">لوحة باتمان للقراءة فقط. كل الأرقام تُقرأ من قاعدة البيانات المحلية مباشرة ولا تُعدَّل. '+
-            'لاعتماد نهج الأمان: جميع أدوات التحليل SAFE (قراءة) — لا توجد أدوات كتابة هنا.</div>';
+            '<div class="bd-note">لوحة باتمان: كل التقارير للقراءة فقط وتُقرأ من قاعدة البيانات مباشرة دون تعديل. '+
+            'الاستثناء الوحيد: رسالة كتابة منك مثل «سجل مصروف 500 مواصلات» تُحفظ فعلياً في قاعدة البيانات بعد التحقق من المبلغ والوصف، ولا يُقال «تم» إلا بعد نجاح الحفظ.</div>';
         });
     }
 
@@ -827,7 +827,7 @@ window.BatmanDashboard = (function(){
     function renderChat(){
         var html = '<h2 class="bd-h2">💬 محادثة باتمان (تحليل بالأرقام الحية)</h2>'+
             '<div class="bd-chat"><div id="bd-log"></div>'+
-            '<div id="bd-chat-inputrow"><input id="bd-chat-in" placeholder="اسأل عن المبيعات/الربح/الموظفين/المخزون/أي تحليل إداري..." '+
+            '<div id="bd-chat-inputrow"><input id="bd-chat-in" placeholder="اسأل عن المبيعات/الربح/الموظفين/المخزون... أو «سجل مصروف 500 مواصلات» لتسجيله" '+
             'onkeydown="if(event.key===\'Enter\')BatmanDashboard.sendChat()">'+
             '<button id="bd-chat-send" onclick="BatmanDashboard.sendChat()">➤</button></div></div>';
         return html;
@@ -951,7 +951,8 @@ window.BatmanDashboard = (function(){
         if(!log) return;
         log.innerHTML = '';
         if(!_chatLog.length){
-            logMsg('🧠 باتمان المحلل جاهز. اسأل عن أي مؤشر (مبيعات/ربح/مصروف/موظفين/طاولات) وسأجيب بالأرقام الحية من قاعدة البيانات.', 'bot');
+            logMsg('🧠 باتمان المحلل جاهز. اسأل عن أي مؤشر (مبيعات/ربح/مصروف/موظفين/طاولات) وسأجيب بالأرقام الحية. '+
+                   'ولتسجيل مصروف فعلياً اكتب: «سجل مصروف <المبلغ> <الوصف>» — سأحفظه في قاعدة البيانات بعد التحقق.', 'bot');
         } else {
             _chatLog.forEach(function(m){ 
                 var mm = el('<div class="bd-log-msg bd-'+m.type+'"></div>');
@@ -1039,15 +1040,73 @@ window.BatmanDashboard = (function(){
         input.value = '';
         logMsg(text, 'user');
         addTyping();
+        // طلبات الكتابة (تسجيل مصروف) تُنفَّذ فعلياً عبر الحارس الموحَّد قبل أي تحليل قراءة-فقط.
+        // لا يعرض باتمان نجاحاً إلا بعد تأكيد الحفظ في قاعدة البيانات، ويسأل عن المبلغ/الوصف الناقصين.
+        if(window.saveExpenseFromText && /(سجلت|سجّل|سجّلت|سجل|تسجيل|اضف|أضف|إضافة|عملية|عندي|هناك|اصرف|خصم)/i.test(text) &&
+           /(مصروف|صرفية|صرف|هدر|مواد|مواصلات|صيانة|نظافة|كهرباء|ماء|غاز|إيجار|أجرة|نثريات|نثريا|رواتب)/i.test(text)){
+            var er = await window.saveExpenseFromText(text);
+            if(er && er.ok){
+                removeTyping();
+                logMsg('✅ **تم حفظ المصروف فعلياً في قاعدة البيانات:**\n· 📝 ' + er.description + '\n· 💰 المبلغ: ' + money(er.amount) + ' ل.س\n· 👤 بواسطة: ' + er.by + (er.linkNote ? '\n· ' + er.linkNote : ''), 'bot');
+                return;
+            }
+            removeTyping();
+            logMsg('⚠️ ' + ((er && er.message) || 'لم أتمكن من تسجيل المصروف.'), 'sys');
+            return;
+        }
+        // ===== العقل المحاسبي: أدوات حساب برمجية من DB (قبل الردود السريعة والذكاء) =====
+        if(window.aiPosEngine && window.aiPosEngine.accountingCommand){
+            var acct = null;
+            try { acct = await window.aiPosEngine.accountingCommand(text); } catch(e){ acct = null; }
+            if(acct){
+                removeTyping();
+                logMsg(acct.success ? acct.message : ('⚠️ ' + acct.message), 'bot');
+                return;
+            }
+        }
+        // نظام الثقة [Truth-Trust]: 
+        //   📊 = بيان حي من DB (LocalAnswer / Tools) | 📚 = معرفة (KnowledgeBase RAG)
+        //   🧮 = حساب برمجي في JS من بيانات DB (Tools) | 🧠 = تفسير LLM (Ollama)
         var reply = null;
-        try { reply = await localAnswer(text); } catch(e){ reply = null; }
+        var replySource = 'ai'; // 'data' | 'kb' | 'calc' | 'ai'
+        try { reply = await localAnswer(text); if(reply && reply !== null) replySource = 'data'; } catch(e){ reply = null; }
         if(!reply){
-            // سؤال إداري عميق -> Ollama ببيانات حية حقيقية، وضع deep
-            var r = await ollamaAnalyze(text, { mode:'deep', system:SYS_MANAGER });
-            reply = (r && r.ok && r.text) ? '🧠 **تحليل باتمان (إداري):**\n\n' + r.text : null;
+            var kb = null;
+            try {
+                kb = (window.LuccaKnowledge && await window.LuccaKnowledge.retrieve(text)) || null;
+            } catch(e){ kb = null; }
+            if(kb && kb.ok && kb.count > 0){
+                // 1) Ollama + سياق معرفة أرضي (Grounded RAG) — الأفضل
+                var kbPrompt = 'طلب:' + text +
+                    '\n\n📚 من قاعدة المعرفة المحلية (Lucca POS): استخدم هذه المعرفة كمرجع أساسي عند الاقتباس، واذكر المصدر.\n' +
+                    kb.context +
+                    '\n\nالمصادر: ' + (kb.sources.length ? kb.sources.join('، ') : 'قاعدة المعرفة');
+                var r2 = null;
+                try { r2 = await ollamaAnalyze(text, { mode:'deep', system:SYS_MANAGER, fullPrompt: kbPrompt }); } catch(e){ r2 = null; }
+                if(r2 && r2.ok && r2.text){
+                    reply = '🧠 **تحليل باتمان (إداري):**\n\n' + r2.text;
+                    replySource = 'ai';
+                } else {
+                    // 2) Ollama غير متاح -> إجابة معرفية محلية أرضية (بدون أرقام حية مخترعة)
+                    reply = '📚 **من قاعدة المعرفة المحلية (بدون ذكاء محلي):**\n\n' +
+                        kb.context +
+                        '\n\nالمصادر: ' + (kb.sources.length ? kb.sources.join('، ') : 'قاعدة المعرفة') +
+                        '\n\n_(البيانات الحية غير متاحة الآن — هذه إجابة معرفية ثابتة فقط.)_';
+                    replySource = 'kb';
+                }
+            } else {
+                // 3) لا معرفة ذات صلة -> Ollama بالسياق الحي الحقيقي
+                var r = await ollamaAnalyze(text, { mode:'deep', system:SYS_MANAGER });
+                reply = (r && r.ok && r.text) ? '🧠 **تحليل باتمان (إداري):**\n\n' + r.text : null;
+                replySource = 'ai';
+            }
         }
         removeTyping();
         if(reply){
+            // ضع علامة الثقة لردود الأرقام الحية (data) إن لم تكن مميزة بالفعل
+            if(replySource === 'data' && reply.indexOf('📊') !== 0){
+                reply = '📊 **بيانات حية من النظام**\n\n' + reply;
+            }
             logMsg(reply, 'bot');
             // نطق التحليل العميق الصادر عن Ollama فقط (لا نبعث صوتاً لردود الأرقام السريعة)
             if(reply.indexOf('🧠') === 0){

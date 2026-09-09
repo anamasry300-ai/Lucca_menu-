@@ -11,6 +11,8 @@
     <script src="admin/database.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-db.js"></script>
+    <script src="knowledge/data.js"></script>
+    <script src="knowledge/importer.js"></script>
     <script src="ollama-adapter.js"></script>
     <script src="ocr-adapter.js"></script>
     <script src="invoice-scanner.js"></script>
@@ -434,8 +436,8 @@
             </div>
             <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px;">
                 <h4 style="font-size:0.9rem;margin-bottom:10px;color:var(--text);">💰 الإعدادات المالية</h4>
-                <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--text-secondary);">نسبة الضريبة (%)</label>
-                <input type="number" id="taxRateInput" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:8px;font-size:0.9rem;margin-bottom:10px;" min="0" max="100" step="0.5" placeholder="14">
+                <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--text-secondary);">الضريبة (ملغاة — 0%)</label>
+                <input type="number" id="taxRateInput" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:8px;font-size:0.9rem;margin-bottom:10px;background:#f1f1f1;color:#888;" min="0" max="100" step="0.5" value="0" placeholder="0" disabled>
                 <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--text-secondary);">العملة</label>
                 <select id="currencyInput" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:8px;font-size:0.9rem;margin-bottom:10px;">
                     <option value="ج.م">ج.م (جنيه مصري)</option>
@@ -562,8 +564,9 @@
             const discount = (order && order.discount) || 0;
             const discountAmount = (order && order.discountAmount != null) ? order.discountAmount : (subtotal * discount / 100);
             const afterDiscount = subtotal - discountAmount;
-            const tax = (order && order.tax != null) ? order.tax : 0;
-            const total = (order && order.total != null) ? order.total : (afterDiscount + tax);
+            // الضريبة ملغاة (قرار الإدارة): صفر دائماً في العرض — حتى للطلبات القديمة.
+            const tax = 0;
+            const total = (order && order.total != null) ? order.total : afterDiscount;
             return { subtotal, discount, discountAmount, tax, afterDiscount, total };
         }
 
@@ -988,8 +991,9 @@
 
         // ==================== لوحة التحكم السريعة ====================
         function openAdminDashboard() {
-            if (window.electronAPI && window.electronAPI.isElectron) {
-                window.electronAPI.openExternal('file://' + __dirname + '/admin/index.html');
+            // نافذة Electron داخلية عبر بريدج preload (البيانات تُقرأ من نفس LuccaDB المحلية)
+            if (window.electronAPI && window.electronAPI.openAdmin) {
+                window.electronAPI.openAdmin();
             } else {
                 window.open('admin/index.html', '_blank');
             }
@@ -2941,8 +2945,8 @@
                 const items = buildOrderPayload();
                 const formData = collectCustomerForm();
                 const { subtotal, discountAmount, afterDiscount } = calcOrderTotals(items, formData.discount || 0);
-                const taxRate = parseFloat(await (window.LuccaDB?.Settings?.get?.('taxRate'))) || 14;
-                const tax = afterDiscount * (taxRate / 100);
+                // الضريبة ملغاة (قرار الإدارة) — لا تُحتسب في الإجمالي ولا تظهر في الفاتورة
+                const tax = 0;
                 const total = afterDiscount + tax;
                 const paymentMethod = document.getElementById('paymentMethod').value || 'cash';
                 const result = await LuccaDB.Orders.updateOrder(currentOrderId, {
@@ -3170,20 +3174,8 @@
         async function selectPaymentAndClose(method, type) {
             document.getElementById('paymentSelectModal').classList.remove('show');
 
-            // F4 §3: منع عمليات النقد (الكاش) عند عدم وجود شيفت/صندوق مفتوح — مع رسالة واضحة.
-            // العمليات غير النقدية (فيزا/محفظة/تحويل) تُسمح دائماً.
-            if (type === 'cash' || type === 'نقدي' || method === 'cash') {
-                try {
-                    if (window.LuccaDB && window.LuccaDB.CashRegister) {
-                        const drawer = await window.LuccaDB.CashRegister.getActiveDrawer();
-                        if (!drawer) {
-                            showToast('لا يوجد شيفت مفتوح لهذا الصندوق. افتح الشيفت أولاً.', 'error');
-                            setOrderStatus('لا يوجد شيفت مفتوح لهذا الصندوق.', 'error');
-                            return;
-                        }
-                    }
-                } catch(e) {}
-            }
+            // سياسة الإدارة الجديدة: لا شرط لفتح وردية نقدية — الكاش يعمل مباشرة في كل الحالات.
+            // (فتح 💰 الصندوق اختياري للتسوية والإقفال فقط، ولا يحجب أي عملية دفع.)
 
             // Update the hidden select
             const pmSelect = document.getElementById('paymentMethod');
@@ -4354,12 +4346,12 @@
         async function loadSettingsIntoModal() {
             try {
                 if (window.LuccaDB && window.LuccaDB.Settings) {
-                    const taxRate = await LuccaDB.Settings.get('taxRate');
                     const currency = await LuccaDB.Settings.get('currency');
                     const cafeName = await LuccaDB.Settings.get('cafeName');
                     const cafeAddress = await LuccaDB.Settings.get('cafeAddress');
                     const cafePhone = await LuccaDB.Settings.get('cafePhone');
-                    document.getElementById('taxRateInput').value = taxRate || '';
+                    document.getElementById('taxRateInput').value = '0';
+                    document.getElementById('taxRateInput').disabled = true;
                     document.getElementById('currencyInput').value = currency || 'ج.م';
                     document.getElementById('cafeNameInput').value = cafeName || 'LUCCA';
                     document.getElementById('cafeAddressInput').value = cafeAddress || 'شارع محمد علي - بورسعيد';
@@ -4373,7 +4365,8 @@
         }
 
         function saveFinanceSettings() {
-            const taxRate = parseFloat(document.getElementById('taxRateInput').value) || 0;
+            // الضريبة ملغاة (قرار الإدارة) — تُحفظ 0 دائماً
+            const taxRate = 0;
             const currency = document.getElementById('currencyInput').value || 'ج.م';
             if (window.LuccaDB && window.LuccaDB.Settings) {
                 LuccaDB.Settings.set('taxRate', taxRate);
@@ -4548,7 +4541,7 @@
                 const items = order.items || [];
                 const total = (order.total || 0).toFixed(0);
                 const subtotal = (order.subtotal || 0).toFixed(0);
-                const tax = (order.tax || 0).toFixed(0);
+                const tax = '0'; // الضريبة ملغاة — لا تُعرض
                 const discount = order.discount || 0;
                 const statusLabels = { pending: '⏳ قيد الانتظار', closed: '✅ مكتمل', cancelled: '❌ ملغي' };
                 const tableLabel = order.tableId === 'takeaway' ? '🛵 تيك أواي' : `🪑 طاولة ${order.tableId || '-'}`;
@@ -5516,11 +5509,22 @@ async function processAiCommand(text){
 
     const t = text.toLowerCase().trim();
 
+    // ===== ACCOUNTING INTELLIGENCE — العقل المحاسبي (حساب برمجي من DB، قبل محرك الأوامر) =====
+    if(window.aiPosEngine && window.aiPosEngine.accountingCommand){
+        try {
+            const acct = await window.aiPosEngine.accountingCommand(text);
+            if(acct) {
+                return aiBotReply(acct.success ? acct.message : ('⚠️ ' + acct.message));
+            }
+        } catch(e){ /* تجاهل — ينتقل للمسار العادي */ }
+    }
+
     // ===== AI POS ENGINE INTEGRATION =====
     // Route POS commands through the AI engine first
     const posKeywords = ['افتح','فتح','اقفل','قفل','حط','حطيت','ضف','اضف','أضف','زود','شيل','امسح','احذف','حساب','ادفع','دفع','انقل','ادمج','قسم','اطبع','ابعت','خلي','غير','المطبخ','الطلب','الطلبات','ترابيزة','طاولة','table','كاش','فيزا','transfer','merge','split','print','pay','close','open','مبيعات','تقرير','الموظفين','حضور','انصراف','وردية','مصروف','مخزون','الطاولات','تعديل سعر','اضف منتج','المنتجات','اشتريت','شراء','مشتريات','فاتورة']; 
 
-    const isPosCommand = posKeywords.some(kw => t.includes(kw)) && window.aiPosEngine;
+    const isConfirmationReply = /^(نعم|yes|ok|تمام|أكيد|confirm|تأكيد|لا|cancel|إلغاء|no)$/i.test(text) && window.aiPosEngine && window.aiPosEngine.pendingConfirmation;
+    const isPosCommand = (posKeywords.some(kw => t.includes(kw)) || isConfirmationReply) && window.aiPosEngine;
 
     if(isPosCommand) {
         try {
@@ -5988,7 +5992,7 @@ async function processAiCommand(text){
         const expMatch = text.match(/(\d+)/);
         if(expMatch && (t.includes('سجّل') || t.includes('سجل') || t.includes('اضف') || t.includes('اضافة') || t.includes('عملية'))){
             const amount = Number(expMatch[1]);
-            const desc = text.replace(/\d+/g,'').replace(/مصروف|صرف|expense|سجل|اضف|اضافة|عملية/g,'').trim() || 'مصروف عام';
+            const desc = text.replace(/\d+/g,'').replace(/مصروف|صرف|expense|سجل|اضف|اضافة|عملية|جنيه|جنيهات|جنية|ل\.س|EGP/g,'').trim() || 'مصروف عام';
             try{
                 await window.LuccaDB.Expenses.add({description:desc, amount:amount, category:'عام', date:new Date().toISOString()});
                 return aiBotReply('✅ **تم تسجيل المصروف:**\n• '+desc+'\n• المبلغ: '+formatMoney(amount)+' ل.س');
@@ -6379,7 +6383,7 @@ async function processAiCommand(text){
                     {text:'المصروفات',cmd:'expenses'}
                 ]);
             } else {
-                return aiBotReply('🔒 الصندوق مغلق حالياً.\n\nاضغط على زر **💰 الصندوق** في شريط الأدوات لفتحه.',[
+                return aiBotReply('🔒 لا توجد وردية نقدية مفتوحة حالياً.\n\nالكاش يعمل مباشرة دون شرط فتح وردية؛ فتح زر **💰 الصندوق** اختياري ويعطيك تقرير التسوية والإقفال.',[
                     {text:'فتح الصندوق',cmd:'open drawer'}
                 ]);
             }
@@ -6811,6 +6815,22 @@ async function processAiCommand(text){
     }
     if(matchAny(t,['enable_ai_local','تفعيل الذكاء','فعّل الذكاء'])){
         if(window.OllamaAI && window.OllamaAI.setEnabled){ window.OllamaAI.setEnabled(true); return aiBotReply('✅ تم تفعيل المساعد المحلي (Qwen).'); }
+    }
+
+    // ===== GUARDED EXPENSE RECORDING =====
+    // قبل أي رد نصي حر من الذكاء: لو الطلب تسجيل مصروف نكتب فعلياً في قاعدة البيانات عبر حارس موحّد
+    // (المبلغ مطلوب وعددي، والوصف يبقى نظيفاً). لا تُعرض رسالة نجاح إلا بعد نجاح الحفظ.
+    if(/(?:سجلت|سجّل|سجّلت|سجل|تسجيل|اضف|أضف|إضافة|عملية|عندي|هناك|اصرف|خصم)/i.test(text) && /\d/.test(text) &&
+       /(?:مصروف|صرفية|صرف|هدر|مواد|مواصلات|صيانة|نظافة|كهرباء|ماء|غاز|إيجار|أجرة|نثريات|نثريا|رواتب)/i.test(text)){
+        const expResult = await window.saveExpenseFromText(text);
+        if(expResult && expResult.ok){
+            return aiBotReply('✅ **تم تسجيل المصروف فعلياً في النظام:**\n• 📝 '+expResult.description+'\n• 💰 المبلغ: '+formatMoney(expResult.amount)+' ل.س\n• 👤 بواسطة: '+expResult.by+(expResult.linkNote?'\n• '+expResult.linkNote:''),[
+                {text:'عرض المصروفات',cmd:'عرض المصروفات'}
+            ]);
+        }
+        return aiBotReply((expResult && expResult.message) || '❌ لم أتمكن من تسجيل المصروف.',[
+            {text:'تسجيل مصروف',cmd:'add_expense'}
+        ]);
     }
 
     // ===== OLLAMA LOCAL AI (Qwen) ASSISTANT FALLBACK =====
