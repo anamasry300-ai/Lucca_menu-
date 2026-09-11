@@ -76,3 +76,29 @@
 **اختبار جديد:** `scripts/test-supabase-adapter.cjs` (محاكاة عميل Supabase بالذاكرة) — **PASSED**، وكل الاختبارات خضراء: analytics 32/32 + employee + shifts.
 
 **إعادة البناء:** portable `dist\LuccaPOS-win32-x64\LuccaPOS.exe` (build.bat) + المثبّت `dist\LuccaPOS-Setup-1.3.5.exe` + `latest.yml` (electron-builder) — sha512 في `latest.yml` **متطابق فعلياً** (MATCH: true)، والفُحص داخل `app.asar` وجود `invite(payload)`/`setStatus`/`getInviteStatus`/`shiftType: options.shiftType`. حجم المثبّت: 108450969 بايت.
+
+---
+
+## إصلاح الباك إند + قاعدة البيانات + المُشغّل + النسخ الاحتياطي (2026-09-11)
+
+**التشخيص:** الباك إند (Express + TypeScript + sql.js في `backend/`) كان شغالاً على `:3000` لكن فيه 4 عيوب جوهرية:
+1. **`items` التالفة**: أمر الطلبات القديمة مُخزّنة على صيغة `{"0":0,"1":0}` أو `{"price":50,"quantity":2,...}` (كائنات لا مصفوفات) → الواجهة/التقارير تنهار على `items.map`.
+2. **`insert()` بلا معرف صحيح**: كان يعتمد على GC-based `MAX(id)` → ينهار/يتصادم بعد حذف صفوف؛ وتبيّن أيضاً أن `db.export()` (داخل `saveDb()`) **يصفّر `last_insert_rowid()` إلى 0** فكان يُعاد id=0 لمعظم الإدراجات غير المعاملاتية (customers/products...).
+3. **لا سكيما موثّقة**: بنية القاعدة موجودة فقط مضمّنةً في `db.ts` — بلا ملف مرجعي مستقل.
+4. **لا مُشغّل + لا نسخ احتياطي**: لا ملف يشغّل الباك إند مع التطبيق بضغطة واحدة، ولا سكربت رفع لـ GitHub.
+
+**الإصلاحات:**
+- `backend/schema/schema.sql` **(جديد)**: السكيما القياسية الكاملة (~40 جدولاً: users, employees, invitations, attendance, shifts, daily_shifts, cash_registers, categories, products, product_modifiers, product_variations, payment_methods, taxes, orders, order_items, order_status_history, payments, refunds, customers, discounts, settings, audit_logs, expenses, inventory, purchases, suppliers, stock_movements, product_recipes, waste_log, inventory_alerts, invoices, sync_log, tables_store + VIEW `tables` + فهارس) — مرجع البنية المعتمدة.
+- `backend/src/db.ts`: `insert()` يقرأ `last_insert_rowid()` **قبل** دالة الحفظ (التي كانت تمسحه) → id أرقام صحيحة فورية لكل الإدراجات.
+- `backend/src/routes/crud.ts`: `parseRow()` يكتشف الـ items التالفة (object بمفاتيح رقمية وقيم 0/null/'') ويحوّلها إلى `[]`.
+- `LuccaPOS-Start.bat` **(جديد)**: فحص Node → بناء الباك إند إن غاب الـ dist → فحص `:3000/health` وتشغيل الباك إند بأمان إن لم يكن شغالاً → تشغيل التطبيق (Electron) — بضغطة واحدة رغم امتلاك التطبيق لحقوق مضيف عليه.
+- `scripts/backup-github.cmd` **(جديد)**: `git add -A` (مع استثناء `test.txt`) + commit تلقائي باسم timestamp + push إلى `origin/main` + عرض git log —1؛ يعرض "لا تغييرات" إن لم يوجد.
+
+**الاختبارات (كلها حية على السيرفر):**
+- `server-smoke.cjs`: **6/6** (health، مفتاح صحيح 200، مفتاح خاطئ/بلا مفتاح 401، users/device-status محمية).
+- الأوردرات التالفة صارت `items=[]` بدل `{"0":0}` في `/api/orders`.
+- دورة insert بعد حذف صفوف: id متزايد بلا إعادة استخدام (PASS).
+- **دورة الـ checkout كاملة على قاعدة معزولة** (`PORT=3999` + نسخة DB): إنشاء طلب (id حقيقي) → `POST /api/orders/:id/checkout` → تحقق من الحفظ **في ملف القاعدة نفسه**: order=closed/paid/`ORD-20260911-001`، payment(amount=250)، order_items(2)، order_status_history(closed)، الوردية تُحدَّث إن وُجدت (الواجهة تُنشئ صف الوردية عند فتح الشيفت).
+- تنظيف: صفوف الاختبار حُذفت من القاعدة الحية، وبقي 5 عملاء شرعيين + 11 طلباً كما كانت.
+
+**الحالة النهائية**: الباك إند مُعاد بناؤه (tsc نظيف) ويعمل على `:3000` بقاعدة `backend/data/lucca.db`، والمشغّل والنسخ الاحتياطي جاهزان للاستخدام اليومي.

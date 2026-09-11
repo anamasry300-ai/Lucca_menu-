@@ -74,14 +74,9 @@ let _lastInsertId = 0;
 export function insert(sql: string, params: unknown[] = []): number {
   const db = getDb();
   db.run(sql, params);
+  const rows = queryAll('SELECT last_insert_rowid() AS rid');
+  _lastInsertId = (rows.length > 0 ? (rows[0].rid as number) : 0) || 0;
   if (!_inTransaction) saveDb();
-  // Get the last insert id by querying sqlite_sequence or max(id)
-  const tableMatch = sql.match(/INSERT\s+(?:OR\s+REPLACE\s+)?INTO\s+`?(\w+)`?/i);
-  if (tableMatch) {
-    const table = tableMatch[1];
-    const row = queryOne(`SELECT MAX(id) as max_id FROM \`${table}\``);
-    _lastInsertId = (row?.max_id as number) || 0;
-  }
   return _lastInsertId;
 }
 

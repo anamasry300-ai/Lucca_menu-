@@ -89,6 +89,14 @@ function parseRow(table: string, row: Record<string, unknown>): Record<string, u
       obj[key] = val;
     }
   }
+  // Fix corrupted items: convert {"0":0,"1":0} object → []
+  if (obj.items !== undefined && obj.items !== null && !Array.isArray(obj.items)) {
+    const raw = obj.items as Record<string, unknown>;
+    const isNumericKeyed = typeof raw === 'object' && Object.keys(raw).every(k => /^\d+$/.test(k));
+    if (isNumericKeyed && Object.values(raw).every(v => v === 0 || v === null || v === '')) {
+      obj.items = [];
+    }
+  }
   // PT12: تُرجع order_items للعميل باسم الحقل الذي يتوقعه العميل (price بدل unitPrice)
   if (table === 'order_items') {
     if (obj.unitPrice !== undefined && obj.price === undefined) {
