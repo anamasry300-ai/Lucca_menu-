@@ -5,8 +5,16 @@
 ╚══════════════════════════════════════════════════════════════╝
 */
 
+// مفاتيح التخزين المحلي لنظام باتمان (cache المصفوفة + outbox تدقيق القرارات)
+const BATMAN_MATRIX_KEY = 'lucca_batman_matrix_cache';
+const BATMAN_OUTBOX_KEY = 'lucca_batman_audit_outbox';
+const BATMAN_MATRIX_STALE_MS = 24 * 60 * 60 * 1000;   // الـ cache القديمة عن 24 ساعة → fail-closed
+const BATMAN_MATRIX_REFRESH_MS = 10 * 60 * 1000;      // تحديث cache كل 10 دقائق عند الاتصال
+
 class AIPosEngine {
     constructor() {
+        // حد الموافقة للمصروفات/العمليات المالية للكاشير — ما فوقه يتطلب تأكيداً صريحاً + تدقيق (Audit)
+        this.EXPENSE_APPROVAL_THRESHOLD = 500;
         this.context = {
             currentTable: null,
             currentOrderId: null,
@@ -17,6 +25,301 @@ class AIPosEngine {
         };
         this.pendingAction = null;
         this.pendingPurchaseDraft = null;
+    }
+
+    // هل المستخدم الحالي من صلاحية المدير/الإدارة (مُعفى من حد الموافقة الصريح)
+    _isPrivilegedRole() {
+        const role = this._canonicalRole();
+        return (role === 'admin' || role === 'manager') ? true : false;
+    }
+
+    // ===== مصفوفة باتمان (نقطة القرار المركزية) =====
+    // أولاً: السيرفر (/api/batman/check) بالمصفوفة المحفوظة في DB
+    // ثانياً: احتياط محلي يطابق نفس seeds الترحيل (fallback عند انقطاع السيرفر)
+
+    _serverBase() {
+        try {
+            return (localStorage.getItem('luccaServerUrl') || 'http://localhost:3000').replace(/\/+$/, '');
+        } catch (e) { return 'http://localhost:3000'; }
+    }
+
+    _authHeaders() {
+        const h = { 'Content-Type': 'application/json' };
+        try {
+            const tok = sessionStorage.getItem('luccaToken');
+            if (tok) { h['x-session-token'] = tok; return h; }
+        } catch (e) {}
+        try {
+            const key = localStorage.getItem('luccaApiKey');
+            if (key) h['x-api-key'] = key;
+        } catch (e) {}
+        return h;
+    }
+
+    // هوية ثابتة لكل جهاز (تُستخدم لأقفال الطاولات الاستشارية بين الأجهزة)
+    _deviceId() {
+        try {
+            let id = localStorage.getItem('luccaDeviceId');
+            if (!id) {
+                id = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID()
+                    : ('dev-' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+                localStorage.setItem('luccaDeviceId', id);
+            }
+            return id;
+        } catch (e) { return 'unknown-device'; }
+    }
+
+    // قفل استشاري للطاولة: best-effort — ارتباط هذه العملية (فتح/تعديل/تحصيل) على هذه الطاولة حصرياً لهذا الجهاز.
+    // لو السيرفر مش متصل (أوفلاين) نكمّل بدون قفل — لا نعطّل التشغيل المحلي أبداً.
+    async _acquireTableLock(tableNum) {
+        try {
+            const res = await fetch(this._serverBase() + '/api/tables/' + encodeURIComponent(String(tableNum)) + '/lock', {
+                method: 'POST',
+                headers: this._authHeaders(),
+                body: JSON.stringify({ deviceId: this._deviceId() })
+            });
+            if (res.status === 409) {
+                let holder = '';
+                try { const j = await res.json(); holder = j.holder || j.error || ''; } catch (e) {}
+                return { ok: false, holder };
+            }
+            return { ok: res.ok };
+        } catch (e) { return { ok: true, offline: true }; }
+    }
+
+    async _releaseTableLock(tableNum) {
+        try {
+            await fetch(this._serverBase() + '/api/tables/' + encodeURIComponent(String(tableNum)) + '/unlock', {
+                method: 'POST',
+                headers: this._authHeaders(),
+                body: JSON.stringify({ deviceId: this._deviceId() })
+            });
+        } catch (e) {}
+    }
+
+    _canonicalRole() {
+        const cu = this._getCurrentUser();
+        const role = String((cu && cu.role) || 'cashier').toLowerCase();
+        if (role === 'admin' || role === 'أدمن' || role === 'ادمن' || role === 'مدير النظام') return 'admin';
+        if (role === 'manager' || role === 'مدير') return 'manager';
+        return 'cashier';
+    }
+
+    // قرار محلي احتياطي — يعكس logic backend/src/services/permissionService.ts
+    // يعتمد على آخر مصفوفة مُزامنة من السيرفر (cache محلي)، ويسقط على الـ seeds الأصلية فقط
+    // عند أول تشغيل أوفلاين. الـ cache القَديمة (أكثر من 24 ساعة بلا تحديث) تُجمّد التنفيذ التلقائي:
+    // أي قرار كان "executed/under_threshold" يتحول إلى needs_approval (fail-closed).
+    _localDecide(action, amount) {
+        const cache = this._cachedMatrixRow(action);
+        const p = cache.row || { limitValue: 0, autoExecute: false, minRole: 'manager' };
+        const stale = cache.hasCache && cache.fetchedAt && (Date.now() - cache.fetchedAt) > BATMAN_MATRIX_STALE_MS;
+        const role = this._canonicalRole();
+        const roleAtLeast = (r, min) => {
+            if (r === 'admin') return true;
+            if (min === 'admin') return r === 'admin';
+            if (min === 'manager') return r === 'manager' || r === 'admin';
+            return true;
+        };
+        const base = { action, limitValue: p.limitValue, autoExecute: p.autoExecute, minRole: p.minRole, executorRole: role };
+        if (!roleAtLeast(role, p.minRole)) {
+            return Object.assign({ decision: 'blocked', reason: 'هذا الإجراء يتطلب دور ' + p.minRole + ' على الأقل' }, base);
+        }
+        if (role === 'admin' || role === 'manager') {
+            if (stale) {
+                return Object.assign({ decision: 'needs_approval', reason: 'قواعد محلية قديمة منذ أكثر من 24 ساعة — يتطلب موافقة صريحة' }, base);
+            }
+            return Object.assign({ decision: 'executed', reason: 'دور مميز — تنفيذ مباشر' }, base);
+        }
+        const value = Number(amount) || 0;
+        const overLimit = p.limitValue > 0 && value > p.limitValue;
+        if (overLimit) {
+            return Object.assign({ decision: 'needs_approval', reason: 'المبلغ ' + value + ' يتجاوز الحد ' + p.limitValue + ' — يتطلب موافقة' }, base);
+        }
+        if (!p.autoExecute) {
+            return Object.assign({ decision: 'needs_approval', reason: 'الإجراء غير تلقائي للكاشير — يتطلب موافقة' }, base);
+        }
+        if (stale) {
+            return Object.assign({ decision: 'needs_approval', reason: 'قواعد محلية قديمة — يتطلب موافقة صريحة' }, base);
+        }
+        return Object.assign({ decision: value > 0 && p.limitValue > 0 && value <= p.limitValue ? 'under_threshold' : 'executed', reason: 'ضمن الحد التلقائي' }, base);
+    }
+
+    // صف المصفوفة المحلي: ذات أولوية للـ cache المحدّثة ثمّ الـ seeds الأصلية
+    _cachedMatrixRow(action) {
+        const seed = {
+            add_expense:     { limitValue: 500,  autoExecute: true,  minRole: 'cashier' },
+            add_purchase:    { limitValue: 1000, autoExecute: true,  minRole: 'cashier' },
+            record_invoice:  { limitValue: 1000, autoExecute: true,  minRole: 'cashier' },
+            update_price:    { limitValue: 0,    autoExecute: false, minRole: 'manager' },
+            delete_employee: { limitValue: 0,    autoExecute: false, minRole: 'manager' },
+            view_net_profit: { limitValue: 0,    autoExecute: false, minRole: 'admin' },
+            view_reports:    { limitValue: 0,    autoExecute: true,  minRole: 'manager' }
+        };
+        try {
+            const raw = localStorage.getItem(BATMAN_MATRIX_KEY);
+            if (raw) {
+                const cache = JSON.parse(raw);
+                const rows = (cache && cache.rows) || {};
+                if (rows[action]) {
+                    return { row: rows[action], fetchedAt: Number(cache.fetchedAt) || 0, hasCache: true };
+                }
+            }
+        } catch (e) { /* cache تالفة → seeds */ }
+        return { row: seed[action] || { limitValue: 0, autoExecute: false, minRole: 'manager' }, fetchedAt: 0, hasCache: false };
+    }
+
+    // تحديث الـ cache المحلي بمصفوفة السيرفر الحالية (بالتكرار الأقصى كل 10 دقائق)
+    async _refreshMatrixCache() {
+        try {
+            let cachedFetchedAt = 0;
+            try {
+                const raw = localStorage.getItem(BATMAN_MATRIX_KEY);
+                if (raw) cachedFetchedAt = Number(JSON.parse(raw).fetchedAt) || 0;
+            } catch (e) {}
+            if (cachedFetchedAt && (Date.now() - cachedFetchedAt) < BATMAN_MATRIX_REFRESH_MS) return;
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 2500);
+            const res = await fetch(this._serverBase() + '/api/batman/matrix', { headers: this._authHeaders(), signal: ctrl.signal });
+            clearTimeout(timer);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!(data && Array.isArray(data.permissions))) return;
+            const rows = {};
+            for (const p of data.permissions) {
+                if (p && p.action) rows[p.action] = { limitValue: Number(p.limitValue) || 0, autoExecute: !!p.autoExecute, minRole: p.minRole || 'manager' };
+            }
+            try { localStorage.setItem(BATMAN_MATRIX_KEY, JSON.stringify({ fetchedAt: Date.now(), rows })); } catch (e) {}
+        } catch (e) { /* أوفلاين */ }
+    }
+
+    // قرار باتمان: السيرفر أولاً — وبفشله/تعذره يقع القرار المحلي الاحتياطي
+    async _decide(action, amount) {
+        try {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 2500);
+            const res = await fetch(this._serverBase() + '/api/batman/check', {
+                method: 'POST',
+                headers: this._authHeaders(),
+                body: JSON.stringify({ action, role: this._canonicalRole(), amount: Number(amount) || 0 }),
+                signal: ctrl.signal
+            });
+            clearTimeout(timer);
+            if (res.ok) {
+                const d = await res.json();
+                if (d && d.decision) {
+                    this._refreshMatrixCache().catch(() => {});
+                    this._flushAuditOutbox().catch(() => {});
+                    return d;
+                }
+            }
+        } catch (e) { /* offline — fallback */ }
+        return this._localDecide(action, amount);
+    }
+
+    // تسجيل قرار بتاريخه في سجل باتمان بالسيرفر.
+    // At-least-once: يحمل eventId فريداً (idempotent على السيرفر)، وعند فشل الشبكة
+    // يُخزَّن في outbox محلي ويُصرف أوتوماتيكياً مع أول اتصال — لا يضيع الـ audit trail.
+    async _recordBatmanDecision(action, requestJson) {
+        const payload = { eventId: this._uuid(), action, decision: 'executed', requestJson };
+        const ok = await this._sendBatmanRecord(payload);
+        if (!ok) {
+            this._enqueueOutbox(payload);
+        } else {
+            this._flushAuditOutbox().catch(() => {});
+            this._refreshMatrixCache().catch(() => {});
+        }
+    }
+
+    async _sendBatmanRecord(payload) {
+        try {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 2500);
+            const res = await fetch(this._serverBase() + '/api/batman/record', {
+                method: 'POST',
+                headers: this._authHeaders(),
+                body: JSON.stringify(payload),
+                signal: ctrl.signal
+            });
+            clearTimeout(timer);
+            return res.ok;
+        } catch (e) { return false; }
+    }
+
+    _readOutbox() {
+        try { const raw = localStorage.getItem(BATMAN_OUTBOX_KEY); return raw ? JSON.parse(raw) : []; } catch (e) { return []; }
+    }
+
+    _writeOutbox(list) {
+        try { localStorage.setItem(BATMAN_OUTBOX_KEY, JSON.stringify(list.slice(0, 500))); } catch (e) {}
+    }
+
+    _enqueueOutbox(payload) {
+        const list = this._readOutbox();
+        if (!list.some((x) => x && x.eventId === payload.eventId)) {
+            list.push(Object.assign({ queuedAt: Date.now() }, payload));
+            this._writeOutbox(list);
+        }
+    }
+
+    // إرسال ما علّق في الـ outbox للـ /record (idempotent بواسطة eventId).
+    // عند فشل الشبكة يتوقف التنفيذ ويُبقي الباقي في القائمة.
+    async _flushAuditOutbox() {
+        const pending = this._readOutbox();
+        if (!pending.length) return;
+        const remaining = [];
+        for (const entry of pending) {
+            const ok = await this._sendBatmanRecord(entry);
+            if (!ok) { remaining.push(entry); break; }
+        }
+        this._writeOutbox(remaining);
+    }
+
+    _uuid() {
+        try {
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+        } catch (e) {}
+        try {
+            const g = (typeof crypto !== 'undefined' ? crypto : undefined) || (typeof window !== 'undefined' && window.crypto) || undefined;
+            const b = new Uint8Array(16);
+            if (g && g.getRandomValues) g.getRandomValues(b);
+            else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+            b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+            const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+            return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
+        } catch (e) { return 'evt-' + Date.now() + '-' + Math.random().toString(16).slice(2); }
+    }
+
+    // مخططات الأدوات بصيغة Function Calling (تصف كل أمر قابل للتنفيذ فعلياً)
+    listTools() {
+        return [
+            { name: 'open_table', description: 'فتح طاولة / ترابيزة لطلب جديد', parameters: { type: 'object', properties: { tableNumber: { type: 'integer' } }, required: ['tableNumber'] } },
+            { name: 'add_items', description: 'إضافة أصناف لطلب طاولة', parameters: { type: 'object', properties: { tableNumber: { type: 'integer' }, items: { type: 'array', description: 'الأصناف بأسماء وأسعار' } }, required: ['tableNumber', 'items'] } },
+            { name: 'remove_item', description: 'حذف صنف من طلب', needsConfirmation: true, parameters: { type: 'object', properties: { tableNumber: { type: 'integer' }, itemName: { type: 'string' } }, required: ['tableNumber', 'itemName'] } },
+            { name: 'close_table', description: 'إغلاق/تحصيل حساب طاولة', needsConfirmation: true, parameters: { type: 'object', properties: { tableNumber: { type: 'integer' }, paymentMethod: { type: 'string', enum: ['cash', 'card', 'transfer', 'whatsapp'] } }, required: ['tableNumber'] } },
+            { name: 'process_payment', description: 'استلام دفعة على حساب', needsConfirmation: true, parameters: { type: 'object', properties: { tableNumber: { type: 'integer' }, amount: { type: 'number' }, paymentMethod: { type: 'string' } } } },
+            { name: 'split_payment', description: 'تقسيم الفاتورة لعدة دفعات', needsConfirmation: true, parameters: { type: 'object', properties: { tableNumber: { type: 'integer' }, parts: { type: 'integer' } } } },
+            { name: 'get_open_tables', description: 'عرض الطاولات المفتوحة والطلبات النشطة', parameters: { type: 'object', properties: {} } },
+            { name: 'get_open_orders', description: 'عرض الطلبات المفتوحة', parameters: { type: 'object', properties: {} } },
+            { name: 'send_to_kitchen', description: 'إرسال الطلب إلى المطبخ', parameters: { type: 'object', properties: { tableNumber: { type: 'integer' } } } },
+            { name: 'set_ready', description: 'تحديد طلب كجاهز', parameters: { type: 'object', properties: { tableNumber: { type: 'integer' } } } },
+            { name: 'add_note', description: 'إضافة ملاحظة على الطلب', parameters: { type: 'object', properties: { tableNumber: { type: 'integer' }, note: { type: 'string' } }, required: ['note'] } },
+            { name: 'transfer_table', description: 'نقل طلب لطاولة أخرى', parameters: { type: 'object', properties: { tableNumber: { type: 'integer' }, targetTable: { type: 'integer' } }, required: ['tableNumber', 'targetTable'] } },
+            { name: 'merge_tables', description: 'دمج طاولتين', parameters: { type: 'object', properties: { tableNumber: { type: 'integer' }, targetTable: { type: 'integer' } }, required: ['tableNumber', 'targetTable'] } },
+            { name: 'add_expense', description: 'تسجيل مصروف (معلَّم: أي مبلغ > ' + this.EXPENSE_APPROVAL_THRESHOLD + ' يتطلب تأكيداً صريحاً)', needsConfirmation: true, parameters: { type: 'object', properties: { amount: { type: 'number' }, description: { type: 'string' }, paymentMethod: { type: 'string' } }, required: ['amount', 'description'] } },
+            { name: 'view_expenses', description: 'عرض مصروفات اليوم', parameters: { type: 'object', properties: {} } },
+            { name: 'record_invoice', description: 'تسجيل فاتورة يدوية (بيع خارجي)', needsConfirmation: true, parameters: { type: 'object', properties: { amount: { type: 'number' }, description: { type: 'string' }, method: { type: 'string' } }, required: ['amount'] } },
+            { name: 'add_purchase', description: 'تسجيل مشتريات/فاتورة مورد', needsConfirmation: true, parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
+            { name: 'add_employee', description: 'إضافة موظف جديد', needsConfirmation: true, parameters: { type: 'object', properties: { employeeName: { type: 'string' }, role: { type: 'string' }, salary: { type: 'number' } }, required: ['employeeName'] } },
+            { name: 'employee_attendance', description: 'تسجيل حضور موظف', parameters: { type: 'object', properties: { employeeName: { type: 'string' } }, required: ['employeeName'] } },
+            { name: 'employee_leave', description: 'تسجيل انصراف موظف', parameters: { type: 'object', properties: { employeeName: { type: 'string' } }, required: ['employeeName'] } },
+            { name: 'view_employees', description: 'عرض الموظفين', parameters: { type: 'object', properties: {} } },
+            { name: 'update_price', description: 'تعديل سعر منتج', needsConfirmation: true, parameters: { type: 'object', properties: { product: { type: 'string' }, newPrice: { type: 'number' } }, required: ['product', 'newPrice'] } },
+            { name: 'view_inventory', description: 'عرض حالة المخزون', parameters: { type: 'object', properties: {} } },
+            { name: 'drawer_status', description: 'حالة الوردية النقدية', parameters: { type: 'object', properties: {} } },
+            { name: 'sales_report', description: 'تقرير مبيعات (قراءة فقط)', parameters: { type: 'object', properties: { period: { type: 'string', enum: ['today', 'yesterday', 'week', 'month'] } } } },
+            { name: 'expenses_report', description: 'تقرير مصروفات (قراءة فقط)', parameters: { type: 'object', properties: { period: { type: 'string' } } } },
+            { name: 'daily_summary', description: 'ملخص يومي شامل (قراءة فقط)', parameters: { type: 'object', properties: {} } }
+        ];
     }
 
     // ===== ENTITY EXTRACTION =====
@@ -142,9 +445,10 @@ class AIPosEngine {
             return { intent: 'split_bill', needsConfirmation: false };
 
         // Order Operations
-        if (/(?:حط|حطيت|ضف|اضف|أضف|add|zid|zawed|zod)\s/.test(t) && !/(?:شيل|احذف|امسح|حذف|remove|delete)/.test(t))
+        // (الإضافات除外اً الإضافات الإدارية: موظف، مصروف، فاتورة — تُعالج أسفله)
+        if (/(?:حط|حطيت|ضف|اضف|أضف|add|zid|zawed|zod)\s/.test(t) && !/(?:شيل|احذف|امسح|حذف|remove|delete)/.test(t) && !/(?:موظف|salary|مرتب|راتب)/i.test(t))
             return { intent: 'add_items', needsConfirmation: false };
-        if (/(?:زود|زودت|extra|zid|zawed)\s/.test(t))
+        if (/(?:زود|زودت|extra|zid|zawed)\s/.test(t) && !/(?:موظف|salary|مرتب|راتب)/i.test(t))
             return { intent: 'add_items', needsConfirmation: false };
         if (/(?:شيل|احذف|امسح|حذف|remove|delete|sheel|imsah)\s/.test(t))
             return { intent: 'remove_item', needsConfirmation: true, confirmType: 'delete' };
@@ -174,6 +478,10 @@ class AIPosEngine {
             return { intent: 'create_takeaway', needsConfirmation: false };
         if (/(?:ديلفري|delivery|توصيل)/i.test(t))
             return { intent: 'create_delivery', needsConfirmation: false };
+
+        // Manual invoice (بيع خارجي) — "فاتورة 15000 بيع قهوة كاش"
+        if (/(?:فاتورة|invoice|facture|إيراد)\s+(\d+)/i.test(t) && !/(?:مشتريات|مورد|شراء)/i.test(t))
+            return { intent: 'record_invoice', needsConfirmation: true, confirmType: 'invoice' };
 
         // Notes
         if (/(?:ملاحظة|note|اكتب|not)/.test(t))
@@ -275,11 +583,13 @@ class AIPosEngine {
             delete_product: () => this.toolDeleteProduct(params),
             view_employees: () => this.toolViewEmployees(params),
             employee_add: () => this.toolAddEmployee(params),
+            add_employee: () => this.toolAddEmployee(params),
             employee_attendance: () => this.toolEmployeeAttendance(params),
             employee_leave: () => this.toolEmployeeLeave(params),
             manage_shift: () => this.toolManageShift(params),
             add_expense: () => this.toolAddExpense(params),
             view_expenses: () => this.toolViewExpenses(params),
+            record_invoice: () => this.toolRecordInvoice(params),
             add_purchase: () => this.toolAddPurchase(params),
             view_inventory: () => this.toolInventory(params),
             view_tables: () => this.toolViewTables(params),
@@ -360,6 +670,7 @@ class AIPosEngine {
             'كابتشينو': ['cappuccino', 'cappuccino'],
             'إسبريسو': ['espresso', 'expresso'],
             'سبانيش': ['spanish', 'spanish latte'],
+            'اسبانش': ['spanish', 'spanish latte'],
             ' americano': ['americano'],
             'موكا': ['mocha'],
             'ميالتي': ['flat white', 'flatwhite'],
@@ -387,6 +698,11 @@ class AIPosEngine {
     async toolOpenTable(params) {
         const tableNum = params.tableNumber;
         if (!tableNum) return { success: false, message: '❌حدد رقم الطاولة' };
+
+        const lock = await this._acquireTableLock(tableNum);
+        if (!lock.ok) {
+            return { success: false, message: '⛔ الطاولة ' + tableNum + ' محمية حالياً على جهاز تاني' + (lock.holder ? ' (' + lock.holder + ')' : '') + '.\nجرّب شوية أو كلم الجهاز اللي شغّال عليها.' };
+        }
 
         try {
             const tables = await window.LuccaDB.Tables.getAll();
@@ -455,6 +771,8 @@ class AIPosEngine {
             };
         } catch (e) {
             return { success: false, message: '❌ خطأ في فتح الطاولة: ' + e.message };
+        } finally {
+            await this._releaseTableLock(tableNum);
         }
     }
 
@@ -464,6 +782,11 @@ class AIPosEngine {
 
         if (!tableNum) return { success: false, message: '❌ حدد رقم الطاولة. مثال: "حط قهوة على ترابيزة 7"' };
         if (items.length === 0) return { success: false, message: '❌ حدد المنتجات المطلوبة. مثال: "حط 2 قهوة ومياه"' };
+
+        const lock = await this._acquireTableLock(tableNum);
+        if (!lock.ok) {
+            return { success: false, message: '⛔ الطاولة ' + tableNum + ' محمية حالياً على جهاز تاني' + (lock.holder ? ' (' + lock.holder + ')' : '') + '.\nجرّب شوية أو كلم الجهاز اللي شغّال عليها.' };
+        }
 
         try {
             // Find or create order for this table
@@ -583,6 +906,8 @@ class AIPosEngine {
             };
         } catch (e) {
             return { success: false, message: '❌ خطأ في الإضافة: ' + e.message };
+        } finally {
+            await this._releaseTableLock(tableNum);
         }
     }
 
@@ -767,6 +1092,11 @@ class AIPosEngine {
 
         if (!tableNum) return { success: false, message: '❌ حدد رقم الطاولة' };
 
+        const lock = await this._acquireTableLock(tableNum);
+        if (!lock.ok) {
+            return { success: false, message: '⛔ الطاولة ' + tableNum + ' محمية حالياً على جهاز تاني' + (lock.holder ? ' (' + lock.holder + ')' : '') + '.\nما نقدر نتحصّل عليها من هنا إلا بعد ما يخلص الجهاز التاني.' };
+        }
+
         try {
             const orders = await window.LuccaDB.Orders.getAll();
             const order = orders.find(o => String(o.tableId) === String(tableNum) && (o.status === 'open' || o.status === 'pending') && o.paymentStatus !== 'paid');
@@ -808,6 +1138,8 @@ class AIPosEngine {
             return { success: true, message: msg, table: tableNum, orderId: order.id, total, method };
         } catch (e) {
             return { success: false, message: '❌ خطأ في الدفع: ' + e.message };
+        } finally {
+            await this._releaseTableLock(tableNum);
         }
     }
 
@@ -1103,6 +1435,12 @@ class AIPosEngine {
     }
 
     async toolUpdatePrice(params) {
+        // مصفوفة باتمان: تعديل السعر يتطلب دور مدير على الأقل
+        const priceDecision = await this._decide('update_price', 0);
+        if (priceDecision.decision === 'blocked') {
+            return { success: false, message: '🔒 ' + priceDecision.reason };
+        }
+
         const text = params._rawText || '';
         const m = text.match(/(?:سعر|price)\s+(.+?)\s+(\d+)/i) || text.match(/(\D+?)\s+(\d+)\s*(?:ل.س|جنيه|pound)?/i);
         if (!m) return { success: false, message: '❌ حدد المنتج والسعر الجديد.\nمثال: "تعديل سعر لاتيه 50"' };
@@ -1121,6 +1459,7 @@ class AIPosEngine {
             const oldPrice = found.price;
             await window.LuccaDB.Products.update(found.id, { price: newPrice });
             await this.logAudit('update_price', { product: found.nameAr || found.name, oldPrice, newPrice });
+            try { await this._recordBatmanDecision('update_price', { product: found.nameAr || found.name, oldPrice, newPrice }); } catch (e) { /* best-effort */ }
 
             return { success: true, message: '✅ تم تعديل السعر!\n📦 ' + (found.nameAr || found.name) + '\n💰 القديم: ' + this._fmtMoney(oldPrice) + ' ل.س\n💰 الجديد: **' + this._fmtMoney(newPrice) + ' ل.س**' };
         } catch (e) {
@@ -1188,9 +1527,63 @@ class AIPosEngine {
         const text = params._rawText || '';
         const r = await window.saveExpenseFromText(text);
         if (r && r.ok) {
+            const actualLimit = (params && params._expenseDecision) ? (params._expenseDecision.limitValue || this.EXPENSE_APPROVAL_THRESHOLD) : this.EXPENSE_APPROVAL_THRESHOLD;
+            // تدقيق إلزامي: كل مصروف يسجَّل في سجل المراجعة باسم المشغّل
+            await this.logAudit('add_expense', {
+                amount: r.amount,
+                description: r.description,
+                by: r.by,
+                approved: (params && params._requiresApproval) ? 'high_value_explicit_confirm' : 'under_threshold',
+                threshold: actualLimit
+            });
+            // تسجيل القرار في مصفوفة باتمان (مسجل في batman_decisions)
+            try { await this._recordBatmanDecision('add_expense', { amount: r.amount, description: r.description }); } catch (e) { /* best-effort */ }
             return { success: true, message: '✅ تم تسجيل المصروف فعلياً في النظام\n💰 المبلغ: ' + this._fmtMoney(r.amount) + ' ل.س\n📝 الوصف: ' + r.description + '\n👤 بواسطة: ' + r.by + (r.linkNote ? '\n' + r.linkNote : '') };
         }
         return { success: false, message: (r && r.message) || '❌ لم أتمكن من تسجيل المصروف.' };
+    }
+
+    // تسجيل فاتورة يدوية (بيع خارجي): إنشاء سجل طلب مدفوع + سجل إيراد + تدقيق
+    async toolRecordInvoice(params) {
+        // مصفوفة باتمان: تسجيل فاتورة يدوية — فوق الحد يتطلب موافقة
+        const invAmountText = (params._rawText || '').match(/فاتورة\s+(\d+(?:[.,]\d+)?)/i);
+        const invAmount = invAmountText ? Number(invAmountText[1].replace(',', '.')) : 0;
+        if (invAmount > 0) {
+            const invDecision = await this._decide('record_invoice', invAmount);
+            if (invDecision.decision === 'blocked') {
+                return { success: false, message: '🔒 ' + invDecision.reason };
+            }
+        }
+
+        const text = params._rawText || '';
+        const amtMatch = text.match(/فاتورة\s+(\d+(?:[.,]\d+)?)/i);
+        if (!amtMatch) return { success: false, message: '❌ اكتب الفاتورة بالشكل: "فاتورة 15000 بيع قهوة كاش"' };
+        const amount = Number(amtMatch[1].replace(',', '.'));
+        if (!isFinite(amount) || amount <= 0) return { success: false, message: '❌ المبلغ غير صالح.' };
+        const desc = text.replace(/فاتورة|\d+/g, '').replace(/سين|EGP|جنية|باوند|ل\.س/g, '').trim() || 'فاتورة يدوية';
+        const method = /فيزا|كارت|card/.test(text) ? 'card' : /واتساب|تحويل|transfer/.test(text) ? 'transfer' : 'cash';
+        try {
+            const now = new Date().toISOString();
+            const orderId = Date.now();
+            await window.LuccaDB.Orders.add({
+                id: orderId,
+                orderNumber: 'INV-' + orderId,
+                total: amount,
+                totalAmount: amount,
+                paymentMethod: method,
+                paymentStatus: 'paid',
+                status: 'paid',
+                items: [{ name: desc, quantity: 1, price: amount, total: amount }],
+                customerName: '',
+                date: now,
+                createdAt: now
+            });
+            await this.logAudit('record_invoice', { amount, description: desc, method, orderId });
+            const methodLabel = { cash: 'كاش', card: 'فيزا', transfer: 'تحويل' }[method] || method;
+            return { success: true, message: '✅ **تم تسجيل الفاتورة:\n• المبلغ: ' + this._fmtMoney(amount) + ' ل.س\n• الوصف: ' + desc + '\n• طريقة الدفع: ' + methodLabel + '\n• رقم الفاتورة: INV-' + orderId, table: null };
+        } catch (e) {
+            return { success: false, message: '❌ فشل تسجيل الفاتورة: ' + e.message };
+        }
     }
 
     async toolViewExpenses() {
@@ -1330,9 +1723,15 @@ class AIPosEngine {
             draft.needsSupplierCreation = true;
         }
 
-        // Manager approval for large purchases (>500)
+        // قرار مصفوفة باتمان للمشتريات: فوق الحد → موافقة مدير، ودور أدنى من minRole → ممنوع
         const cu = this._getCurrentUser();
-        if (draft.total > 500 && cu && cu.role !== 'admin' && cu.role !== 'manager') {
+        const purchaseDecision = await this._decide('add_purchase', draft.total);
+        draft.batmanDecision = purchaseDecision;
+        if (purchaseDecision.decision === 'blocked') {
+            await this._logPurchaseAudit('BATMAN_PURCHASE_BLOCKED', draft, 'blocked');
+            return { success: false, message: '🔒 ' + purchaseDecision.reason };
+        }
+        if (purchaseDecision.decision === 'needs_approval') {
             draft.needsManagerApproval = true;
         }
 
@@ -1402,14 +1801,20 @@ class AIPosEngine {
                 return { success: false, message: '❌ لا يوجد مستخدم مسجل. سجّل دخولك أولاً.' };
             }
 
-            // Manager approval check
+            // Manager approval check — حسب قرار مصفوفة باتمان ووضع المستخدم الحالي
+            const canApprove = this._isPrivilegedRole();
             if (draft.needsManagerApproval) {
-                const canApprove = cu.role === 'admin' || cu.role === 'manager';
                 if (!canApprove) {
                     await this._logPurchaseAudit('BATMAN_PURCHASE_CANCELLED', draft, 'manager_required');
                     return { success: true, message: '🔒 هذه العملية تحتاج موافقة المدير. تم حفظ المسودة للمراجعة.' };
                 }
             }
+            if (draft.batmanDecision && draft.batmanDecision.decision === 'blocked') {
+                await this._logPurchaseAudit('BATMAN_PURCHASE_CANCELLED', draft, 'blocked');
+                return { success: false, message: '🔒 ' + (draft.batmanDecision.reason || 'ممنوع بواسطة مصفوفة باتمان.') };
+            }
+            // تسجيل تنفيذ قرار الشراء في سجل باتمان بالسيرفر
+            try { await this._recordBatmanDecision('add_purchase', { total: draft.total, supplier: draft.supplier || '', items: (draft.items || []).map(i => i.name) }); } catch (e) { /* best-effort */ }
 
             // Create supplier if needed
             if (draft.needsSupplierCreation && draft.supplier) {
@@ -2333,6 +2738,27 @@ class AIPosEngine {
                 this.pendingConfirmation = false;
                 return { success: false, message: '💸 لتسجيل مصروف اكتب المبلغ والوصف معاً.\nمثال: "سجل مصروف 500 كهرباء"\nأو: "عندي مصروف 75 نظافة"' };
             }
+            const expAmount = Number(amt.replace(',', '.'));
+            // قرار مصفوفة باتمان: فوق الحد يتطلب تأكيداً صريحاً، ودور أدنى من minRole ممنوع
+            if (isFinite(expAmount)) {
+                const expDecision = await this._decide('add_expense', expAmount);
+                params._expenseDecision = expDecision;
+                if (expDecision.decision === 'blocked') {
+                    this.pendingConfirmation = false;
+                    return { success: false, message: '🔒 ' + expDecision.reason };
+                }
+                if (expDecision.decision === 'needs_approval') {
+                    params._requiresApproval = true;
+                }
+            }
+        }
+
+        if (intent === 'record_invoice') {
+            const amt = params._rawText ? (params._rawText.match(/فاتورة\s+(\d+(?:[.,]\d+)?)/) || [])[1] : null;
+            if (!amt) {
+                this.pendingConfirmation = false;
+                return { success: false, message: '🧾 لتسجيل فاتورة يدوية اكتب المبلغ والوصف معاً.\nمثال: "فاتورة 15000 بيع قهوة كاش"\nأو: "فاتورة 8000 طلب واتساب"' };
+            }
         }
 
         if (intent === 'add_employee') {
@@ -2356,9 +2782,23 @@ class AIPosEngine {
                 payment: '💰 تأكد الدفع على الطاولة ' + (tableNumber || this.context.currentTable || '?') + '?\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء',
                 delete: '⚠️ تأكد الحذف؟\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء',
                 employee: '👷 تأكد إضافة الموظف؟\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء',
+                invoice: (() => {
+                    const amt = params._rawText ? (params._rawText.match(/فاتورة\s+(\d+(?:[.,]\d+)?)/) || [])[1] : null;
+                    let m = '🧾 **تأكيد تسجيل الفاتورة (بيع خارجي)**\n💰 المبلغ: ' + (amt ? this._fmtMoney(Number(amt.replace(',', '.'))) : '?') + ' ل.س\n📝 الوصف: ' + (params._rawText || '').replace(/فاتورة|\d+/gi, '').trim().slice(0, 40) + '\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء';
+                    return m;
+                })(),
                 expense: (() => {
                     const amt = params._rawText ? (params._rawText.match(/(\d+(?:[.,]\d+)?)/) || [])[1] : null;
-                    return '💸 **تأكيد تسجيل المصروف**\n💰 المبلغ: ' + (amt ? this._fmtMoney(Number(amt.replace(',', '.'))) : '?') + ' ل.س\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء';
+                    const num = amt ? Number(amt.replace(',', '.')) : 0;
+                    const limit = params._expenseDecision && params._expenseDecision.limitValue
+                        ? params._expenseDecision.limitValue
+                        : this.EXPENSE_APPROVAL_THRESHOLD;
+                    let m = '💸 **تأكيد تسجيل المصروف**\n💰 المبلغ: ' + (amt ? this._fmtMoney(num) : '?') + ' ل.س';
+                    if (isFinite(num) && num > limit && !this._isPrivilegedRole()) {
+                        m += '\n⚠️ المبلغ يتجاوز حد الكاشير (' + limit + ' ل.س) — سيُسجَّل بتأكيد صريح ويُدوَّن في سجل المراجعة باسمك';
+                    }
+                    m += '\n\nاكتب "نعم" للتأكيد أو "لا" للإلغاء';
+                    return m;
                 })()
             };
             return { success: true, message: confirmMessages[confirmType] || '⚠️ تأكد العملية؟\n\nاكتب "نعم" أو "لا"', needsConfirmation: true };
@@ -2421,6 +2861,12 @@ window.saveExpenseFromText = async function (text) {
             const cu = window.LuccaDB && window.LuccaDB.Users && window.LuccaDB.Users.getCurrentUser && window.LuccaDB.Users.getCurrentUser();
             if (cu) by = (cu.name || cu.username || '—');
         } catch (e) { /* non-critical */ }
+        // تدقيق إلزامي في كل نقطة تسجيل (المحرك + المحادثة + الواجهة)
+        try {
+            if (window.LuccaDB && window.LuccaDB.AuditLogs) {
+                await window.LuccaDB.AuditLogs.log('BR_EXPENSE_ADD', 'expenses', id, null, { amount, description: desc, paymentMethod, by }, by);
+            }
+        } catch (e) { /* audit is non-blocking */ }
         const linkNote = drawer
             ? '🔗 مُربوط بالوردية النقدية الفعالة (شيفت #' + drawer.id + ').'
             : (paymentMethod !== 'cash'

@@ -401,11 +401,141 @@ window.BatmanDashboard = (function(){
                     return { name: i.name||i.itemName||i.productName||'صنف', qty: Number(i.stock||i.quantity||i.qty||0), threshold: Number(i.minStock||i.lowStock||i.threshold||5) };
                 }).filter(function(i){ return i.qty <= i.threshold; });
             } catch(e){ return []; }
+        },
+        // ====== طبقة التبليغ الاستباقي: أدوات حية مدمجة ======
+        // سجل الهدر ليوم (waste_log + حركات stock_movements من نوع waste) مع قيمة التكلفة
+        async wasteToday(){
+            var db = window.LuccaDB && window.LuccaDB.db;
+            if(!db) return { count:0, qty:0, value:0, items:[], top:null };
+            try {
+                var p = today();
+                var costMap = await this.inventoryCostMap();
+                var rows = [];
+                var wl = (await db.getAll('waste_log'))||[];
+                wl.forEach(function(w){ var d=(w.date||w.createdAt||'').slice(0,10); if(d===p) rows.push({ name:w.name||'', ingredientId:w.ingredientId, quantity:Math.abs(Number(w.quantity||0)), reason:w.reason||w.cause||'' }); });
+                var sm = (await db.getAll('stock_movements'))||[];
+                sm.forEach(function(m){ var d=(m.date||m.createdAt||'').slice(0,10); if(d===p && String(m.type||'')==='waste') rows.push({ name:m.name||m.ingredientName||'', ingredientId:m.ingredientId, quantity:Math.abs(Number(m.quantity||0)), reason:m.notes||m.reason||'' }); });
+                var totalQty=0, totalValue=0, byReason={};
+                rows.forEach(function(r){
+                    totalQty+=r.quantity;
+                    totalValue+=(costMap[r.ingredientId]||0)*r.quantity;
+                    var rk=r.reason||'بدون سبب';
+                    byReason[rk]=(byReason[rk]||0)+r.quantity;
+                });
+                var reasons=Object.keys(byReason).map(function(k){return {reason:k, qty:byReason[k]};}).sort(function(a,b){return b.qty-a.qty;});
+                return { count: rows.length, qty: totalQty, value: totalValue, items: rows.slice(0,4), top: reasons.length ? reasons[0].reason+' ('+reasons[0].qty+')' : null };
+            } catch(e){ return { count:0, qty:0, value:0, items:[], top:null }; }
+        },
+        // خارطة تكلفة المخزون (id -> cost/costPrice) لاحتساب قيمة الهدر
+        async inventoryCostMap(){
+            var db = window.LuccaDB && window.LuccaDB.db;
+            if(!db) return {};
+            try {
+                var inv = (await db.getAll('inventory'))||[];
+                var map={};
+                inv.forEach(function(i){ if(i && i.id!=null) map[i.id]=Number(i.cost||i.costPrice||0); });
+                return map;
+            } catch(e){ return {}; }
+        },
+        // اتجاه مصغّر لآخر n أيام بقراءة واحدة (سرعة بدل n استدعاءات)
+        async salesTrendCompact(n){
+            n = n||5;
+            var db = window.LuccaDB && window.LuccaDB.db;
+            if(!db) return [];
+            try {
+                var orders=(await db.getAll('orders'))||[];
+                var refunds=(await db.getAll('refunds'))||[];
+                var keys=[], i;
+                for(i=n-1;i>=0;i--){ var dd=new Date(); dd.setDate(dd.getDate()-i); keys.push(dd.toISOString().slice(0,10)); }
+                var byDay={};
+                keys.forEach(function(k){ byDay[k]=0; });
+                orders.forEach(function(o){ if(String(o.paymentStatus||'').toLowerCase()==='paid'){ var d=(o.createdAt||o.date||'').slice(0,10); if(byDay[d]!=null) byDay[d]+=Number(o.total||o.totalAmount||0); } });
+                refunds.forEach(function(r){ var d=(r.createdAt||r.updatedAt||r.date||'').slice(0,10); if(byDay[d]!=null) byDay[d]-=Number(r.amount||0); });
+                var trend=[];
+                keys.forEach(function(k){ trend.push([k.slice(5), byDay[k]]); }); // MM-DD
+                return trend;
+            } catch(e){ return []; }
+        },
+        // لمحة التشغيل الموحّدة: هيكل صغير منظّم (Arrays بدل objects) يغذي Ollama والتقرير الاستباقي
+        async efficiencySnapshot(){
+            var db = window.LuccaDB && window.LuccaDB.db;
+            if(!db) return null;
+            var out={};
+            try {
+                var s=await this.salesToday();
+                var e=await this.expensesToday();
+                var pur=await this.purchasesTotal();
+                var pay=await this.salesByPayment();
+                var top=await this.productTotals();
+                var low=[]; try{ low=await this.lowStockItems(); }catch(_e){}
+                var w=await this.wasteToday();
+                var emp=await this.employeesActive();
+                var att=await this.attendanceToday();
+                var shifts=await this.shiftsToday();
+                var tables=await this.tablesNow();
+                var open=await this.openOrdersCount();
+                var trend=await this.salesTrendCompact(5);
+                var now=new Date();
+                out.date=today();
+                out.time=('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2);
+                var hh=now.getHours();
+                out.period=(hh<12?'صباح':(hh<17?'ظهر':(hh<21?'مساء':'ليل')));
+                out.sales={ today:Math.round(s.sales), orders:s.count, refunds:Math.round(s.refunds) };
+                out.payments=(pay||[]).slice(0,3).map(function(x){ return [x.method, Math.round(x.value)]; });
+                out.top=(top||[]).slice(0,3).map(function(x){ return [x.name, x.qty]; });
+                out.profit={ net:Math.round(s.sales-e.total-pur), expenses:Math.round(e.total), purchases:Math.round(pur) };
+                out.tables={ open:tables.length, ordersOpen:open };
+                out.inventory={ count:low.length, items:low.slice(0,4).map(function(i){ return [i.name,i.qty,i.threshold]; }) };
+                out.waste={ count:w.count, qty:w.qty, value:Math.round(w.value), top:w.top||'' };
+                out.staff={ active:emp.length, attending:att.length, shifts:shifts.length };
+                out.trend=trend||[];
+            }catch(_e){}
+            return out;
+        },
+        // البرومبت الإداري الاستباقي: يحوّل اللمحة الحية إلى تنبيهات مختصرة (قراءة-فقط) عند فتح الشيفت/طلب التقارير
+        async proactiveBrief(){
+            var sn = null;
+            try { sn = await this.efficiencySnapshot(); } catch(_e){}
+            if(!sn) return '⚠️ لا توجد بيانات حية لعرض التنبيهات الاستباقية.';
+            var lines = ['🦇 **باتمان — رادار التشغيل** ('+sn.time+')'];
+            var shown = 0;
+            if(sn.inventory && sn.inventory.count > 0){
+                var lv = ((sn.inventory.items||[]).map(function(it){ return it[0]+' ('+it[1]+')'; })).join('، ');
+                lines.push('⚠️ مخزون منخفض: '+sn.inventory.count+' صنف'+(lv?' — '+lv:''));
+                shown++;
+            }
+            if(sn.waste && sn.waste.value > 0){
+                lines.push('🗑️ هدر اليوم: '+money(sn.waste.value)+' ل.س ('+sn.waste.qty+' وحدة)'+(sn.waste.top?' — السبب الأغلب: '+sn.waste.top:''));
+                shown++;
+            }
+            if(sn.sales && sn.sales.orders === 0){
+                lines.push('🔻 لا مبيعات مسجلة بعد اليوم.');
+                shown++;
+            }
+            if(sn.profit && sn.profit.net < 0){
+                lines.push('🔻 الربح اليوم سالب ('+money(sn.profit.net)+' ل.س) — راجع المصروفات/المرتجعات.');
+                shown++;
+            }
+            if(sn.tables && sn.tables.ordersOpen > 3){
+                lines.push('🕒 الطلبات المعلّقة: '+sn.tables.ordersOpen+' — راجع الدفع.');
+                shown++;
+            }
+            if(sn.tables && sn.tables.open > 0){
+                lines.push('🪑 '+sn.tables.open+' طاولة مفتوحة حالياً.');
+            }
+            if(shown === 0) lines.push('✅ كل المؤشرات ضمن الحدود الطبيعية.');
+            return lines.join('\n');
         }
     };
 
     // ============ LIVE CONTEXT FOR OLLAMA ============
     async function buildContext(){
+        // مسار سريع: لقطة موحّدة صغيرة (Arrays) بدل حقول متفرقة — سياق أصغر وأسرع لـ Ollama
+        try {
+            var sn = await BMRuntimeTools.efficiencySnapshot();
+            if(sn) return JSON.stringify(sn);
+        } catch(e){}
+        // مسار احتياطي قديم يبقي السياق متاحاً لو فشلت اللقطة
         var ctx = {};
         try { ctx.summary = await BMRuntimeTools.summary(); } catch(e){ ctx.summary = null; }
         try { ctx.payment = await BMRuntimeTools.salesByPayment(); } catch(e){}
@@ -417,6 +547,11 @@ window.BatmanDashboard = (function(){
         try { ctx.employeesActive = (await BMRuntimeTools.employeesActive()).length; } catch(e){}
         try { ctx.attendanceToday = (await BMRuntimeTools.attendanceToday()).length; } catch(e){}
         return JSON.stringify(ctx);
+    }
+
+    // نبّذة سريعة آمنة للتنبيه الاستباقي (تُسبق التقارير وتبلغ عند فتح الشيفت)
+    async function buildProactiveBrief(){
+        try { return await BMRuntimeTools.proactiveBrief(); } catch(e){ return ''; }
     }
 
     // ===== OleamAI systematization =====
@@ -439,7 +574,9 @@ window.BatmanDashboard = (function(){
         var O = window.OllamaAI;
         if(!O) return { ok:false, local:false, text:null, reason:'no-ollama' };
         try {
-            if(!(await O.isAvailable())) return { ok:false, local:true, text:null, reason:'unavailable' };
+            // بوابة موحّدة: Ollama أولاً (مجاني) أو OpenAI مرتّبة عند الحاجة
+            var ready = (typeof O.llmReady === 'function') ? await O.llmReady() : await O.isAvailable();
+            if(!ready) return { ok:false, local:true, text:null, reason:'unavailable' };
         } catch(e){ return { ok:false, local:true, text:null, reason:'unavailable' }; }
         try {
             var ctx = opts.context || await buildContext();
@@ -451,7 +588,7 @@ window.BatmanDashboard = (function(){
             // المهلة 40 ثانية تتحمل توقفات النموذج العرضية دون تعطيل المراقبة (أبعد من 25s المرصودة)
             if(mode==='quick') chatOpts.numPredict = opts.numPredict || 70;
             var res = await O.chat(sys, user, chatOpts);
-            if(res.ok && res.text) return { ok:true, local:true, text:res.text, mode:mode };
+            if(res.ok && res.text) return { ok:true, local:(res.provider!=='openai'), text:res.text, mode:mode, provider:(res.provider||'ollama') };
             return { ok:false, local:true, text:null, error:(res && res.error) };
         } catch(e){
             return { ok:false, local:true, text:null, error:e.message };
@@ -554,7 +691,9 @@ window.BatmanDashboard = (function(){
     // وقد يتجاوز مهلة quick. نرسل طلباً تدفئة صغيراً دون مهلة قصيرة ليُحمَّل النموذج مرة واحدة.
     function warmupOllama(){
         var O = window.OllamaAI;
-        if(!O) return Promise.resolve();
+        if(!O || !O.isEnabled()) return Promise.resolve(); // لا إحماء لو Ollama معطّل
+        var mode = (typeof O.getProviderMode === 'function') ? O.getProviderMode() : 'auto';
+        if(mode === 'openai') return Promise.resolve();    // لا حاجة لإحماء في وضع السحابة فقط
         return O.chat('', 'مرحبا', { numPredict: 1, timeout: 180000, keepAlive: -1, numCtx: 2048 })
             .catch(function(){ /* غير حرج: لنحاول الفحص بحالة باردة */ });
     }
@@ -772,10 +911,11 @@ window.BatmanDashboard = (function(){
 
     // ============ HEALTH MONITOR ============
     async function buildHealth(){
-        var h = { ollama:false, model:null, engine:false, db:false, uptime:null, lastError: _health.lastError };
+        var h = { ollama:false, openai:false, model:null, engine:false, db:false, uptime:null, lastError: _health.lastError };
         var O = window.OllamaAI;
         if(O){
             try { h.ollama = await O.isAvailable(); } catch(e){}
+            try { h.openai = (typeof O.hasOpenAI==='function') ? O.hasOpenAI() : false; } catch(e){}
             if(h.ollama){ try { var m = await O.listModels(); h.model = (m&&m[0])||O.model||null; } catch(e){} }
         }
         h.engine = !!(window.aiPosEngine);
@@ -792,6 +932,7 @@ window.BatmanDashboard = (function(){
             return '<h2 class="bd-h2">🩺 الحالة العامة</h2>'+
             '<div class="bd-status-line">'+
             chip('Ollama', h.ollama?'متصل':'غير متصل', h.ollama?'on':'off')+
+            chip('OpenAI', h.openai?'مضبوط':'غير مضبوط', h.openai?'on':'idle')+
             chip('النموذج', h.model||'—', h.model?'on':'idle')+
             chip('محرك باتمان', h.engine?'نشط':'معطّل', h.engine?'on':'off')+
             chip('قاعدة البيانات', h.db?'متاحة':'غير متاحة', h.db?'on':'off')+
@@ -1031,6 +1172,55 @@ window.BatmanDashboard = (function(){
         }
     }
 
+    // ============ FALLBACK الذكي: إلغاء «مش عارف» نهائياً ============
+    // كلمات غير معمَّمة تُستبعد عند بناء استعلام المعرفة
+    var _STOP = /^(كم|كمي|ما|هو|هي|هل|عن|من|في|مع|على|متى|أين|اين|فين|شو|مين|ليه|ازاي|كيف|بخصوص|حول|معلومات|أريد|اريد|عايز|أنا|انا|أنت|لل|لي|دلوقت|بس)$/i;
+    function _sigWords(text){
+        return String(text||'').split(/\s+/).filter(function(w){ return w.length > 1 && !_STOP.test(w); });
+    }
+    // استرجاع معرفة بقناتين: النص كاملاً، ثم كلمات مفتاحية قصيرة، ثم استعلام موجّه لأسئلة الكافيه
+    async function knowledgeRetrieveSmart(text){
+        var K = window.LuccaKnowledge;
+        if(!K || !K.retrieve) return { ok:false, context:'', sources:[], count:0 };
+        var attempt = function(q){ return K.retrieve(q); };
+        try { var r0 = await attempt(text); if(r0 && r0.ok && r0.count > 0) return r0; } catch(e){}
+        var words = _sigWords(text);
+        if(words.length > 1){
+            try { var r1 = await attempt(words.slice(0,3).join(' ')); if(r1 && r1.ok && r1.count > 0) return r1; } catch(e){}
+        }
+        // أي سؤال عن كافيه لوكا: RAG مرجع أخير باستعلام موجّه قبل أي جواب سالب
+        if(isCafeQuery(text)){
+            try { var rc = await attempt('كافيه لوكا Lucca العنوان ساعات العمل مواعيد الإغلاق'); if(rc && rc.ok && rc.count > 0) return rc; } catch(e){}
+        }
+        return { ok:false, context:'', sources:[], count:0 };
+    }
+    // هل السؤال عن كافيه لوكا/بياناته؟
+    function isCafeQuery(text){
+        return /(كافيه|كفي|caffe|cafe|لوكا|lucca|عنوان|الموقع|فروع|فرع|مواعيد|ساعات العمل|ساعات|شغال|مفتوح|افتتاح|تليفون|هاتف|اتصال|تواصل|بورسعيد)/i.test(text||'');
+    }
+    // معلومات الكافيه الموثقة (تُقرأ من بيانات النظام — لا يُخترع رقم)
+    function cafeInfoText(){
+        return '☕ **معلومات كافيه لوكا:**\n' +
+            '· الاسم: Lucca Caffè\n' +
+            '· العنوان: بورسعيد — شارع محمد علي\n' +
+            '· الهاتف: 01010058989\n' +
+            '· ساعات العمل: تُستخرج حياً من الورديات/ساعات الذروة في التقارير — لا أخترع مواعيد غير مسجلة.';
+    }
+    // كشف الرد المتهرب من النموذج (مثل «مش عارف») لاعتباره جواباً ناقصاً تُستكمل السياسة بديلاً عنه
+    function isDodgeReply(t){
+        var head = String(t||'').replace(/\*\*/g,'').slice(0,160);
+        return /(مش عارف|لا أعرف|لا اعرف|لا أعلم|لا يعرف|لا معلومات|غير متوفر|لا تتوفر معلومات|لا يوجد معلومات|ما عندي|ماعندي|لا استطيع|لا أستطيع|لا يمكنني|أسأل|اسأل بطريقة)/i.test(head);
+    }
+    // الرد الأخير الاستباقي: بيان القدرات بدل جواب سالب
+    function proactiveFallback(text){
+        var lines = ['🔎 لم أجد تطابقاً مباشراً في أوردرات/سجلات اليوم، لكن إليك ما يمكنني فعله الآن:'];
+        lines.push('· 📊 بالأرقام الحية: المبيعات، الربح، المصروفات، المشتريات، الطاولات، الموظفين، المخزون، الحضور، مقارنة اليوم بالأمس.');
+        lines.push('· 📚 أو من المعرفة الإدارية: مصطلحات محاسبية، تكلفة الطعام (Food Cost)، نقاط التعادل، سياسة المصروفات، إدارة المخزون والهدر.');
+        if(isCafeQuery(text)) lines.push('\n' + cafeInfoText());
+        lines.push('\n💡 جرّب صياغة أدق مثل: «كم مبيعات اليوم؟» / «ساعات عمل لوكا؟» / «إيه هو prime cost؟»');
+        return lines.join('\n');
+    }
+
     // حاول أولاً تحليلاً محلياً سريعاً للمؤشرات المعروفة؛ وإلا أرسل السؤال الإداري لـ Ollama (وضع deep).
     async function sendChat(){
         var input = document.getElementById('bd-chat-in');
@@ -1071,35 +1261,38 @@ window.BatmanDashboard = (function(){
         var replySource = 'ai'; // 'data' | 'kb' | 'calc' | 'ai'
         try { reply = await localAnswer(text); if(reply && reply !== null) replySource = 'data'; } catch(e){ reply = null; }
         if(!reply){
-            var kb = null;
-            try {
-                kb = (window.LuccaKnowledge && await window.LuccaKnowledge.retrieve(text)) || null;
-            } catch(e){ kb = null; }
-            if(kb && kb.ok && kb.count > 0){
-                // 1) Ollama + سياق معرفة أرضي (Grounded RAG) — الأفضل
+            // 1) RAG: المعرفة المحلية أولاً (النص كاملاً، ثم كلمات مفتاحية، ثم استعلام موجّه لأسئلة الكافيه)
+            var kb = await knowledgeRetrieveSmart(text);
+            if(kb && kb.count > 0){
+                // 1a) Ollama + سياق معرفة أرضي (Grounded RAG) — الأفضل
                 var kbPrompt = 'طلب:' + text +
                     '\n\n📚 من قاعدة المعرفة المحلية (Lucca POS): استخدم هذه المعرفة كمرجع أساسي عند الاقتباس، واذكر المصدر.\n' +
                     kb.context +
                     '\n\nالمصادر: ' + (kb.sources.length ? kb.sources.join('، ') : 'قاعدة المعرفة');
                 var r2 = null;
                 try { r2 = await ollamaAnalyze(text, { mode:'deep', system:SYS_MANAGER, fullPrompt: kbPrompt }); } catch(e){ r2 = null; }
-                if(r2 && r2.ok && r2.text){
+                if(r2 && r2.ok && r2.text && !isDodgeReply(r2.text)){
                     reply = '🧠 **تحليل باتمان (إداري):**\n\n' + r2.text;
                     replySource = 'ai';
                 } else {
-                    // 2) Ollama غير متاح -> إجابة معرفية محلية أرضية (بدون أرقام حية مخترعة)
+                    // 1b) Ollama غير متاح -> إجابة معرفية محلية أرضية (بدون أرقام حية مخترعة)
                     reply = '📚 **من قاعدة المعرفة المحلية (بدون ذكاء محلي):**\n\n' +
                         kb.context +
-                        '\n\nالمصادر: ' + (kb.sources.length ? kb.sources.join('، ') : 'قاعدة المعرفة') +
-                        '\n\n_(البيانات الحية غير متاحة الآن — هذه إجابة معرفية ثابتة فقط.)_';
+                        '\n\nالمصادر: ' + (kb.sources.length ? kb.sources.join('، ') : 'قاعدة المعرفة');
                     replySource = 'kb';
                 }
+            } else if(isCafeQuery(text)){
+                // 2) سؤال كافيه بلا نتيجة RAG -> بيانات الكافيه الموثقة (آخر مرجع قبل أي جواب سالب)
+                reply = cafeInfoText();
+                replySource = 'kb';
             } else {
                 // 3) لا معرفة ذات صلة -> Ollama بالسياق الحي الحقيقي
-                var r = await ollamaAnalyze(text, { mode:'deep', system:SYS_MANAGER });
-                reply = (r && r.ok && r.text) ? '🧠 **تحليل باتمان (إداري):**\n\n' + r.text : null;
-                replySource = 'ai';
+                var r = null;
+                try { r = await ollamaAnalyze(text, { mode:'deep', system:SYS_MANAGER }); } catch(e){ r = null; }
+                if(r && r.ok && r.text && !isDodgeReply(r.text)){ reply = '🧠 **تحليل باتمان (إداري):**\n\n' + r.text; replySource = 'ai'; }
             }
+            // 4) لا جواب بعد كل فحص -> رد استباقي يوضح القدرات (إلغاء «مش عارف» نهائياً)
+            if(!reply){ reply = proactiveFallback(text); replySource = 'ai'; }
         }
         removeTyping();
         if(reply){
@@ -1114,7 +1307,7 @@ window.BatmanDashboard = (function(){
                 speak(plain);
             }
         }
-        else logMsg('⚠️ لم أستطع الإجابة الآن. شغّل خادم Ollama (حالة الذكاء المحلي) أو اسأل بطريقة أوضح.', 'bot');
+        else logMsg(proactiveFallback(text) + '\n\n⚠️ لم يصل ردٌّ من Ollama — دعني أساعدك بالمعرفة والأرقام المحلية المتاحة.', 'bot');
     }
 
     // إجابة محلية فورية للمؤشرات المعروفة (SAFE، أرقام حقيقية)
@@ -1180,11 +1373,13 @@ window.BatmanDashboard = (function(){
         setTimeout(function(){
             logMsg('🖥️ طلب تقرير: '+r.t, 'user');
             addTyping();
-            r.run().then(function(text){
+            Promise.all([r.run(), buildProactiveBrief()]).then(function(res){
                 removeTyping();
+                var text = res[0], brief = res[1];
+                var full = (brief && brief.trim()) ? brief + '\n\n' + text : text;
                 var k = key+'_'+Date.now();
-                _exportStore[k] = text;
-                logMsg(text + exportButtons(k, text), 'bot');
+                _exportStore[k] = full;
+                logMsg(full + exportButtons(k, full), 'bot');
             }).catch(function(err){
                 removeTyping();
                 logMsg('⚠️ تعذّر تنفيذ التقرير: '+(err&&err.message||'خطأ'), 'bot');
@@ -1201,10 +1396,11 @@ window.BatmanDashboard = (function(){
         var style = document.createElement('style');
         style.textContent = CSS;
         document.head.appendChild(style);
-        // تشغيل تلقائي للمراقبة إن كانت مفعّلة سابقاً وOllama متاح
+        // تشغيل تلقائي للمراقبة إن كانت مفعّلة سابقاً وأحد المزودات متاح (Ollama أو OpenAI)
         if(_monitorEnabled && window.OllamaAI){
             // فحص غير متزامن — لا يعطّل تحميل الصفحة أبداً
-            window.OllamaAI.isAvailable().then(function(ok){
+            var _rd = (typeof window.OllamaAI.llmReady === 'function') ? window.OllamaAI.llmReady() : window.OllamaAI.isAvailable();
+            _rd.then(function(ok){
                 if(ok && _monitorEnabled && !_monitor.running) startMonitor();
             }).catch(function(){});
         }
@@ -1230,6 +1426,7 @@ window.BatmanDashboard = (function(){
         analyzeSnapshot: analyzeSnapshot,
         setInterval: function(ms){ _monitor.intervalMs = ms||_monitor.intervalMs; },
         ollamaAnalyze: ollamaAnalyze,
+        proactiveBrief: buildProactiveBrief,
         // new features: voice + export + closing
         toggleVoice: toggleVoice,
         exportAction: exportAction,

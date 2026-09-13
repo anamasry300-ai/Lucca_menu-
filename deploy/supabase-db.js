@@ -9,6 +9,16 @@
     return;
   }
 
+  // الوضع الافتراضي: البيانات محلية (IndexedDB + مزامنة سيرفر SQLite المحلي).
+  // لا نستبدل LuccaDB بـ Supabase إلا عند تفعيل صريح (luccaDataMode = supabase).
+  try {
+    if ((localStorage.getItem('luccaDataMode') || 'local') !== 'supabase') {
+      return;
+    }
+  } catch (e) {
+    return;
+  }
+
   const SUPABASE_URL = 'https://uudimvcdkaacqaxgajbk.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZGltdmNka2FhY3FheGdhamJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMzQ4MTYsImV4cCI6MjEwMjgxMDgxNn0.WrwCUlqWW2ib7D8T41DNzUbybo4FHnNQ1AIBTZr2ZlM';
 

@@ -8,7 +8,13 @@ import specialRoutes from './routes/special.js';
 import analyticsRoutes from './routes/analytics.js';
 import authRoutes from './routes/auth.js';
 import invitationRoutes from './routes/invitations.js';
+import reportRoutes from './routes/reports.js';
+import batmanRoutes from './routes/batman.js';
+import adminRoutes from './routes/admin.js';
+import tableLocksRoutes from './routes/tableLocks.js';
 import { authRequired, requirePermission, resolveIdentity, requireRole, AuthRequest, SESSION_COOKIE, ADMIN_ONLY_STORES, roleHas, getDeviceKeys } from './auth.js';
+import logger, { httpLoggerMiddleware } from './logger.js';
+import { startBackupScheduler } from './backup.js';
 
 const PORT = parseInt(process.env.PORT || '3000');
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean);
@@ -109,6 +115,9 @@ const app = express();
 // Security headers first
 app.use(securityHeaders);
 
+// HTTP request logging (winston)
+app.use(httpLoggerMiddleware);
+
 // CORS configuration
 const corsOptions: cors.CorsOptions = {
   origin: ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS : true,
@@ -120,9 +129,14 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '5mb' }));
 
 // Input sanitization
+// ملاحظة: بروكسي LLM (/api/proxy-llm) مستثنى من اختصار النصوص (5000 حرف) لأن طلبات الدردشة
+// قد تحمل messages أطول (سياق باتمان) — والمسار يتحقق من مدخلاته بنفسه (base http(s) إلزامي).
 app.use((req: express.Request, _res: express.Response, next: express.NextFunction) => {
   if (req.body && typeof req.body === 'object') {
-    req.body = sanitizeInput(req.body);
+    const p = (req.path || '').split('?')[0];
+    if (p !== '/api/proxy-llm' && p !== '/api/openai') {
+      req.body = sanitizeInput(req.body);
+    }
   }
   next();
 });
@@ -177,6 +191,100 @@ app.use('/api', apiKeyCheck);
 app.use('/api', invitationRoutes);
 app.use('/api', specialRoutes);
 app.use('/api', analyticsRoutes);
+
+app.use('/api', reportRoutes);
+app.use('/api/batman', batmanRoutes);
+app.use('/api/admin', adminRoutes);
+
+// ===== H1: LLM Proxy (CORS-free — يضيف البطاقة السرية aquí) =====
+// POST /api/proxy-llm  (أو alias /api/openai)
+// يتطلب هوية (session أو device) عبر apiKeyCheck.
+// يستخدم مفتاحاً يرسله العميل (localStorage luccaOpenAIKey) أو مفتاح البيئة OPENAI_API_KEY.
+// يدعم مزوّدين:
+//   target=openai  (الافتراضي) — يوجّه إلى base (البيئة أو العميل) مع Bearer key
+//   target=ollama  — يوجّه إلى Ollama المحلي عبر /v1/chat/completions
+// لا يخزّن المفتاح في الواجهة النهائية: البطاقة هنا بين يدي السيرفر فقط.
+const ALLOWED_PROXY_BASES = /^https?:\/\//i;
+app.post(['/api/proxy-llm', '/api/openai'], async (req, res) => {
+  const body = (req.body as Record<string, unknown>) || {};
+
+  const target = String((req.headers['x-lucca-target'] as string) || body.target || 'openai').trim();
+  if (target !== 'ollama' && target !== 'openai') {
+    res.status(400).json({ ok: false, error: 'x-lucca-target غير معروف (openai / ollama فقط)' }); return;
+  }
+
+  // base: إما من العميل أو البيئة أو الافتراضي
+  const rawBase = String(body.base || '').trim().replace(/\/+$/, '')
+    || (target === 'ollama'
+        ? (process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1').trim()
+        : (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').trim());
+  const base = rawBase.replace(/\/+$/, '');
+  if (!ALLOWED_PROXY_BASES.test(base)) {
+    res.status(400).json({ ok: false, error: 'base غير صالح — يجب أن يبدأ بـ http(s)://' }); return;
+  }
+
+  // المفتاح: يُرسله العميل (localStorage) أو مفتاح البيئة
+  const key = String(body.key || '').trim() || process.env.OPENAI_API_KEY || '';
+  if (target === 'openai' && !key) {
+    res.status(400).json({ ok: false, error: 'لا يوجد مفتاح OpenAI — أضفه في .env أو بالسطر: مفتاح openai: sk-...' }); return;
+  }
+
+  const model = String(body.model || '').trim()
+    || (target === 'ollama' ? (process.env.OLLAMA_MODEL || 'qwen2.5-coder:7b') : (process.env.OPENAI_MODEL || 'gpt-4o-mini'));
+
+  // بناء messages: يدعم { messages:[...] } أو { prompt:'...' }
+  const messages: Array<{ role: string; content: string }> | null =
+    Array.isArray(body.messages) ? body.messages as Array<{ role: string; content: string }> :
+    (body.prompt != null ? [{ role: 'user', content: String(body.prompt) }] : null);
+  if (!messages || messages.length === 0) {
+    res.status(400).json({ ok: false, error: 'لا يوجد messages / prompt' }); return;
+  }
+
+  // payload chat/completions (OpenAI-compatible)
+  const payload: Record<string, unknown> = {
+    model,
+    messages,
+    ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+    ...(body.max_tokens !== undefined ? { max_tokens: body.max_tokens } : {}),
+    stream: false
+  };
+
+  const timeoutMs = Number(body.timeoutMs) || 120_000;
+  try {
+    const upstream = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(key ? { Authorization: `Bearer ${key}` } : {}),
+        ...(target === 'ollama' ? { 'x-lucca-target': 'ollama' } : {})
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+
+    const rawText = await upstream.text();
+    let j: Record<string, unknown> | null = null;
+    try { j = rawText ? JSON.parse(rawText) : null; } catch { /* ليس JSON صالح */ }
+
+    if (!upstream.ok) {
+      const detail = (j && ((j as any).error?.message || (j as any).error))
+        ? String((j as any).error?.message || (j as any).error)
+        : (rawText.slice(0, 500) || `HTTP ${upstream.status}`);
+      res.status(502).json({ ok: false, provider: target, error: `${target} HTTP ${upstream.status}: ${detail}` });
+      return;
+    }
+
+    if (!j || typeof j !== 'object') {
+      res.status(502).json({ ok: false, provider: target, error: 'استجابة غير صالحة من المزود' }); return;
+    }
+
+    const content = ((j as any).choices?.[0]?.message?.content as string) || '';
+    res.json({ ok: !!content, text: content.trim(), provider: target === 'ollama' ? 'ollama' : 'openai', usedBase: base, model });
+  } catch (e: any) {
+    const isTimeout = e?.name === 'TimeoutError' || e?.name === 'AbortError';
+    res.status(502).json({ ok: false, provider: target, error: isTimeout ? 'انتهت مهلة المزود (timeout)' : (e?.message || String(e)) });
+  }
+});
 
 // Sync: POST /api/sync
 // Checkout endpoint: atomically close order and free table
@@ -531,7 +639,23 @@ app.post('/api/sync', authRequired, requirePermission('sync'), (req, res) => {
           try {
             db.run(`INSERT INTO \`${target}\` (${c}) VALUES (${v})`, vals);
             log.inserted++;
-          } catch (e) { log.conflicts++; log.conflictDetail.push({ syncId, reason: 'فشل إدراج: ' + (e as Error).message, store }); }
+          } catch (e) {
+            // Phase 3: منافسة كتابة متزامنة لنفس syncId — فهرس ux_orders_syncId الفريد يمنع التكرار،
+            // وعند اصطدام الأدخل نسحب للإدراج يتحول لحقن محدّث (idempotent بدل تعارض عالٍ).
+            const raced = syncId ? (() => {
+              try { return queryOne(`SELECT * FROM \`${target}\` WHERE syncId = ?`, [syncId]) as Record<string, unknown> | undefined; }
+              catch { return undefined; }
+            })() : undefined;
+            if (raced) {
+              const set = cols.map(k => `\`${k}\` = ?`).join(', ');
+              db.run(`UPDATE \`${target}\` SET ${set} WHERE syncId = ?`, [...cols.map(k => item[k]), syncId]);
+              log.updated++;
+              log.conflictDetail.push({ syncId, reason: 'سبق ووصل من جهاز آخر — حُدّث بدل التعارض', store });
+            } else {
+              log.conflicts++;
+              log.conflictDetail.push({ syncId, reason: 'فشل إدراج: ' + (e as Error).message, store });
+            }
+          }
         } else if (sameData(existing, normItem)) {
           log.skipped++;
         } else {
@@ -653,14 +777,18 @@ app.get('/api/reports/sales-by-category', authRequired, requirePermission('repor
   }
 });
 
+app.use('/api/tables', tableLocksRoutes);
+
 app.use('/api', crudRoutes);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // Start server
 initDb().then(() => {
+  startBackupScheduler();
   app.listen(PORT, () => {
     console.log(`✅ Lucca Backend running on http://localhost:${PORT}`);
+    logger.info('server_started', { port: PORT });
   });
 });
 

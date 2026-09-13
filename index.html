@@ -31,7 +31,7 @@
             <div class="tables-main-header">
                 <div class="tables-main-logo">
                     <h1>LUCCA</h1>
-                    <div class="subtitle">Caffe Italiano</div>
+                    <div class="subtitle">SPECIALTY COFFEE</div>
                 </div>
                 <div class="tables-main-actions">
                     <span class="tables-main-clock" id="tablesMainClock"></span>
@@ -52,7 +52,7 @@
             <button class="back-to-tables-btn" onclick="showTablesView()" title="العودة للطاولات">📋 العودة للطاولات</button>
             <div class="logo">
                 <h1>LUCCA</h1>
-                <div class="subtitle">Caffe Italiano</div>
+                <div class="subtitle">SPECIALTY COFFEE</div>
                 <div class="location">شارع محمد علي - بجوار كلية التربية - بورسعيد</div>
             </div>
         </div>
@@ -145,6 +145,14 @@
                         <span>ملاحظات الطلب</span>
                         <input type="text" id="customerNotesInput" placeholder="بدون سكر - حساب منفصل - طلب الشيك">
                     </label>
+                    <label class="field-group field-group-wide" id="deliveryAddrGroup" style="display:none;">
+                        <span>📍 عنوان التوصيل</span>
+                        <input type="text" id="deliveryAddressInput" placeholder="العنوان - المنطقة - رقم الشقة">
+                    </label>
+                    <label class="field-group field-group-wide">
+                        <span>🧾 الكاشير</span>
+                        <input type="text" id="cashierNameInput" placeholder="اسم الكاشير">
+                    </label>
                 </div>
 
                 <div class="customer-options">
@@ -204,7 +212,7 @@
         </div><!-- /orderModeView -->
 
         <div class="footer">
-            <p>Lucca Caffe Italiano</p>
+            <p>LUCCA · SPECIALTY COFFEE</p>
             <p>شارع محمد علي - بجوار كلية التربية - بورسعيد</p>
             <p class="contact">للحجز والاستفسار: 01010058989</p>
             <p style="margin-top: 15px; font-size: 0.9rem;">Buon Appetito!</p>
@@ -341,7 +349,7 @@
     <div id="invoiceExportContainer" style="display:none; position:fixed; left:-9999px; top:0; width:400px; padding:24px; background:white; font-family:'Tajawal',Arial,sans-serif; direction:rtl;">
         <div style="text-align:center; border-bottom:2px dashed #2563EB; padding-bottom:16px; margin-bottom:16px;">
             <h1 style="color:#2563EB; font-size:1.8rem; margin:0;">LUCCA</h1>
-            <p style="color:#475569; margin:4px 0;">Caffe Italiano</p>
+            <p style="color:#475569; margin:4px 0;">SPECIALTY COFFEE</p>
             <p style="color:#64748B; font-size:0.85rem; margin:4px 0;">شارع محمد علي - بجوار كلية التربية - بورسعيد</p>
         </div>
         <div id="invoiceExportContent"></div>
@@ -450,6 +458,11 @@
                     <option value="د.م">د.م (درهم مغربي)</option>
                     <option value="ل.س">ل.س (ليرة سورية)</option>
                 </select>
+                <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--text-secondary);">عرض الفاتورة الحرارية</label>
+                <select id="printerWidthSelect" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:8px;font-size:0.9rem;margin-bottom:10px;">
+                    <option value="32">58 ملم — 32 عموداً</option>
+                    <option value="48">80 ملم — 48 عموداً</option>
+                </select>
                 <button onclick="saveFinanceSettings()" style="width:100%;padding:10px;background:var(--primary);color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;">💾 حفظ الإعدادات المالية</button>
                 <div id="financeStatusMsg" style="margin-top:8px;font-size:0.85rem;text-align:center;"></div>
             </div>
@@ -546,6 +559,29 @@
         // === Utility: debounce ===
         function _debounce(fn, ms) { let t; return function(...a) { clearTimeout(t); t = setTimeout(() => fn.apply(this, a), ms); }; }
 
+        // === Utility: order type (دليفري / تيك أواي / صالة) ===
+        function orderTypeFor(tableId) {
+            if (tableId === 'delivery') return 'delivery';
+            if (tableId === 'takeaway' || tableId == 0) return 'takeaway';
+            return 'dine-in';
+        }
+        function orderTypeLabel(tableId) {
+            const t = orderTypeFor(tableId);
+            if (t === 'delivery') return '🛵 دليفري';
+            if (t === 'takeaway') return '🛵 تيك أواي';
+            return '🪑 صالة';
+        }
+        function tableLabelFor(tableId) {
+            const t = orderTypeFor(tableId);
+            if (t === 'delivery') return '🛵 دليفري';
+            if (t === 'takeaway') return '🛵 تيك أواي';
+            return '🪑 طاولة ' + (String(tableId).trim() || '-');
+        }
+        function currentCashierName() {
+            const cu = window.currentUser || (window.LuccaDB && window.LuccaDB.Users ? window.LuccaDB.Users.getCurrentUser() : null);
+            return (cu && (cu.name || cu.username)) || '';
+        }
+
         // === Utility: calculate order totals ===
         function calcOrderTotals(items, discountPct) {
             const subtotal = items.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
@@ -555,18 +591,17 @@
         }
 
         // C4: مصدر موحّد لحساب إجماليات الفاتورة.
-        // يعتمد على القيم المحفوظة في سجل الطلب (شاملة الضريبة) لتطابق:
-        //   المعروض = المطبوع = المحصَّل = المخزَّن
-        // للمعاينة (طلب غير محفوظ بدون tax/total) يقع على subtotal - discount بدون ضريبة.
+        // الضريبة ملغاة نهائياً (قرار الإدارة): total = subtotal - discount دائماً.
+        //   المعروض = المطبوع = المحصَّل = المخزَّن — حتى للطلبات القديمة ذات total بضريبة قديمة.
         function orderTotalsForDisplay(order, fallbackSubtotal) {
             const itemsSubtotal = (order && order.items || []).reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
             const subtotal = (order && order.subtotal != null) ? order.subtotal : (fallbackSubtotal != null ? fallbackSubtotal : itemsSubtotal);
             const discount = (order && order.discount) || 0;
             const discountAmount = (order && order.discountAmount != null) ? order.discountAmount : (subtotal * discount / 100);
             const afterDiscount = subtotal - discountAmount;
-            // الضريبة ملغاة (قرار الإدارة): صفر دائماً في العرض — حتى للطلبات القديمة.
+            // الضريبة ملغاة (قرار الإدارة): صفر دائماً، والإجمالي يُعاد حسابه دائماً.
             const tax = 0;
-            const total = (order && order.total != null) ? order.total : afterDiscount;
+            const total = afterDiscount;
             return { subtotal, discount, discountAmount, tax, afterDiscount, total };
         }
 
@@ -768,7 +803,7 @@
         async function loadTables() {
             const select = document.getElementById('tableSelect');
             const prevValue = select.value;
-            select.innerHTML = '<option value="">اختر</option><option value="takeaway">🛵 تيك أواي</option>';
+            select.innerHTML = '<option value="">اختر</option><option value="takeaway">🛵 تيك أواي</option><option value="delivery">🛵 دليفري</option>';
             const grid = document.getElementById('gridCards');
             grid.innerHTML = '';
 
@@ -846,7 +881,7 @@
         }
 
         function fallbackTables(select) {
-            select.innerHTML = '<option value="">اختر</option><option value="takeaway">🛵 تيك أواي</option>';
+            select.innerHTML = '<option value="">اختر</option><option value="takeaway">🛵 تيك أواي</option><option value="delivery">🛵 دليفري</option>';
             const grid = document.getElementById('gridCards');
             if (!grid) return;
             grid.innerHTML = '';
@@ -858,6 +893,14 @@
             takCard.innerHTML = '<div class="card-num" style="font-size:1.4rem;">🛵</div><div class="card-status">تيك أواي</div>';
             takCard.addEventListener('click', () => selectTable('takeaway'));
             grid.appendChild(takCard);
+
+            // Delivery card
+            const delCard = document.createElement('div');
+            delCard.className = 'table-card delivery';
+            delCard.dataset.table = 'delivery';
+            delCard.innerHTML = '<div class="card-num" style="font-size:1.4rem;">🛵</div><div class="card-status">دليفري</div>';
+            delCard.addEventListener('click', () => selectTable('delivery'));
+            grid.appendChild(delCard);
 
             for (let i = 1; i <= 14; i++) {
                 const option = document.createElement('option');
@@ -954,8 +997,8 @@
                 setOrderStatus('اختر طاولة أولاً لتحريرها', 'error');
                 return;
             }
-            if (tableNum === 'takeaway') {
-                setOrderStatus('التيك أواي مش محتاج تحرير', 'neutral');
+            if (tableNum === 'takeaway' || tableNum === 'delivery') {
+                setOrderStatus('التيك أواي والدليفري مش محتاجين تحرير طاولة', 'neutral');
                 return;
             }
 
@@ -992,11 +1035,20 @@
         // ==================== لوحة التحكم السريعة ====================
         function openAdminDashboard() {
             // نافذة Electron داخلية عبر بريدج preload (البيانات تُقرأ من نفس LuccaDB المحلية)
-            if (window.electronAPI && window.electronAPI.openAdmin) {
-                window.electronAPI.openAdmin();
-            } else {
-                window.open('admin/index.html', '_blank');
+            if (window.electronAPI && typeof window.electronAPI.openAdmin === 'function') {
+                try {
+                    window.electronAPI.openAdmin();
+                    return;
+                } catch(e) { /* ننتقل للبديل أدناه */ }
             }
+            // المتصفح: نافذة جديدة، مع بديل مضمون في نفس التبويب إن حُجبت المنبثقات
+            const popup = window.open('admin/index.html', '_blank');
+            if (!popup) { window.location.href = 'admin/index.html'; return; }
+            try {
+                setTimeout(() => {
+                    if (popup.closed) window.location.href = 'admin/index.html';
+                }, 500);
+            } catch(e) {}
         }
 
         // ==================== VIEW SWITCHING (Tables Main / Order Mode) ====================
@@ -1121,6 +1173,27 @@
             selectTable('takeaway');
         }
 
+        function buildDeliveryBox() {
+            return `
+                <div class="floor-section delivery" data-zone="delivery" onclick="enterDeliveryOrder()" style="--zone-accent:#8B5CF6;cursor:pointer;" title="فتح طلب دليفري">
+                    <div class="floor-section-header">
+                        <span class="floor-section-icon">🛵</span>
+                        <span class="floor-section-name">دليفري</span>
+                        <span class="floor-section-count">توصيل للعميل</span>
+                    </div>
+                    <div class="takeaway-body">
+                        <div class="takeaway-big">🛵</div>
+                        <div class="takeaway-hint">اضغط لبدء طلب توصيل · بدون طاولة</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function enterDeliveryOrder() {
+            showOrderMode();
+            selectTable('delivery');
+        }
+
         async function renderMainTableCards(tables, pendingOrders) {
             const grid = document.getElementById('tablesMainGrid');
             if (!grid) return;
@@ -1140,7 +1213,7 @@
                 buildZoneSection(z, byZone[z].slice().sort((a, b) => a.number - b.number), pendingOrders)
             ).join('');
             if (isMapLayout && _mainTableFilter === 'الكل') {
-                html += buildTakeawayBox();
+                html += buildTakeawayBox() + buildDeliveryBox();
             }
             grid.innerHTML = html || '<div style="text-align:center;color:var(--text-secondary);padding:40px;">لا توجد طاولات</div>';
         }
@@ -1485,7 +1558,7 @@
                 <div style="max-height:250px;overflow-y:auto;">
                     ${todayOrders.map(o => `
                         <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:0.85rem;">
-                            <span>${o.tableId === 'takeaway' || o.tableId == 0 ? '🛵 تيك أواي' : 'طاولة ' + (o.tableId || '-')} ${o.customerName ? '- ' + o.customerName : ''} <span style="color:${o.status === 'completed' ? 'var(--primary)' : '#e67e22'};font-size:0.75rem;">${o.status === 'completed' ? '✓' : '⏳'}</span></span>
+                            <span>${o.tableId === 'delivery' ? '🛵 دليفري' : (o.tableId === 'takeaway' || o.tableId == 0 ? '🛵 تيك أواي' : 'طاولة ' + (o.tableId || '-'))} ${o.customerName ? '- ' + o.customerName : ''} <span style="color:${o.status === 'completed' ? 'var(--primary)' : '#e67e22'};font-size:0.75rem;">${o.status === 'completed' ? '✓' : '⏳'}</span></span>
                             <span style="font-weight:700;color:var(--primary);">${(o.total || 0).toFixed(0)} ج.م</span>
                         </div>
                     `).join('') || '<div style="text-align:center;color:var(--text-secondary);padding:20px;">لا توجد أوردرات اليوم</div>'}
@@ -1537,7 +1610,7 @@
             const rows = [['فاتورة', 'طاولة', 'عميل', 'تليفون', 'الأصناف', 'الإجمالي', 'الحالة', 'التاريخ']];
             orders.forEach(o => {
                 const items = (o.items || []).map(i => `${i.name} x${i.quantity}`).join(' | ');
-                const table = o.tableId === 'takeaway' || o.tableId == 0 ? 'تيك أواي' : o.tableId || '-';
+                const table = o.tableId === 'delivery' ? 'دليفري' : (o.tableId === 'takeaway' || o.tableId == 0 ? 'تيك أواي' : o.tableId || '-');
                 rows.push([
                     o.id || '',
                     table,
@@ -1707,7 +1780,7 @@
                             <span style="font-weight:700;color:var(--primary);">x${i.quantity}</span>
                         </div>
                     `).join('');
-                    const tableLabel = o.tableId === 'takeaway' || o.tableId == 0 ? '🛵 تيك أواي' : `🪑 طاولة ${o.tableId}`;
+                    const tableLabel = o.tableId === 'delivery' ? '🛵 دليفري' : (o.tableId === 'takeaway' || o.tableId == 0 ? '🛵 تيك أواي' : `🪑 طاولة ${o.tableId}`);
                     const elapsed = o.date ? Math.floor((Date.now() - new Date(o.date).getTime()) / 60000) : 0;
                     const timeStr = elapsed < 1 ? 'الآن' : elapsed < 60 ? `منذ ${elapsed} د` : `منذ ${Math.floor(elapsed/60)} س`;
                     const isUrgent = elapsed > 15;
@@ -2201,8 +2274,13 @@
         function generateWhatsAppMessage(order, items, subtotal) {
             const t = orderTotalsForDisplay(order, subtotal);
             const total = t.total;
-            const tableLabel = order.tableId === 'takeaway' || order.tableId == 0 ? '🛵 تيك أواي' : `🪑 طاولة ${order.tableId || '-'}`;
-            return `☕ *Lucca Caffè*\n━━━━━━━━━━━━\n${tableLabel}\n📅 ${new Date().toLocaleDateString('ar-EG')}\n━━━━━━━━━━━━\n*الطلب:*\n${items.map(i => `• ${i.name} x${i.quantity} = ${(i.price * i.quantity).toFixed(0)} ج.م`).join('\n')}\n━━━━━━━━━━━━\n💵 *الإجمالي: ${total.toFixed(0)} ج.م*\n━━━━━━━━━━━━\nشكراً لزيارتكم! 🙏`;
+            const tableLabel = tableLabelFor(order.tableId);
+            const cashier = (order && order.cashierName) || '';
+            const deliveryAddress = (order && (order.deliveryAddress || order.address)) || '';
+            const header = `☕ *LUCCA · SPECIALTY COFFEE*\n━━━━━━━━━━━━\n${tableLabel}\n📅 ${new Date().toLocaleDateString('ar-EG-u-nu-latn')}` +
+                (cashier ? `\n🧾 الكاشير: ${cashier}` : '') +
+                (deliveryAddress ? `\n📍 العنوان: ${deliveryAddress}` : '');
+            return `${header}\n━━━━━━━━━━━━\n*الطلب:*\n${items.map(i => `• ${i.name} x${i.quantity} = ${(i.price * i.quantity).toFixed(0)} ج.م`).join('\n')}\n━━━━━━━━━━━━\n💵 *الإجمالي: ${total.toFixed(0)} ج.م*\n━━━━━━━━━━━━\nشكراً لزيارتكم! 🙏`;
         }
 
         async function loadPaymentMethodsPOS() {
@@ -2260,8 +2338,9 @@
                 const tableNum = document.getElementById('tableSelect').value;
                 if (!tableNum) { setOrderStatus('اختر الطاولة أولاً.', 'error'); return; }
                 setOrderStatus('جارٍ حفظ الطلب...', 'neutral');
-                const saved = await autoSave();
-                if (!saved) { setOrderStatus('❌ فشل حفظ الطلب', 'error'); return; }
+                const saved = await _autoSaveCore();
+                if (!saved || !saved.ok) { setOrderStatus('❌ فشل حفظ الطلب', 'error'); return; }
+                _enqueueOrderSync();
             }
             selectPaymentAndClose(method, type);
         }
@@ -2304,6 +2383,8 @@
                 customerName: document.getElementById('customerNameInput').value.trim(),
                 customerPhone: document.getElementById('customerPhoneInput').value.trim(),
                 customerNotes: document.getElementById('customerNotesInput').value.trim(),
+                deliveryAddress: document.getElementById('deliveryAddressInput') ? document.getElementById('deliveryAddressInput').value.trim() : '',
+                cashierName: document.getElementById('cashierNameInput') ? document.getElementById('cashierNameInput').value.trim() : '',
                 invoiceDelivery: document.getElementById('invoiceDeliverySelect').value,
                 offersOptIn: document.getElementById('offersOptIn').checked,
                 discount: parseFloat(document.getElementById('discountInput').value) || 0
@@ -2352,7 +2433,8 @@
             const lines = [
                 '☕ *فاتورة LUCCA* ☕',
                 '━━━━━━━━━━━━━━━━',
-                `الطاولة: ${document.getElementById('tableSelect').value || '-'}, ${new Date().toLocaleDateString('ar-EG')}`,
+                `نوع الطلب: ${tableLabelFor(document.getElementById('tableSelect').value)}, ${new Date().toLocaleDateString('ar-EG-u-nu-latn')}`,
+                formData.cashierName || currentCashierName() ? `🧾 الكاشير: ${formData.cashierName || currentCashierName()}` : '',
                 '',
                 '━━━━━━━━━━━━━━━━',
                 '*الطلبات:*',
@@ -2420,8 +2502,8 @@
 
         function generateInvoiceHTML(order, formData, subtotal) {
             const now = new Date();
-            const dateStr = now.toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
-            const timeStr = now.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+            const dateStr = now.toLocaleDateString('ar-EG-u-nu-latn', { year: 'numeric', month: 'long', day: 'numeric' });
+            const timeStr = now.toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' });
             const t = orderTotalsForDisplay(order, subtotal);
             const discount = t.discount;
             const discountAmount = t.discountAmount;
@@ -2432,7 +2514,10 @@
             const currency = localStorage.getItem('luccaCurrency') || 'ج.م';
             const _pm = (formData.paymentMethod || '').toLowerCase();
             const payMethod = /card|فيزا|كارت|visa/i.test(_pm) ? '💳 فيزا' : /transfer|تحويل|بنك/i.test(_pm) ? '🏦 تحويل' : /whatsapp|واتساب/i.test(_pm) ? '📱 واتساب' : '💵 كاش';
-            const tableLabel = order.tableId === 'takeaway' || order.tableId == 0 ? '🛵 سفري' : '🪑 طاولة ' + (order.tableId || '-');
+            const tableLabel = tableLabelFor(order.tableId);
+            const cashier = (order && order.cashierName) || formData.cashierName || currentCashierName();
+            const deliveryAddress = (order && (order.deliveryAddress || order.address)) || formData.deliveryAddress || '';
+            const menuUrl = localStorage.getItem('luccaMenuUrl') || '';
 
             return `
                 <div style="max-width:400px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);font-family:'Tajawal',Tahoma,sans-serif;color:#1a1a1a;">
@@ -2461,11 +2546,15 @@
                     </div>
 
                     <!-- Table / Customer Info -->
-                    <div style="padding:12px 24px;display:flex;gap:16px;font-size:12px;">
+                    <div style="padding:12px 24px;display:flex;flex-wrap:wrap;gap:16px;font-size:12px;">
                         <div style="background:#f8f8f8;padding:8px 14px;border-radius:8px;">
-                            <span style="color:#888;">الطاولة:</span>
+                            <span style="color:#888;">نوع الطلب:</span>
                             <span style="font-weight:700;margin-right:4px;">${tableLabel}</span>
                         </div>
+                        ${cashier ? `<div style="background:#f8f8f8;padding:8px 14px;border-radius:8px;">
+                            <span style="color:#888;">الكاشير:</span>
+                            <span style="font-weight:700;margin-right:4px;">${cashier}</span>
+                        </div>` : ''}
                         ${formData.customerName ? `<div style="background:#f8f8f8;padding:8px 14px;border-radius:8px;">
                             <span style="color:#888;">العميل:</span>
                             <span style="font-weight:700;margin-right:4px;">${formData.customerName}</span>
@@ -2475,6 +2564,13 @@
                             <span style="font-weight:700;margin-right:4px;">${payMethod}</span>
                         </div>
                     </div>
+                    ${deliveryAddress ? `
+                    <div style="padding:0 24px 12px;">
+                        <div style="background:#F3F0FF;padding:8px 14px;border-radius:8px;font-size:12px;">
+                            <span style="color:#888;">📍 عنوان التوصيل:</span>
+                            <span style="font-weight:700;margin-right:4px;">${deliveryAddress}</span>
+                        </div>
+                    </div>` : ''}
 
                     <!-- Items Table -->
                     <div style="padding:12px 24px;">
@@ -2525,6 +2621,11 @@
                         </div>
                     </div>
 
+                    ${menuUrl ? `
+                    <div style="padding:0 24px 16px;text-align:center;">
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(menuUrl)}" alt="QR" width="120" height="120" style="border-radius:8px;background:#fff;">
+                        <div style="font-size:10px;color:#999;margin-top:4px;letter-spacing:1px;">امسح للاطلاع على المنيو</div>
+                    </div>` : ''}
                     ${formData.customerNotes ? `
                     <div style="padding:0 24px 20px;">
                         <div style="background:#FFF9F0;padding:12px;border-radius:8px;font-size:12px;color:#666;">
@@ -2758,7 +2859,7 @@
                 doc.setFont('helvetica', 'normal');
                 doc.setFontSize(10);
                 doc.setTextColor(105, 114, 89);
-                doc.text('Caffe Italiano', pageWidth / 2, 26, { align: 'center' });
+                doc.text('SPECIALTY COFFEE', pageWidth / 2, 26, { align: 'center' });
 
                 doc.setFontSize(8);
                 doc.setTextColor(150);
@@ -2774,8 +2875,8 @@
 
                 doc.setFontSize(9);
                 doc.setTextColor(100);
-                doc.text(new Date().toLocaleDateString('ar-EG'), pageWidth / 2, 50, { align: 'center' });
-                doc.text(`الطاولة: ${document.getElementById('tableSelect').value || '-'}`, pageWidth / 2, 55, { align: 'center' });
+                doc.text(new Date().toLocaleDateString('ar-EG-u-nu-latn'), pageWidth / 2, 50, { align: 'center' });
+                doc.text(`نوع الطلب: ${tableLabelFor(document.getElementById('tableSelect').value)}`, pageWidth / 2, 55, { align: 'center' });
 
                 let y = 65;
                 doc.setFontSize(9);
@@ -2844,7 +2945,9 @@
                 _tableBusy = false;
                 return;
             }
-            title.textContent = tableNum === 'takeaway' ? '🛵 تيك أواي' : `طاولة ${tableNum}`;
+            title.textContent = tableLabelFor(tableNum);
+            const _addrGroup = document.getElementById('deliveryAddrGroup');
+            if (_addrGroup) _addrGroup.style.display = tableNum === 'delivery' ? '' : 'none';
 
             if (_initPromise) {
                 try { await _initPromise; } catch(e) { _tableBusy = false; return; }
@@ -2940,31 +3043,85 @@
         }
 
         async function _autoSaveCore() {
-            if (!currentOrderId) return false;
+            // ضمان نجاح الحفظ: إن لم يوجد طلب بعد → استعادة طلب معلّق لهذه الطاولة أو إنشاء طلب
+            // تلقائياً، بدلاً من إظهار "فشل حفظ الطلب — تأكد من اتصال قاعدة البيانات" بشكل زائف.
+            if (!currentOrderId) {
+                const tableNum = document.getElementById('tableSelect').value;
+                if (!tableNum) return { ok: false, error: 'no_table' };
+                const itemsPayload = buildOrderPayload();
+                if (itemsPayload.length === 0 && currentOrder.length === 0) return { ok: false, error: 'empty_order' };
+                const existing = await tryRecoverOrderId(tableNum);
+                if (!existing) {
+                    try {
+                        const tid = tableNum === 'takeaway' ? 'takeaway' : parseInt(tableNum);
+                        const created = await window.LuccaDB.Orders.create(tid, [], '', '', { status: 'pending' });
+                        currentOrderId = created.id;
+                        updateStatusWorkflowUI('pending');
+                        if (tableNum !== 'takeaway' && window.LuccaDB && window.LuccaDB.Tables) {
+                            try { await LuccaDB.Tables.update(parseInt(tableNum), { status: 'occupied', currentOrder: created.id }); } catch(e) {}
+                        }
+                    } catch(e) {
+                        _logSaveError('order_create', e, { tableNum });
+                        return { ok: false, error: e };
+                    }
+                }
+            }
+            // إعادة محاولة الحفظ حتى 3 مرات للاستقرار (منفصلة عن debounce)
+            let lastErr = null;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    const items = buildOrderPayload();
+                    const formData = collectCustomerForm();
+                    const tableNum = document.getElementById('tableSelect').value;
+                    const { subtotal, discountAmount, afterDiscount } = calcOrderTotals(items, formData.discount || 0);
+                    // الضريبة ملغاة (قرار الإدارة) — لا تُحتسب في الإجمالي ولا تظهر في الفاتورة
+                    const tax = 0;
+                    const total = afterDiscount + tax;
+                    const paymentMethod = document.getElementById('paymentMethod').value || 'cash';
+                    const result = await LuccaDB.Orders.updateOrder(currentOrderId, {
+                        items,
+                        customerName: formData.customerName,
+                        customerPhone: formData.customerPhone,
+                        customerNotes: formData.customerNotes,
+                        orderType: orderTypeFor(tableNum),
+                        cashierName: formData.cashierName || currentCashierName(),
+                        deliveryAddress: formData.deliveryAddress || '',
+                        paymentMethod,
+                        discount: formData.discount || 0,
+                        discountAmount,
+                        subtotal,
+                        tax,
+                        total
+                    });
+                    if (!result) throw new Error('updateOrder returned falsy');
+                    if (attempt > 1) console.warn(`autoSave succeeded after retry #${attempt}`);
+                    showSaveIndicator();
+                    return { ok: true, attempts: attempt };
+                } catch(e) {
+                    lastErr = e;
+                    if (attempt < 3) await new Promise(r => setTimeout(r, 300 * attempt));
+                }
+            }
+            _logSaveError('orders_update', lastErr, { orderId: currentOrderId });
+            showSaveErrorToast();
+            return { ok: false, error: lastErr };
+        }
+
+        function _logSaveError(category, err, context) {
             try {
-                const items = buildOrderPayload();
-                const formData = collectCustomerForm();
-                const { subtotal, discountAmount, afterDiscount } = calcOrderTotals(items, formData.discount || 0);
-                // الضريبة ملغاة (قرار الإدارة) — لا تُحتسب في الإجمالي ولا تظهر في الفاتورة
-                const tax = 0;
-                const total = afterDiscount + tax;
-                const paymentMethod = document.getElementById('paymentMethod').value || 'cash';
-                const result = await LuccaDB.Orders.updateOrder(currentOrderId, {
-                    items,
-                    customerName: formData.customerName,
-                    customerPhone: formData.customerPhone,
-                    customerNotes: formData.customerNotes,
-                    paymentMethod,
-                    discount: formData.discount || 0,
-                    discountAmount,
-                    subtotal,
-                    tax,
-                    total
-                });
-                if (!result) return false;
-                showSaveIndicator();
-                return true;
-            } catch(e) { return false; }
+                if (window.LuccaDB && window.LuccaDB.ErrorLogs) {
+                    window.LuccaDB.ErrorLogs.log(category, (err && err.stack) || String(err && err.message || err), context || {}).catch(() => {});
+                }
+            } catch(_) {}
+        }
+
+        function showSaveErrorToast() {
+            try {
+                const orderSummary = document.getElementById('orderSummary');
+                if (!orderSummary) return;
+                const oldHint = orderSummary.querySelector('.order-hint');
+                if (oldHint) oldHint.textContent = '⚠️ تعذّر حفظ الطلب بعد المحاولات — تحقق من اتصال قاعدة البيانات';
+            } catch(_) {}
         }
         const autoSave = _debounce(_autoSaveCore, 500);
 
@@ -3015,15 +3172,12 @@
                 setOrderStatus('اختر رقم الطاولة أولاً.', 'error');
                 return;
             }
+            // إن لم يوجد طلب → استعادة طلب معلّق لهذه الطاولة (وإن لم يوجد → يُنشئ _autoSaveCore طلباً تلقائياً)
             if (!currentOrderId) {
-                const recovered = await tryRecoverOrderId(tableNum);
-                if (!recovered) {
-                    setOrderStatus('لم يتم إنشاء طلب بعد، اختر الطاولة أولاً.', 'error');
-                    return;
-                }
+                await tryRecoverOrderId(tableNum);
             }
             const items = buildOrderPayload();
-            if (items.length === 0) {
+            if (items.length === 0 && currentOrder.length === 0) {
                 setOrderStatus('أضف أصنافاً أولاً.', 'error');
                 return;
             }
@@ -3031,8 +3185,8 @@
             setOrderStatus('جارٍ المزامنة...', 'neutral');
 
             try {
-                const saveOk = await autoSave();
-                if (!saveOk) {
+                const saveOk = await _autoSaveCore();
+                if (!saveOk || !saveOk.ok) {
                     setOrderStatus('❌ فشل حفظ الطلب — تأكد من اتصال قاعدة البيانات', 'error');
 
                     return;
@@ -3041,9 +3195,12 @@
                 const formData = collectCustomerForm();
                 const { subtotal } = calcOrderTotals(items, formData.discount || 0);
 
+                _enqueueOrderSync();
+
                 setIntegrationBadge('متصل✓', true);
-                setOrderStatus(tableNum === 'takeaway' ? '✅ تم حفظ طلب التيك أواي' : `✅ تم حفظ الطلب - الطاولة ${tableNum}`, 'success');
+                setOrderStatus(tableNum === 'delivery' ? '✅ تم حفظ طلب الدليفري' : (tableNum === 'takeaway' ? '✅ تم حفظ طلب التيك أواي' : `✅ تم حفظ الطلب - الطاولة ${tableNum}`), 'success');
                 updateStatusWorkflowUI('pending');
+                refreshOrdersTracker();
 
                 window._lastSubmittedItems = items;
 
@@ -3228,6 +3385,7 @@
                 const closedOrder = await LuccaDB.Orders.checkout(currentOrderId, paymentMethod);
                 const orderId = currentOrderId;
                 currentOrderId = null;
+                refreshOrdersTracker();
 
                 // Fetch the latest committed order data for invoice display
                 const allOrders = await LuccaDB.Orders.getAll();
@@ -3338,8 +3496,8 @@
 
         function thermalPrintInvoice(order, formData, subtotal) {
             const now = new Date();
-            const dateStr = now.toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
-            const timeStr = now.toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' });
+            const dateStr = now.toLocaleDateString('ar-EG-u-nu-latn', { year:'numeric', month:'long', day:'numeric' });
+            const timeStr = now.toLocaleTimeString('ar-EG-u-nu-latn', { hour:'2-digit', minute:'2-digit' });
             const t = orderTotalsForDisplay(order, subtotal);
             const discount = formData.discount || t.discount || 0;
             const discountAmount = t.discountAmount;
@@ -3369,7 +3527,10 @@
                 </div>`;
             }).join('');
 
-            const tableLabel = order.tableId === 'takeaway' || order.tableId == 0 ? '🛵 سفري' : '🪑 طاولة ' + (order.tableId || '-');
+            const tableLabel = tableLabelFor(order.tableId);
+            const cashier = (order && order.cashierName) || formData.cashierName || currentCashierName();
+            const deliveryAddress = (order && (order.deliveryAddress || order.address)) || formData.deliveryAddress || '';
+            const isDelivery = orderTypeFor(order.tableId) === 'delivery';
 
             const thermalHtml = `
                 <!DOCTYPE html>
@@ -3662,9 +3823,17 @@
                         <span class="val">${timeStr}</span>
                     </div>
                     <div class="info-row">
-                        <span class="lbl">الطاولة</span>
+                        <span class="lbl">نوع الطلب</span>
                         <span class="val">${tableLabel}</span>
                     </div>
+                    ${isDelivery ? `<div class="info-row">
+                        <span class="lbl">عنوان التوصيل</span>
+                        <span class="val">${deliveryAddress || '-'}</span>
+                    </div>` : ''}
+                    ${cashier ? `<div class="info-row">
+                        <span class="lbl">الكاشير</span>
+                        <span class="val">${cashier}</span>
+                    </div>` : ''}
                     ${formData.customerName ? `<div class="info-row"><span class="lbl">العميل</span><span class="val">${formData.customerName}</span></div>` : ''}
                     ${formData.customerPhone ? `<div class="info-row"><span class="lbl">الموبايل</span><span class="val">${formData.customerPhone}</span></div>` : ''}
                     <div class="info-row">
@@ -3774,8 +3943,8 @@
 
             const tableNum = document.getElementById('tableSelect').value || '-';
             const now = new Date();
-            const timeStr = now.toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' });
-            const dateStr = now.toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
+            const timeStr = now.toLocaleTimeString('ar-EG-u-nu-latn', { hour:'2-digit', minute:'2-digit' });
+            const dateStr = now.toLocaleDateString('ar-EG-u-nu-latn', { year:'numeric', month:'long', day:'numeric' });
             const itemRows = items.map(i =>
                 `<tr><td style="padding:4px 6px;text-align:right;font-size:13px;">${i.name}</td><td style="padding:4px 6px;text-align:center;width:40px;font-size:13px;">×${i.quantity || 1}</td></tr>`
             ).join('');
@@ -3785,7 +3954,7 @@
                     <div style="text-align:center;border-bottom:2px dashed #333;padding-bottom:8px;margin-bottom:8px;">
                         <div style="font-size:18px;font-weight:bold;">👨‍🍳 مطبخ LUCCA</div>
                         <div style="font-size:11px;color:#666;">${dateStr} - ${timeStr}</div>
-                        <div style="font-size:14px;font-weight:bold;margin-top:4px;">${tableNum === 'takeaway' ? '🛵 تيك أواي' : `طاولة ${tableNum}`}</div>
+                        <div style="font-size:14px;font-weight:bold;margin-top:4px;">${tableLabelFor(tableNum)}</div>
                     </div>
                     <table style="width:100%;border-collapse:collapse;">
                         ${itemRows}
@@ -3924,6 +4093,10 @@
                     .then(async () => {
                         dbReady = true;
                         setIntegrationBadge('متصل✓', true);
+                        // Prefill cashier name from logged-in user
+                        const _cu = window.LuccaDB.Users.getCurrentUser();
+                        window.currentUser = _cu || null;
+                        if (document.getElementById('cashierNameInput')) document.getElementById('cashierNameInput').value = (_cu && (_cu.name || _cu.username)) || '';
                         // Cache cafe info for invoice generation
                         window._cachedCafeInfo = await getCafeInfo();
                         // Sync currency to localStorage for renderOrderSummary to use
@@ -3976,6 +4149,7 @@
                 const statusLabels = { pending: 'قيد الانتظار', in_preparation: 'قيد التجهيز', ready: 'جاهز', served: 'تم التقديم', completed: 'مكتمل', closed: 'مغلق' };
                 setOrderStatus('✅ تم تحديث الحالة: ' + (statusLabels[newStatus] || newStatus), 'success');
                 await loadTables();
+                refreshOrdersTracker();
             } catch(e) {
                 setOrderStatus('❌ فشل تحديث الحالة: ' + e.message, 'error');
             }
@@ -4224,15 +4398,18 @@
             // --- Build ESC/POS receipt ---
             buildReceipt(order, formData, subtotal) {
                 const now = new Date();
-                const dateStr = now.toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
-                const timeStr = now.toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' });
+                const dateStr = now.toLocaleDateString('ar-EG-u-nu-latn', { year:'numeric', month:'long', day:'numeric' });
+                const timeStr = now.toLocaleTimeString('ar-EG-u-nu-latn', { hour:'2-digit', minute:'2-digit' });
                 const t = orderTotalsForDisplay(order, subtotal);
                 const discount = formData.discount || t.discount || 0;
                 const discountAmount = t.discountAmount;
                 const tax = t.tax;
                 const total = t.total;
                 const items = order.items || [];
-                const tableLabel = order.tableId === 'takeaway' || order.tableId == 0 ? 'تيك أواي' : 'طاولة ' + (order.tableId || '-');
+                const _ot = orderTypeFor(order.tableId);
+                const tableLabel = _ot === 'delivery' ? 'دليفري' : _ot === 'takeaway' ? 'تيك أواي' : 'طاولة ' + (order.tableId || '-');
+                const _cashier = (order && order.cashierName) || formData.cashierName || currentCashierName();
+                const _deliveryAddress = (order && (order.deliveryAddress || order.address)) || formData.deliveryAddress || '';
                 const itemCount = items.reduce((s, i) => s + (i.quantity || 1), 0);
 
                 const ESC = '\x1b', GS = '\x1d';
@@ -4251,12 +4428,15 @@
                 const feed = ESC + '\x64\x01';
                 const utf8 = ESC + '\x74\x11';
 
-                const w = (s, len=32) => String(s || '').padEnd(len, ' ');
-                const div = '─'.repeat(32);
+                // عرض الطابعة (32 عموداً = 58mm أو 48 عموداً = 80mm) — يُضبط من الإعدادات افتراضياً 32
+                const pw = Math.max(24, parseInt(localStorage.getItem('luccaPrinterWidth')) || 32);
+
+                const w = (s, len=pw) => String(s || '').padEnd(len, ' ');
+                const div = '─'.repeat(pw);
 
                 // Wrap a name across multiple lines (max chars per line for RTL fixed space)
                 const wrapName = (name) => {
-                    const max = 18;
+                    const max = pw >= 48 ? 26 : 18;
                     const str = String(name || '');
                     if (str.length <= max) return [str];
                     const lines = [];
@@ -4268,10 +4448,13 @@
                 r.push(init + utf8 + boldOn);
                 // BRAND - double height, centered
                 r.push(modeTall + center + 'LUCCA' + modeReset + nl);
+                r.push(modeReset + center + 'SPECIALTY COFFEE' + nl);
                 r.push(modeReset + center + 'بورسعيد - شارع محمد علي - 01010058989' + nl);
                 r.push(div + nl);
                 r.push('فاتورة #' + String(order.id || '').padStart(4, '0') + w('') + dateStr + nl);
-                r.push(tableLabel + w('') + timeStr + nl);
+                r.push('نوع: ' + tableLabel + w('') + timeStr + nl);
+                if (_cashier) r.push('كاشير: ' + _cashier + nl);
+                if (_ot === 'delivery' && _deliveryAddress) r.push('عنوان: ' + _deliveryAddress + nl);
                 if (formData.customerName) r.push('عميل: ' + formData.customerName + nl);
                 if (formData.customerPhone) r.push('موبايل: ' + formData.customerPhone + nl);
                 r.push('أصناف: ' + itemCount + w('') + nl);
@@ -4353,6 +4536,8 @@
                     document.getElementById('taxRateInput').value = '0';
                     document.getElementById('taxRateInput').disabled = true;
                     document.getElementById('currencyInput').value = currency || 'ج.م';
+                    const pwSel = document.getElementById('printerWidthSelect');
+                    if (pwSel) pwSel.value = localStorage.getItem('luccaPrinterWidth') || '32';
                     document.getElementById('cafeNameInput').value = cafeName || 'LUCCA';
                     document.getElementById('cafeAddressInput').value = cafeAddress || 'شارع محمد علي - بورسعيد';
                     document.getElementById('cafePhoneInput').value = cafePhone || '01010058989';
@@ -4374,6 +4559,8 @@
             }
             localStorage.setItem('luccaTaxRate', taxRate);
             localStorage.setItem('luccaCurrency', currency);
+            const pwSel = document.getElementById('printerWidthSelect');
+            if (pwSel) localStorage.setItem('luccaPrinterWidth', pwSel.value);
             // Recalculate current order if any
             if (currentOrder.length > 0) renderOrderSummary();
             const msg = document.getElementById('financeStatusMsg');
@@ -4508,11 +4695,11 @@
                 container.innerHTML = display.map(o => {
                     const total = (o.total || 0).toFixed(0);
                     const itemCount = (o.items || []).reduce((s, i) => s + (i.quantity || 1), 0);
-                    const date = new Date(o.date).toLocaleDateString('ar-EG');
-                    const time = new Date(o.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+                    const date = new Date(o.date).toLocaleDateString('ar-EG-u-nu-latn');
+                    const time = new Date(o.date).toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' });
                     const stColor = statusColors[o.status] || '#999';
                     const stLabel = statusLabels[o.status] || o.status;
-                    const tableLabel = o.tableId === 'takeaway' ? '🛵 تيك أواي' : `🪑 طاولة ${o.tableId || '-'}`;
+                    const tableLabel = o.tableId === 'delivery' ? '🛵 دليفري' : (o.tableId === 'takeaway' ? '🛵 تيك أواي' : `🪑 طاولة ${o.tableId || '-'}`);
                     return `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;" onclick="viewOrderDetail(${o.id})">
                         <div>
                             <div style="font-weight:bold;">#${o.id} - ${tableLabel}</div>
@@ -4544,9 +4731,9 @@
                 const tax = '0'; // الضريبة ملغاة — لا تُعرض
                 const discount = order.discount || 0;
                 const statusLabels = { pending: '⏳ قيد الانتظار', closed: '✅ مكتمل', cancelled: '❌ ملغي' };
-                const tableLabel = order.tableId === 'takeaway' ? '🛵 تيك أواي' : `🪑 طاولة ${order.tableId || '-'}`;
-                const date = new Date(order.date).toLocaleDateString('ar-EG');
-                const time = new Date(order.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+                const tableLabel = order.tableId === 'delivery' ? '🛵 دليفري' : (order.tableId === 'takeaway' ? '🛵 تيك أواي' : `🪑 طاولة ${order.tableId || '-'}`);
+                const date = new Date(order.date).toLocaleDateString('ar-EG-u-nu-latn');
+                const time = new Date(order.date).toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' });
 
                 let html = `<div style="margin-bottom:12px;">
                     <div style="font-weight:bold;font-size:1.1rem;">طلب #${order.id} - ${tableLabel}</div>
@@ -4691,7 +4878,7 @@
                 if (!order) { showToast('الطلب غير موجود'); return; }
 
                 const total = (order.total || 0).toFixed(0);
-                const tableLabel = order.tableId === 'takeaway' ? '🛵 تيك أواي' : `🪑 طاولة ${order.tableId || '-'}`;
+                const tableLabel = order.tableId === 'delivery' ? '🛵 دليفري' : (order.tableId === 'takeaway' ? '🛵 تيك أواي' : `🪑 طاولة ${order.tableId || '-'}`);
                 const items = (order.items || []).map(i => `${i.name} x${i.quantity}`).join('، ');
 
                 document.getElementById('voidOrderInfo').innerHTML = `
@@ -4986,6 +5173,7 @@
                     currentOrder.length = 0;
                     renderOrderSummary();
                     await loadTables();
+                    refreshOrdersTracker();
                 } catch(e) {}
             }
         }
@@ -4993,6 +5181,7 @@
         // ═══ Sync Queue (Offline-First Backup) ═══════════════════
         const SyncQueue = {
             _key: 'lucca_sync_queue',
+            _failedAlertesAt: 0,
             get() {
                 try { return JSON.parse(localStorage.getItem(this._key) || '[]'); } catch(e) { return []; }
             },
@@ -5005,6 +5194,28 @@
                 this.set(items);
                 this.process();
             },
+            _notifyServerDown() {
+                const now = Date.now();
+                if (now - this._failedAlertesAt < 60000) return; // تنبيه واحد كل دقيقة كحد أقصى
+                this._failedAlertesAt = now;
+                try {
+                    const bar = document.getElementById('syncStatusBar');
+                    if (bar) {
+                        const icon = document.getElementById('syncStatusIcon');
+                        const text = document.getElementById('syncStatusText');
+                        if (icon) icon.textContent = '🔌';
+                        if (text) { text.textContent = 'لم تُزامن بعض الطلبات (15+ محاولة) — السيرفر غير متصل، البيانات آمنة محلياً'; text.style.color = '#e74c3c'; }
+                        bar.style.borderTopColor = '#e74c3c';
+                    }
+                    const queueCountEl = document.getElementById('syncQueueCount');
+                    if (queueCountEl) {
+                        queueCountEl.style.display = 'inline-block';
+                        queueCountEl.textContent = ' ⚠️ sync معلق: ' + (this.get().filter(i => i.retries >= 15).length) + ' ';
+                    }
+                } catch(_) {}
+                window.LuccaDB && window.LuccaDB.ErrorLogs &&
+                    window.LuccaDB.ErrorLogs.log('sync_failed', 'استسلمت المزامنة بعد 15 محاولة', { pendingSync: this.get().length }).catch(() => {});
+            },
             async process() {
                 const items = this.get();
                 if (!items.length) return;
@@ -5015,29 +5226,37 @@
                 if (sessTok) qHeaders['Authorization'] = 'Bearer ' + sessTok;
                 else if (apiKey) qHeaders['x-api-key'] = apiKey;
                 const remaining = [];
+                let anyGaveUp = false;
                 for (const item of items) {
-                    if (item.retries > 15) continue; // give up
+                    if (item.retries >= 15) { anyGaveUp = true; continue; }
                     try {
                         const methodMap = { CREATE: 'POST', UPDATE: 'PUT', DELETE: 'DELETE' };
-                    const method = methodMap[item.action] || 'POST';
-                    let url = `${serverUrl}/api/${item.collection}`;
-                    if (item.action === 'UPDATE' || item.action === 'DELETE') url += `/${item.data.id}`;
-                    const controller = new AbortController();
-                    const timeout = setTimeout(() => controller.abort(), 4000);
-                    const res = await fetch(url, {
-                        method,
-                        headers: qHeaders,
-                        body: (method !== 'DELETE' && method !== 'GET') ? JSON.stringify(item.data) : undefined,
-                        signal: controller.signal
-                    });
-                    clearTimeout(timeout);
-                        if (!res.ok && item.retries < 10) { item.retries++; remaining.push(item); }
+                        const method = methodMap[item.action] || 'POST';
+                        let url = `${serverUrl}/api/${item.collection}`;
+                        if (item.action === 'UPDATE' || item.action === 'DELETE') url += `/${item.data.id}`;
+                        const controller = new AbortController();
+                        const timeout = setTimeout(() => controller.abort(), 4000);
+                        const res = await fetch(url, {
+                            method,
+                            headers: qHeaders,
+                            body: (method !== 'DELETE' && method !== 'GET') ? JSON.stringify(item.data) : undefined,
+                            signal: controller.signal
+                        });
+                        clearTimeout(timeout);
+                        if (!res.ok) { item.retries++; remaining.push(item); } else if (item.retries > 0) {
+                            console.warn('sync queued item succeeded after retries', item.action, item.collection);
+                        }
                     } catch(e) {
                         item.retries++;
-                        if (item.retries < 10) remaining.push(item);
+                        if (item.retries < 15) remaining.push(item);
                     }
                 }
                 this.set(remaining);
+                if (anyGaveUp) this._notifyServerDown();
+                try {
+                    const countEl = document.getElementById('syncQueueCount');
+                    if (countEl) countEl.textContent = remaining.length ? ' ' + remaining.length : '';
+                } catch(_) {}
             },
             start(intervalMs = 30000) {
                 this._timer = setInterval(() => this.process(), intervalMs);
@@ -5046,26 +5265,32 @@
             stop() { if (this._timer) clearInterval(this._timer); }
         };
 
-        // Wrap autoSave to also queue sync
+        // enqueue order update to server queue (مصدر واحد لتجنّب تجاهل الطلبات)
+        function _enqueueOrderSync() {
+            if (!currentOrderId) return;
+            try {
+                const items = buildOrderPayload();
+                const formData = collectCustomerForm();
+                const subtotal = items.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
+                const total = subtotal - (subtotal * (formData.discount || 0) / 100);
+                SyncQueue.add('UPDATE', 'orders', {
+                    id: currentOrderId,
+                    tableId: document.getElementById('tableSelect').value || 'takeaway',
+                    items, total,
+                    customerName: formData.customerName,
+                    customerPhone: formData.customerPhone,
+                    updatedAt: new Date().toISOString()
+                });
+            } catch(e) {}
+        }
+
+        // Wrap autoSave to also queue sync (لا يعيد محاولة حفظ داخلية زائدة — يستخدم _autoSaveCore مباشرة)
         const _origAutoSave = autoSave;
         autoSave = async function() {
-            await _origAutoSave.call(this);
-            if (currentOrderId) {
-                try {
-                    const items = buildOrderPayload();
-                    const formData = collectCustomerForm();
-                    const subtotal = items.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
-                    const total = subtotal - (subtotal * (formData.discount || 0) / 100);
-                    SyncQueue.add('UPDATE', 'orders', {
-                        id: currentOrderId,
-                        tableId: document.getElementById('tableSelect').value || 'takeaway',
-                        items, total,
-                        customerName: formData.customerName,
-                        customerPhone: formData.customerPhone,
-                        updatedAt: new Date().toISOString()
-                    });
-                } catch(e) {}
-            }
+            const res = await _autoSaveCore();
+            if (res || (res && res.ok)) _enqueueOrderSync();
+            refreshOrdersTracker();
+            return res;
         };
 
         // Keyboard shortcuts for fast POS operation
@@ -5128,6 +5353,7 @@
             if(window.LuccaDB && window.LuccaDB.ExpenseCategories) window.LuccaDB.ExpenseCategories.init().catch(()=>{});
             checkCashDrawerStatus();
             initSyncEngine();
+            initOrdersTracker();
         });
 
         // ===== SYNC ENGINE INIT =====
@@ -5137,35 +5363,89 @@
             const syncBar = document.createElement('div');
             syncBar.id = 'syncStatusBar';
             syncBar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;height:28px;background:var(--bg-card,#1a1a2e);border-top:1px solid var(--border,#2a2a3e);display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:0.7rem;color:var(--text-secondary,#888);z-index:9999;gap:12px;';
-            syncBar.innerHTML = '<span id="syncStatusIcon">🔄</span><span id="syncStatusText">جاري التحقق...</span><span id="updateBadge" style="display:none;background:#e74c3c;color:white;padding:1px 6px;border-radius:8px;cursor:pointer" onclick="checkAppUpdate()">⬆️ تحديث</span><span id="syncStatusQueue"></span><span id="luccaRunningVersion" style="font-weight:bold;color:#c9a227">v…</span>';
+            syncBar.innerHTML = '<span id="syncStatusIcon">🔄</span><span id="syncStatusText">جاري التحقق...</span><span id="syncQueueCount" style="display:none;background:#e74c3c;color:white;padding:0 6px;border-radius:8px;font-size:0.6rem;font-weight:bold"></span><span id="updateBadge" style="display:none;background:#e74c3c;color:white;padding:1px 6px;border-radius:8px;cursor:pointer" onclick="checkAppUpdate()">⬆️ تحديث</span><span id="syncStatusQueue"></span><span id="luccaRunningVersion" style="font-weight:bold;color:#c9a227">v…</span>';
             document.body.appendChild(syncBar);
+
+            // فحص دوري لصحة السيرفر (كل 30 ثانية) — يعكس اتصال السيرفر فعلياً وليس حالة الإنترنت
+            const ServerHealth = {
+                lastOk: null,
+                lastFailAt: 0,
+                async ping() {
+                    const serverUrl = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+                    try {
+                        const ctrl = new AbortController();
+                        const t = setTimeout(() => ctrl.abort(), 3000);
+                        const res = await fetch(serverUrl + '/health', { signal: ctrl.signal, cache: 'no-store' });
+                        clearTimeout(t);
+                        this.lastOk = res.ok;
+                    } catch(_) {
+                        this.lastOk = false;
+                        this.lastFailAt = Date.now();
+                    }
+                    updateSyncUI();
+                },
+                start() {
+                    this.ping();
+                    setInterval(() => this.ping(), 30000);
+                }
+            };
+
+            // عدد الطلبات المعلّقة في طابور المزامنة المحلي (lucca_sync_queue)
+            function _localQueuePendingCount() {
+                try {
+                    const items = JSON.parse(localStorage.getItem('lucca_sync_queue') || '[]');
+                    return items.filter(i => i.retries < 15).length;
+                } catch(_) { return 0; }
+            }
 
             function updateSyncUI(){
                 const s = window.LuccaDB.getSyncStatus ? window.LuccaDB.getSyncStatus() : null;
                 const icon = document.getElementById('syncStatusIcon');
                 const text = document.getElementById('syncStatusText');
                 const queue = document.getElementById('syncStatusQueue');
-                if(!s || !icon || !text || !queue) return;
+                if(!icon || !text || !queue) return;
+
+                const qCount = _localQueuePendingCount();
+                const qEl = document.getElementById('syncQueueCount');
+                if(qEl) {
+                    if(qCount > 0) {
+                        qEl.style.display = 'inline-block';
+                        qEl.textContent = ' قائمة sync: ' + qCount + ' ';
+                    } else {
+                        qEl.style.display = 'none';
+                    }
+                }
 
                 if(!navigator.onLine){
                     icon.textContent = '📴';
                     text.textContent = 'أوفلاين - البيانات محفوظة محلياً';
                     text.style.color = '#f39c12';
                     syncBar.style.borderTopColor = '#f39c12';
-                } else if(s.pending > 0){
+                } else if(ServerHealth.lastOk === false){
+                    icon.textContent = '🔌';
+                    text.textContent = 'متصل بالإنترنت - لكن السيرفر غير متاح (سيُزامن تلقائياً عند عودته)';
+                    text.style.color = '#f39c12';
+                    syncBar.style.borderTopColor = '#f39c12';
+                } else if(ServerHealth.lastOk === true && (s.pending > 0 || qCount > 0)){
                     icon.textContent = '🔄';
-                    text.textContent = 'مزامنة... ('+s.pending+' معلق)';
+                    text.textContent = 'مزامنة... (' + (s.pending + qCount) + ' معلق)';
                     text.style.color = '#3498db';
                     syncBar.style.borderTopColor = '#3498db';
+                } else if(!s || (s && s.total === undefined) || ServerHealth.lastOk === null){
+                    icon.textContent = '🔄';
+                    text.textContent = 'جاري التحقق...';
+                    text.style.color = '#888';
+                    syncBar.style.borderTopColor = 'var(--border,#2a2a3e)';
                 } else {
                     icon.textContent = '✅';
                     text.textContent = 'متصل ومزامن';
                     text.style.color = '#27ae60';
                     syncBar.style.borderTopColor = '#27ae60';
                 }
-                queue.textContent = s.lastSync ? 'آخر مزامنة: ' + new Date(s.lastSync).toLocaleTimeString('ar-EG') : '';
+                queue.textContent = s && s.lastSync ? 'آخر مزامنة: ' + new Date(s.lastSync).toLocaleTimeString('ar-EG') : '';
             }
 
+            ServerHealth.start();
             setInterval(updateSyncUI, 5000);
             updateSyncUI();
 
@@ -5178,6 +5458,74 @@
 
             // ===== AUTO UPDATE CHECK =====
             initAutoUpdate();
+        }
+
+        // ===== TRACKING BAR: شريط تتبع الطلبات النشطة أسفل شاشة الكاشير =====
+        function initOrdersTracker() {
+            if (document.getElementById('ordersTrackerBar')) return;
+            const bar = document.createElement('div');
+            bar.id = 'ordersTrackerBar';
+            bar.style.cssText = 'position:fixed;bottom:28px;left:0;right:0;min-height:38px;background:rgba(15,15,26,0.97);border-top:1px solid var(--border,#2a2a3e);display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:0.75rem;color:var(--text-secondary,#aaa);z-index:9998;overflow:hidden;';
+            bar.innerHTML = '<span style="white-space:nowrap;font-weight:700;color:#c9a227;">🛎️ الطلبات النشطة</span><span id="ordersTrackerList" style="display:flex;align-items:center;gap:8px;overflow-x:auto;"></span>';
+            document.body.appendChild(bar);
+            bar.addEventListener('click', (e) => {
+                const btn = e.target.closest('button[data-act]');
+                if (!btn) return;
+                e.stopPropagation();
+                const chip = btn.closest('.oc-chip');
+                if (!chip) return;
+                advanceTrackedOrder(parseInt(chip.getAttribute('data-oid'), 10), btn.getAttribute('data-act'));
+            });
+            refreshOrdersTracker();
+            setInterval(refreshOrdersTracker, 10000);
+        }
+
+        async function refreshOrdersTracker() {
+            const bar = document.getElementById('ordersTrackerBar');
+            if (!bar) return;
+            let all = [];
+            try { all = (window.LuccaDB && window.LuccaDB.Orders) ? await window.LuccaDB.Orders.getAll() : []; }
+            catch (e) { all = []; }
+            const active = (all || []).filter(o => o.status === 'pending' || o.status === 'in_preparation' || o.status === 'ready');
+            const list = document.getElementById('ordersTrackerList');
+            if (!list) return;
+            if (active.length === 0) { bar.style.display = 'none'; list.innerHTML = ''; return; }
+            bar.style.display = 'flex';
+            const sig = active.map(o => o.id + ':' + (o.status || '')).sort().join('|');
+            if (list.getAttribute('data-sig') === sig) return;
+            list.setAttribute('data-sig', sig);
+            list.innerHTML = active.map(makeTrackerChip).join('');
+        }
+
+        function makeTrackerChip(o) {
+            const st = o.status || 'pending';
+            const labels = { pending: '⏳ قيد الانتظار', in_preparation: '🍳 قيد التجهيز', ready: '✅ جاهز' };
+            const colors = { pending: '#f59e0b', in_preparation: '#3b82f6', ready: '#10b981' };
+            const nextSteps = { pending: 'in_preparation', in_preparation: 'ready', ready: 'served' };
+            const itemsCount = (o.items || []).reduce((s, i) => s + (i.quantity || 1), 0);
+            const totalTxt = 'ج.م ' + Math.round(o.total || o.totalAmount || 0);
+            const tbl = o.tableId === 'delivery' ? '🛵 دليفري' : ((o.tableId == null || o.tableId === 'takeaway') ? '🛍️ تيك أواي' : ('🪑 ' + o.tableId));
+            const stepBtn = !nextSteps[st] ? '' :
+                '<button type="button" data-act="' + nextSteps[st] + '" title="' + (st === 'ready' ? 'تم التقديم' : st === 'in_preparation' ? 'جاهز' : 'قيد التجهيز') + '" style="background:' + (colors[nextSteps[st]] || '#6B7280') + ';color:#fff;border:none;border-radius:6px;padding:2px 8px;font-size:0.7rem;cursor:pointer;">' + (st === 'ready' ? '🍽️' : st === 'in_preparation' ? '✅' : '🍳') + '</button>';
+            return '<div class="oc-chip" data-oid="' + o.id + '" style="display:flex;align-items:center;gap:6px;background:#23233a;border:1px solid ' + colors[st] + ';border-right:3px solid ' + colors[st] + ';border-radius:10px;padding:4px 8px;white-space:nowrap;">' +
+                '<b style="color:#c9a227;">#' + o.id + '</b>' +
+                '<span style="color:#dddddd;">' + tbl + '</span>' +
+                '<span style="color:#aaaaaa;">' + itemsCount + ' أصناف · ' + totalTxt + '</span>' +
+                '<span style="color:' + colors[st] + ';font-weight:700;">' + labels[st] + '</span>' +
+                stepBtn +
+                '</div>';
+        }
+
+        async function advanceTrackedOrder(oid, status) {
+            if (!window.LuccaDB || !window.LuccaDB.Orders) { showToast('❌ قاعدة البيانات غير متاحة'); return; }
+            try {
+                await window.LuccaDB.Orders.updateStatus(oid, status);
+                if (currentOrderId === oid) updateStatusWorkflowUI(status);
+                refreshOrdersTracker();
+                showToast('✅ حالة الطلب #' + oid + ' → ' + ({ pending: 'قيد الانتظار', in_preparation: 'قيد التجهيز', ready: 'جاهز', served: 'تم التقديم' }[status] || status));
+            } catch (e) {
+                showToast('❌ فشل تحديث الحالة: ' + (e && e.message ? e.message : ''));
+            }
         }
 
         // ===== AUTO UPDATE SYSTEM (real, electron-updater) =====
@@ -5986,7 +6334,7 @@ async function processAiCommand(text){
         } catch(e){ return aiBotReply('❌ '+e.message); }
     }
 
-    // ===== ADD EXPENSE =====
+    // ===== ADD EXPENSE (fallback — المسار المؤكد) =====
     if(matchAny(t,['مصروف','مصروفات','expense','add expense','صرف','صرفية','سويت مصروف'])){
         // Check if they provided details in the message
         const expMatch = text.match(/(\d+)/);
@@ -5994,8 +6342,12 @@ async function processAiCommand(text){
             const amount = Number(expMatch[1]);
             const desc = text.replace(/\d+/g,'').replace(/مصروف|صرف|expense|سجل|اضف|اضافة|عملية|جنيه|جنيهات|جنية|ل\.س|EGP/g,'').trim() || 'مصروف عام';
             try{
-                await window.LuccaDB.Expenses.add({description:desc, amount:amount, category:'عام', date:new Date().toISOString()});
-                return aiBotReply('✅ **تم تسجيل المصروف:**\n• '+desc+'\n• المبلغ: '+formatMoney(amount)+' ل.س');
+                // مسار موحّد موثّق: الحفظ الفعلي + تدقيق إلزامي في سجل المراجعة
+                const r = await window.saveExpenseFromText('سجل مصروف ' + amount + ' ' + desc);
+                if (!r || !r.ok) { return aiBotReply((r && r.message) || '❌ خطأ في التسجيل'); }
+                let limitNote = '';
+                if (amount > 500) limitNote = '\n⚠️ مبلغ يتجاوز حد الكاشير (500 ل.س) — مسجَّل بتأكيد صريح ومدرج في سجل المراجعة';
+                return aiBotReply('✅ **تم تسجيل المصروف:**\n• '+r.description+'\n• المبلغ: '+formatMoney(r.amount)+' ل.س'+limitNote);
             } catch(e){ return aiBotReply('❌ خطأ في التسجيل: '+e.message); }
         }
         return aiBotReply('💸 **تسجيل مصروف جديد:**\n\nاكتب المبلغ والوصف معاً\nمثال: "سجل مصروف 5000 مشتريات خضار"\nأو: "مصروف 2000 كهرباء"',[
@@ -6220,6 +6572,13 @@ async function processAiCommand(text){
                 date: new Date().toISOString(),
                 createdAt: new Date().toISOString()
             });
+            // تدقيق إلزامي للفاتورة اليدوية
+            if(window.LuccaDB && window.LuccaDB.AuditLogs){
+                try {
+                    const cu = window.LuccaDB.Users.getCurrentUser();
+                    window.LuccaDB.AuditLogs.log('AI_RECORD_INVOICE','orders',orderId,null,{amount,description:desc,method},(cu&&cu.name)||'unknown').catch(()=>{});
+                } catch(_){}
+            }
             return aiBotReply('✅ **تم تسجيل الفاتورة:**\n• المبلغ: '+formatMoney(amount)+' ل.س\n• الوصف: '+desc+'\n• طريقة الدفع: '+({cash:'كاش',card:'فيزا',transfer:'تحويل'}[method]||method)+'\n• رقم الفاتورة: INV-'+orderId,[
                 {text:'فاتورة جديدة',cmd:'invoices_list'},
                 {text:'تقرير يومي',cmd:'daily_report'}
@@ -6790,19 +7149,24 @@ async function processAiCommand(text){
     } catch(e){}
 
     // ===== OLLAMA STATUS / TOGGLE =====
-    if(matchAny(t,['حالة الذكاء','الذكاء المحلي','ollama status','تفعيل الذكاء','تعطيل الذكاء','ai status','المساعد المحلي'])){
+    if(matchAny(t,['حالة الذكاء','الذكاء المحلي','ollama status','تفعيل الذكاء','تعطيل الذكاء','ai status','المساعد المحلي','مزود الذكاء','ai config','تكوين الذكاء'])){
         try{
             if(window.OllamaAI){
                 const on = window.OllamaAI.isEnabled();
                 let status = on ? '✅ مفعّل' : '⛔ معطّل';
-                if(on) status += (await window.OllamaAI.isAvailable()) ? ' — متصل بـ Ollama ✓' : ' — ⚠️ Ollama غير متصل (شغّل الخادم)';
+                if(on) status += (await window.OllamaAI.isAvailable()) ? ' — متصل بـ Ollama ✓' : ' — ⚠️ Ollama غير متصل (شغّل الخادم أو استخدم OpenAI)';
                 let models = '';
                 try{
                     const list = await window.OllamaAI.listModels();
                     models = '\n📦 النماذج المتاحة:\n' + (list.length ? list.map(m=>'• '+m).join('\n') : '—');
                 }catch(e){}
-                return aiBotReply('🧠 **حالة الذكاء المحلي (Ollama / Qwen)**\n\n' + status + models + '\n\nللتبديل اكتب: "فعّل الذكاء" أو "عطّل الذكاء"',[
-                    {text: on?'عطّل الذكاء':'فعّل الذكاء', cmd: on?'disable_ai_local':'enable_ai_local'},
+                let provider = '';
+                try{
+                    if(window.OllamaAI.providerInfo) provider = '\n\n' + await window.OllamaAI.providerInfo();
+                }catch(e){}
+                return aiBotReply('🧠 **حالة الذكاء (Ollama أولاً + OpenAI عند الحاجة)**\n\n' + status + models + provider,[
+                    {text:'مزود الذكاء',cmd:'ai config'},
+                    {text:on?'عطّل الذكاء':'فعّل الذكاء', cmd:on?'disable_ai_local':'enable_ai_local'},
                     {text:'تقرير يومي',cmd:'daily_report'}
                 ]);
             }else{
@@ -6815,6 +7179,28 @@ async function processAiCommand(text){
     }
     if(matchAny(t,['enable_ai_local','تفعيل الذكاء','فعّل الذكاء'])){
         if(window.OllamaAI && window.OllamaAI.setEnabled){ window.OllamaAI.setEnabled(true); return aiBotReply('✅ تم تفعيل المساعد المحلي (Qwen).'); }
+    }
+
+    // ===== PROVIDER CONFIG (Ollama أساسي مجاني + OpenAI اختياري) =====
+    if(matchAny(t,['استخدم ollama','ارجع للذكاء المحلي','الذكاء المحلي فقط','return to ollama','ollama فقط'])){
+        if(window.OllamaAI.setProvider){ window.OllamaAI.setProvider('ollama'); return aiBotReply('✅ وضع المزود: **Ollama محلي فقط** (الخيار الأساسي والمجاني).'); }
+    }
+    if(matchAny(t,['استخدم openai','فعل الذكاء البعيد','openai فقط','الذكاء السحابي','use openai'])){
+        if(window.OllamaAI.setProvider){
+            window.OllamaAI.setProvider('openai');
+            return aiBotReply(window.OllamaAI.hasOpenAI() ? '✅ وضع المزود: **OpenAI سحابي فقط** — النموذج: '+window.OllamaAI.getOpenAIModel() : '⚠️ وضع **OpenAI** لكن لم يُضبط مفتاح بعد — اكتب: "مفتاح openai: sk-..."');
+        }
+    }
+    if(matchAny(t,['الوضع التلقائي','تلقائي','auto','الذكاء التلقائي','تلقائي openai'])){
+        if(window.OllamaAI.setProvider){ window.OllamaAI.setProvider('auto'); return aiBotReply('✅ الوضع التلقائي: **Ollama أولاً** (مجاني)، و**OpenAI احتياطي** عند تعذّر Ollama.'); }
+    }
+    const _okey = t.match(/مفتاح[ ]*(?:openai|أوبن|الذكاء البعيد)[ ]*[=:]?[ ]*([a-zA-Z0-9_\-\.]+)/i);
+    if(_okey && window.OllamaAI && window.OllamaAI.setOpenAIKey){
+        window.OllamaAI.setOpenAIKey(_okey[1]);
+        return aiBotReply('✅ تم حفظ مفتاح OpenAI API محلياً (جهازك فقط).\nاختبره: «حالة الذكاء» أو بدّل للوضع «auto» للاستخدام عند تعذّر Ollama.');
+    }
+    if(/مفتاح[ ]*(?:openai|أوبن|الذكاء البعيد)/i.test(t) && window.OllamaAI){
+        return aiBotReply('اكتب المفتاح هكذا: "مفتاح openai: sk-xxxxxxxx" لحفظه في إعدادات الجهاز المحلي.');
     }
 
     // ===== GUARDED EXPENSE RECORDING =====
@@ -6834,9 +7220,10 @@ async function processAiCommand(text){
     }
 
     // ===== OLLAMA LOCAL AI (Qwen) ASSISTANT FALLBACK =====
-    if(window.OllamaAI && window.OllamaAI.isEnabled && window.OllamaAI.isEnabled() && !text.startsWith('_')){
+    const _lmOn = window.OllamaAI && ((typeof window.OllamaAI.llmEnabled==='function') ? window.OllamaAI.llmEnabled() : (window.OllamaAI.isEnabled ? window.OllamaAI.isEnabled() : false));
+    if(_lmOn && !text.startsWith('_')){
         try{
-            const aiOn = await window.OllamaAI.isAvailable();
+            const aiOn = (typeof window.OllamaAI.llmReady==='function') ? await window.OllamaAI.llmReady() : await window.OllamaAI.isAvailable();
             if(aiOn){
                 aiShowTyping();
                 const liveData = await buildLiveContext();
@@ -6849,8 +7236,11 @@ async function processAiCommand(text){
                 const res = await window.OllamaAI.chat(system, user, { temperature: 0.3, timeout: 90000, numCtx: 8192 });
                 aiHideTyping();
                 if(res.ok && res.text){
-                    try{ await window.LuccaDB.BotMemory.logInteraction(text, 'ollama', res.text.substring(0,500)); }catch(e){}
-                    return aiBotReply('🧠 **رد باتمان المحلي (Qwen):**\n\n' + res.text + '\n\n<sub>⚡ رد محلي بدون إنترنت</sub>',[
+                    const prov = res.provider || 'ollama';
+                    try{ await window.LuccaDB.BotMemory.logInteraction(text, prov, res.text.substring(0,500)); }catch(e){}
+                    const label = prov === 'openai' ? '🧠 **رد باتمان السحابي (OpenAI):**\n\n' : '🧠 **رد باتمان المحلي (Qwen):**\n\n';
+                    const sub = prov === 'openai' ? '\n\n<sub>☁️ رد عبر OpenAI (احتياطي عند غياب Ollama)</sub>' : '\n\n<sub>⚡ رد محلي بدون إنترنت</sub>';
+                    return aiBotReply(label + res.text + sub,[
                         {text:'تقرير يومي',cmd:'daily_report'},
                         {text:'مبيعات اليوم',cmd:'today_sales'},
                         {text:'تسجيل مصروف',cmd:'add_expense'}

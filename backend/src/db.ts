@@ -1,13 +1,97 @@
-import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
+import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { runMigrations } from './migrations.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'lucca.db');
 
+type BindParams = unknown[] | Record<string, unknown> | null;
+
+// شريحة توافق مع واجهة sql.js فوق better-sqlite3 حتى يبقى بقية الكود دون تغيير:
+// bind/step/getAsObject/free تُنفَّذ مرة واحدة عند bind وتُعاد النتائج منها.
+class CompatStatement {
+  private rows: Record<string, unknown>[] = [];
+  private rowIndex = -1;
+
+  constructor(private readonly stmt: Database.Statement) {}
+
+  bind(params: BindParams = []) {
+    this.rows = Array.isArray(params)
+      ? ((params.length ? this.stmt.all(...(params as any[])) : this.stmt.all()) as Record<string, unknown>[])
+      : (this.stmt.all((params ?? {}) as Record<string, unknown>) as Record<string, unknown>[]);
+    this.rowIndex = -1;
+    return this;
+  }
+
+  step(): boolean {
+    this.rowIndex++;
+    return this.rowIndex < this.rows.length;
+  }
+
+  getAsObject(): Record<string, unknown> | undefined {
+    return this.rowIndex >= 0 ? this.rows[this.rowIndex] : undefined;
+  }
+
+  free(): void { /* تُدار تلقائياً — لا حاجة لتحرير يدوي */ }
+
+  all(...params: unknown[]): Record<string, unknown>[] {
+    return this.stmt.all(...(params as any[])) as Record<string, unknown>[];
+  }
+
+  run(...params: unknown[]) {
+    return this.stmt.run(...(params as any[]));
+  }
+}
+
+// واجهة Database مطابقة لما استُخدمت عليه sql.js: run(sql, params)/exec/prepare/close/backup
+class CompatDatabase {
+  readonly db: Database.Database;
+
+  constructor(filePath: string) {
+    this.db = new Database(filePath, { timeout: 5000 });
+    try { this.db.pragma('journal_mode = WAL'); } catch { /* بيئة لا تدعم WAL (مشاركة شبكية) — وضع افتراضي */ }
+    this.db.pragma('synchronous = NORMAL');
+    this.db.pragma('foreign_keys = ON');
+    this.db.pragma('busy_timeout = 5000');
+  }
+
+  prepare(sql: string): CompatStatement {
+    return new CompatStatement(this.db.prepare(sql));
+  }
+
+  run(sql: string, params?: BindParams): { changes: number; lastInsertRowid: number } {
+    if (Array.isArray(params) && params.length > 0) {
+      const info = this.db.prepare(sql).run(...params);
+      return { changes: info.changes, lastInsertRowid: Number(info.lastInsertRowid) };
+    }
+    if (params && !Array.isArray(params)) {
+      const info = this.db.prepare(sql).run(params as Record<string, unknown>);
+      return { changes: info.changes, lastInsertRowid: Number(info.lastInsertRowid) };
+    }
+    // بدون معاملات → exec يدعم عدة جمل في قطعة واحدة (المخطط الكامل في الهجرة)
+    this.db.exec(sql);
+    return { changes: 0, lastInsertRowid: 0 };
+  }
+
+  exec(sql: string) {
+    return this.db.exec(sql);
+  }
+
+  close() {
+    if (this.db.open) this.db.close();
+  }
+
+  backup(destination: string) {
+    return this.db.backup(destination);
+  }
+}
+
+// النوع المُصدَّر يبقى بنفس الاسم حتى لا تتغير التواقيع في بقية الملفات (migrations.ts...)
+export type SqlJsDatabase = CompatDatabase;
+
 let _db: SqlJsDatabase | null = null;
-let _inTransaction = false;
 
 export function getDb(): SqlJsDatabase {
   if (_db) return _db;
@@ -19,37 +103,30 @@ export async function initDb(): Promise<SqlJsDatabase> {
   const dir = path.dirname(DB_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-  const SQL = await initSqlJs();
-  let buffer: Buffer | undefined;
-  try { buffer = fs.readFileSync(DB_PATH); } catch { /* new db */ }
-  _db = new SQL.Database(buffer);
+  _db = new CompatDatabase(DB_PATH);
 
   migrate(_db);
-  saveDb();
+  // الهجرات المنفصلة (مجلد migrations/) — تُطبَّق بعد تهيئة المخطط الأساسي
+  const migResult = runMigrations(_db);
+  if (migResult.applied.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log(`✅ Applied migrations: ${migResult.applied.join(', ')}`);
+  }
   return _db;
 }
 
+// better-sqlite3 يكتب على الملف مباشرة — دالة فارغة للتوافق مع الاستدعاءات القديمة
 export function saveDb() {
-  if (!_db) return;
-  const data = _db.export();
-  fs.writeFileSync(DB_PATH, Buffer.from(data));
+  return;
 }
 
 export function closeDb() {
-  if (_db) { saveDb(); _db.close(); _db = null; }
+  if (_db) { _db.close(); _db = null; }
 }
 
 // Helper: run a SELECT and return all rows as objects
 export function queryAll(sql: string, params: unknown[] = []): Record<string, unknown>[] {
-  const db = getDb();
-  const stmt = db.prepare(sql);
-  if (params.length > 0) stmt.bind(params);
-  const rows: Record<string, unknown>[] = [];
-  while (stmt.step()) {
-    rows.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return rows;
+  return getDb().prepare(sql).all(...(params ?? []));
 }
 
 // Helper: run a SELECT and return first row
@@ -60,23 +137,16 @@ export function queryOne(sql: string, params: unknown[] = []): Record<string, un
 
 // Helper: run INSERT/UPDATE/DELETE, return changes info
 export function execute(sql: string, params: unknown[] = []): { changes: number; lastInsertRowid: number } {
-  const db = getDb();
-  db.run(sql, params);
-  if (!_inTransaction) saveDb();
-  // sql.js's getRowsModified and getInsertId don't exist directly
-  // We need to track them
-  return { changes: 0, lastInsertRowid: 0 };
+  const info = getDb().prepare(sql).run(...(params ?? []));
+  return { changes: info.changes, lastInsertRowid: Number(info.lastInsertRowid) };
 }
 
 // Custom tracked execution
 let _lastInsertId = 0;
 
 export function insert(sql: string, params: unknown[] = []): number {
-  const db = getDb();
-  db.run(sql, params);
-  const rows = queryAll('SELECT last_insert_rowid() AS rid');
-  _lastInsertId = (rows.length > 0 ? (rows[0].rid as number) : 0) || 0;
-  if (!_inTransaction) saveDb();
+  const info = getDb().prepare(sql).run(...(params ?? []));
+  _lastInsertId = Number(info.lastInsertRowid) || 0;
   return _lastInsertId;
 }
 
@@ -86,19 +156,15 @@ export function getLastInsertId(): number {
 
 // Transaction helpers
 export function beginTransaction(): void {
-  getDb().run('BEGIN');
-  _inTransaction = true;
+  getDb().exec('BEGIN');
 }
 
 export function commitTransaction(): void {
-  getDb().run('COMMIT');
-  _inTransaction = false;
-  saveDb();
+  getDb().exec('COMMIT');
 }
 
 export function rollbackTransaction(): void {
-  getDb().run('ROLLBACK');
-  _inTransaction = false;
+  try { getDb().exec('ROLLBACK'); } catch { /* لا معاملة مفتوحة */ }
 }
 
 function migrate(db: SqlJsDatabase) {
@@ -373,7 +439,8 @@ function migrate(db: SqlJsDatabase) {
       role TEXT DEFAULT 'موظف',
       salary REAL DEFAULT 0,
       active INTEGER DEFAULT 1,
-      createdAt TEXT DEFAULT (datetime('now'))
+      createdAt TEXT DEFAULT (datetime('now')),
+      hireDate TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS attendance (
@@ -398,7 +465,8 @@ function migrate(db: SqlJsDatabase) {
       notes TEXT DEFAULT '',
       date TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
-      createdBy TEXT DEFAULT 'admin'
+      createdBy TEXT DEFAULT 'admin',
+      paymentMethod TEXT DEFAULT 'cash'
     );
 
     CREATE TABLE IF NOT EXISTS shifts (
@@ -647,7 +715,9 @@ function migrate(db: SqlJsDatabase) {
   try {
     db.run(`CREATE TABLE IF NOT EXISTS suppliers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      syncId TEXT, name TEXT DEFAULT '', updatedAt TEXT DEFAULT (datetime('now'))
+      syncId TEXT, name TEXT DEFAULT '', phone TEXT DEFAULT '', contact TEXT DEFAULT '',
+      balance REAL DEFAULT 0, paid REAL DEFAULT 0,
+      updatedAt TEXT DEFAULT (datetime('now'))
     )`);
     db.run(`CREATE TABLE IF NOT EXISTS stock_movements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -680,12 +750,69 @@ function migrate(db: SqlJsDatabase) {
     )`);
   } catch { /* may already exist */ }
 
+  // هجرة أعمدة التقارير (آمنة — تُضاف فقط إن لم تكن موجودة) لقواعد قائمة:
+  // paymentMethod للمصروفات، بيانات اتصال الموردين، وتاريخ التعيين للموظفين.
+  try {
+    const expCols = new Set(queryAll('PRAGMA table_info(expenses)').map((r) => r.name));
+    if (!expCols.has('paymentMethod')) {
+      try { db.run("ALTER TABLE expenses ADD COLUMN paymentMethod TEXT DEFAULT 'cash'"); } catch {}
+    }
+  } catch { /* expenses may not exist */ }
+  try {
+    const supCols = new Set(queryAll('PRAGMA table_info(suppliers)').map((r) => r.name));
+    const supAdds: Array<[string, string]> = [
+      ['phone', "TEXT DEFAULT ''"], ['contact', "TEXT DEFAULT ''"], ['balance', 'REAL DEFAULT 0'], ['paid', 'REAL DEFAULT 0'],
+    ];
+    for (const [col, type] of supAdds) {
+      if (!supCols.has(col)) { try { db.run(`ALTER TABLE suppliers ADD COLUMN \`${col}\` ${type}`); } catch {} }
+    }
+  } catch { /* suppliers may not exist */ }
+  try {
+    const empCols = new Set(queryAll('PRAGMA table_info(employees)').map((r) => r.name));
+    if (!empCols.has('hireDate')) {
+      try { db.run("ALTER TABLE employees ADD COLUMN hireDate TEXT DEFAULT ''"); } catch {}
+    }
+  } catch { /* employees may not exist */ }
+
   // فهارس لدعم مزامنة آمنة حسب syncId
   try { db.run('CREATE INDEX IF NOT EXISTS idx_orders_syncId ON orders(syncId)'); } catch {}
   try { db.run('CREATE INDEX IF NOT EXISTS idx_order_items_syncId ON order_items(syncId)'); } catch {}
   try { db.run('CREATE INDEX IF NOT EXISTS idx_order_items_orderSyncId ON order_items(orderSyncId)'); } catch {}
   try { db.run('CREATE INDEX IF NOT EXISTS idx_invoices_syncId ON invoices(syncId)'); } catch {}
   try { db.run('CREATE INDEX IF NOT EXISTS idx_payments_syncId ON payments(syncId)'); } catch {}
+
+  // ===== Phase 3: idempotency عبر syncId للأوردرات =====
+  // فهرس فريد جزئي: الصفوف القديمة (syncId فارغ/NULL) لا تتعارض، وأي صف جديد يحمل syncId لا يتكرر أبداً.
+  // إن فشل إنشاؤه (تكرارات قديمة غير مقصودة) نكتفي بتحذير حتى لا يتعطل الإقلاع.
+  try {
+    db.run("CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_syncId ON orders(syncId) WHERE syncId IS NOT NULL AND syncId <> ''");
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn(`⚠️ لا يمكن إنشاء فهرس ux_orders_syncId (تكرار syncId في البيانات القديمة؟): ${(e as Error).message}`);
+  }
+
+  // ===== Phase 3b: idempotency عبر syncId لأصناف الأوردرات =====
+  // نفس نمط orders تماماً: لو أصدر جهازان/إعادة إرسال لنفس الدفعة بنفس child syncId،
+  // يمنع الفهرس الفريد تكرار صف order_items نفسه. الشرط الجزئي يحمي الصفوف القديمة بلا syncId.
+  try {
+    db.run("CREATE UNIQUE INDEX IF NOT EXISTS ux_order_items_syncId ON order_items(syncId) WHERE syncId IS NOT NULL AND syncId <> ''");
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn(`⚠️ لا يمكن إنشاء فهرس ux_order_items_syncId (تكرار syncId في البيانات القديمة؟): ${(e as Error).message}`);
+  }
+
+  // ===== Phase 2: table_locks — قفل استشاري للطاولات عبر الأجهزة =====
+  // طاولة واحدة لكل قفل (table_id مفتاح أساسي). انتهاء الصلاحية 60 ثانية
+  // يُحصى بـ datetime('now','-60 seconds') في نفس لغة SQLite (مصدر حقيقة موحّد).
+  try {
+    db.run(`CREATE TABLE IF NOT EXISTS table_locks (
+      table_id TEXT PRIMARY KEY,
+      locked_by_device TEXT DEFAULT '',
+      locked_at TEXT DEFAULT (datetime('now')),
+      order_id INTEGER DEFAULT NULL
+    )`);
+    db.run('CREATE INDEX IF NOT EXISTS idx_table_locks_locked_at ON table_locks(locked_at)');
+  } catch { /* الجدول موجود مسبقاً */ }
 
   // Performance indexes
   try { db.run('CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)'); } catch {}
@@ -828,7 +955,8 @@ function migrate(db: SqlJsDatabase) {
         ['إسبريسو', 45], ['إسبريسو دبل', 70], ['قهوة تركي', 35], ['قهوة فرنساوي', 65],
         ['قهوة بندق', 70], ['ميكاتو', 50], ['ميكاتو دبل', 80], ['موكا', 75],
         ['وايت موكا', 75], ['لاتيه', 85], ['كابتشينو', 85], ['كورتادو', 75],
-        ['نسكافيه', 70], ['هوت شوكليت', 70], ['هوت شوكليت نوتيلا', 80], ['فلات وايت', 80]
+        ['نسكافيه', 70], ['هوت شوكليت', 70], ['هوت شوكليت نوتيلا', 80], ['فلات وايت', 80],
+        ['اسبانش لاتيه', 90]
       ],
       'hot': [
         ['شاي', 35], ['شاي كرك', 50], ['شاي أخضر', 35], ['ميكس أعشاب', 50],
@@ -836,7 +964,8 @@ function migrate(db: SqlJsDatabase) {
       ],
       'iced': [
         ['آيس كوفي', 80], ['آيس لاتيه', 85], ['آيس موكا', 90],
-        ['آيس وايت موكا', 90], ['فرابتشينو', 95], ['فرابيه كلاسيك', 85], ['فرابيه فروت', 95]
+        ['آيس وايت موكا', 90], ['فرابتشينو', 95], ['فرابيه كلاسيك', 85], ['فرابيه فروت', 95],
+        ['آيس اسبانش لاتيه', 95]
       ],
       'milkshake': [
         ['ميلك شيك شوكولاتة', 90], ['ميلك شيك فانيليا', 90], ['ميلك شيك فراولة', 90],

@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 
 let mainWindow;
+let adminWindow;
 
 // ===== CONFIG =====
 const GITHUB_OWNER = 'anamasry300-ai';
@@ -121,9 +122,15 @@ app.whenReady().then(() => {
     updateEngine.init({ app, currentVersion: LOCAL_VERSION, send: sendUpdateState });
 
     ipcMain.on('open-admin', () => {
-        const adminWin = new BrowserWindow({
+        // نافذة واحدة قابلة لإعادة الاستخدام: إن كانت مفتوحة → التركيز عليها بدل فتح نافذة فارغة أخرى
+        if (adminWindow && !adminWindow.isDestroyed()) {
+            adminWindow.focus();
+            return;
+        }
+        adminWindow = new BrowserWindow({
             width: 1200,
             height: 800,
+            show: false,
             title: 'Lucca Caffè - لوحة التحكم',
             icon: path.join(__dirname, 'icon.ico'),
             webPreferences: {
@@ -132,15 +139,19 @@ app.whenReady().then(() => {
                 contextIsolation: true
             }
         });
-        adminWin.webContents.setWindowOpenHandler(({ url }) => {
+        adminWindow.once('ready-to-show', () => {
+            if (adminWindow && !adminWindow.isDestroyed() && !adminWindow.showing()) adminWindow.show();
+        });
+        adminWindow.on('closed', () => { adminWindow = null; });
+        adminWindow.webContents.setWindowOpenHandler(({ url }) => {
             if (url.startsWith('http:') || url.startsWith('https:')) {
                 shell.openExternal(url);
                 return { action: 'deny' };
             }
             return { action: 'allow' };
         });
-        adminWin.loadFile(path.join(__dirname, 'admin', 'index.html'));
-        adminWin.on('page-title-updated', (e) => e.preventDefault());
+        adminWindow.loadFile(path.join(__dirname, 'admin', 'index.html'));
+        adminWindow.on('page-title-updated', (e) => e.preventDefault());
     });
 
     ipcMain.on('open-external', (event, url) => {

@@ -348,6 +348,12 @@ class LuccaDatabase {
                 if (!db.objectStoreNames.contains('invitations')) {
                     db.createObjectStore('invitations', { keyPath: 'id' });
                 }
+                // سجل أخطاء النظام (autoSave / sync / العمليات): لأغراض المراقبة والاستقرار
+                if (!db.objectStoreNames.contains('error_log')) {
+                    const errStore = db.createObjectStore('error_log', { keyPath: 'id', autoIncrement: true });
+                    errStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    errStore.createIndex('category', 'category', { unique: false });
+                }
             };
         });
     }
@@ -1199,17 +1205,22 @@ const Orders = {
             return { ...localOrder, status: 'closed' };
         }
 
-        // Server unavailable — do local checkout atomically
+        // Server unavailable — do local checkout atomically (معاملة IDB واحدة على المخازن المالية
+        // تمنع حالة "فاتورة بلا دفعة" أو "طلب مغلق بلا فاتورة" عند فشل في منتصف العملية)
         const now = new Date().toISOString();
         const subtotal = localOrder.subtotal || (localOrder.items || []).reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
         const discountAmount = localOrder.discountAmount || (subtotal * (localOrder.discount || 0) / 100);
-        const total = localOrder.total || (subtotal - discountAmount + (localOrder.tax || 0));
+        // الضريبة ملغاة (قرار الإدارة): الإجمالي يُعاد حسابه دائماً دون أي ضريبة — حتى للطلبات القديمة.
+        const total = subtotal - discountAmount;
 
         // 1. Create invoice (immutable record of the sale)
         const invoice = {
             orderId: localOrder.id,
             orderSyncId: localOrder.syncId,
             tableId: localOrder.tableId,
+            orderType: localOrder.orderType || null,
+            cashierName: localOrder.cashierName || '',
+            deliveryAddress: localOrder.deliveryAddress || '',
             customerName: localOrder.customerName || '',
             customerPhone: localOrder.customerPhone || '',
             items: localOrder.items || [],
@@ -1222,48 +1233,78 @@ const Orders = {
             date: now,
             createdBy: Users.getCurrentUser()?.name || 'unknown'
         };
-        const invoiceId = await db.add('invoices', invoice);
 
-        // 2. Record payment
+        // 2. Prepare payment record
         const _payUser = Users.getCurrentUser && Users.getCurrentUser();
         const payment = {
             orderId: localOrder.id,
             orderSyncId: localOrder.syncId,
-            invoiceId,
             amount: total,
             method: paymentMethod || 'cash',
             date: now,
             createdBy: _payUser?.name || 'unknown',
             userId: _payUser?.id != null ? _payUser.id : null
         };
-        await db.add('payments', payment);
 
-        // 3. Deduct inventory (work in background)
+        // 3. Deduct inventory (work in background — خارج المعاملة المالية)
         Inventory.deductForCheckout(localOrder.items || []).catch(() => {});
 
-        // 4. Close the order
+        // 4. Close the order record
         localOrder.status = 'closed';
         localOrder.paymentMethod = paymentMethod || 'cash';
         localOrder.paymentStatus = 'paid';
         localOrder.totalPaid = total;
         localOrder.changeAmount = 0;
-        await db.put('orders', localOrder);
 
-        // 4b. Save order_items individually (avoid duplicates: remove existing for this order first)
-        try {
-            if (db.db.objectStoreNames.contains('order_items')) {
-                const allOI = await db.getAll('order_items');
-                const existing = allOI.filter(r => String(r.orderId) === String(localOrder.id));
-                for (const r of existing) { await db.delete('order_items', r.id); }
-                for (const item of (localOrder.items || [])) {
-                    await db.add('order_items', { orderId: localOrder.id, orderSyncId: localOrder.syncId, ...item });
-                }
-            }
-        } catch(e) {}
+        // معاملة IDB واحدة: فاتورة + دفعة + إغلاق الطلب + تحديث order_items
+        const invoiceId = await new Promise((resolve, reject) => {
+            try {
+                const tx = db.db.transaction(['invoices', 'payments', 'orders', 'order_items'], 'readwrite');
+                const invStore = tx.objectStore('invoices');
+                const payStore = tx.objectStore('payments');
+                const ordStore = tx.objectStore('orders');
+                const oiStore = tx.objectStore('order_items');
 
-        // 5. Free the table
+                let invId = null;
+                stampSyncRecord('invoices', invoice, true);
+                const invReq = invStore.add(invoice);
+                invReq.onsuccess = () => {
+                    invId = invReq.result;
+                    payment.invoiceId = invId;
+                    stampSyncRecord('payments', payment, true);
+                    const payReq = payStore.add(payment);
+                    payReq.onsuccess = () => { payment.id = payReq.result; };
+
+                    stampSyncRecord('orders', localOrder, false);
+                    ordStore.put(localOrder);
+
+                    // order_items: إزالة المكررات الحالية للطلب ثم إدراج جرد الأصناف النهائي
+                    let oiExistingReq;
+                    try {
+                        oiExistingReq = oiStore.index('orderId').getAll(String(localOrder.id));
+                    } catch (e) {
+                        // قواعد بيانات قديمة قد تفتقد الفهرس — نرجع لكل السجلات ونصفّي بمعرف الطلب
+                        oiExistingReq = oiStore.getAll();
+                    }
+                    oiExistingReq.onsuccess = () => {
+                        const existing = (oiExistingReq.result || []).filter(r => String(r.orderId) === String(localOrder.id));
+                        existing.forEach(r => oiStore.delete(r.id));
+                        (localOrder.items || []).forEach(item => {
+                            const oi = { orderId: localOrder.id, orderSyncId: localOrder.syncId, ...item };
+                            stampSyncRecord('order_items', oi, true);
+                            oiStore.add(oi);
+                        });
+                    };
+                };
+                tx.oncomplete = () => resolve(invId);
+                tx.onerror = () => reject(tx.error || new Error('checkout transaction failed'));
+                tx.onabort = () => reject(tx.error || new Error('checkout transaction aborted'));
+            } catch(e) { reject(e); }
+        });
+
+        // 5. Free the table (best-effort — لو فشلت تبقى الطاولة محجوزة كحارس أمان)
         if (localOrder.tableId && !isNaN(parseInt(localOrder.tableId))) {
-            await Tables.update(parseInt(localOrder.tableId), { status: 'available', currentOrder: null });
+            try { await Tables.update(parseInt(localOrder.tableId), { status: 'available', currentOrder: null }); } catch(e) {}
         }
 
         // 6. Sync to server in background
@@ -2903,13 +2944,8 @@ const Taxes = {
     },
 
     async calculateTotal(subtotal, discountAmount) {
-        const activeTaxes = await this.getActive();
-        let totalTax = 0;
-        const afterDiscount = subtotal - discountAmount;
-        for (const tax of activeTaxes) {
-            totalTax += afterDiscount * ((tax.rate || 0) / 100);
-        }
-        return totalTax;
+        // No VAT: tax is always 0 per business decision.
+        return 0;
     }
 };
 
@@ -2956,6 +2992,44 @@ const AuditLogs = {
     async getByUser(userId) {
         const all = await this.getAll();
         return all.filter(l => l.userId === userId);
+    }
+};
+
+// ==================== سجل أخطاء النظام (للمراقبة والاستقرار) ====================
+const ErrorLogs = {
+    async log(category, message, context) {
+        try {
+            const entry = {
+                category: category || 'system',
+                message: String(message || ''),
+                context: context ? JSON.stringify(context) : '',
+                timestamp: new Date().toISOString(),
+                operator: Users.getCurrentUser && Users.getCurrentUser() ? (Users.getCurrentUser().name || 'unknown') : 'system'
+            };
+            // التخزين المحلي دائماً موثوق — بدون sync حتى لا يسيّر السجل نفسه
+            return await db.add('error_log', entry);
+        } catch (e) {
+            try { console.error('[error_log]', category, message); } catch (_) {}
+            return null;
+        }
+    },
+
+    async getAll() {
+        return db.getAll('error_log');
+    },
+
+    async getByCategory(category) {
+        const all = await this.getAll();
+        return all.filter(l => l.category === category).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    },
+
+    async getRecent(limit) {
+        const all = await this.getAll();
+        return all.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, limit || 50);
+    },
+
+    async clearAll() {
+        await db.clear('error_log');
     }
 };
 
@@ -3612,7 +3686,7 @@ const KnowledgeBase = {
 };
 
 // تصدير للاستخدام
-window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, DailyShifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, InventoryAlerts, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem };
+window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, DailyShifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, ErrorLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, InventoryAlerts, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem };
 
 // ===== SYNC INTEGRATION =====
 // When Supabase is available, enable auto-sync

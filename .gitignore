@@ -3,3 +3,10 @@ dist/
 .DS_Store
 Thumbs.db
 .ai-review/
+backend/.env
+backend/backups/
+backend/logs/
+*.log
+*.log.gz
+*.db
+test.txt

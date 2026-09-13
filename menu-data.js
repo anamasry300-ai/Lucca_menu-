@@ -30,6 +30,8 @@ const menuData = [
             { name: 'كورتادو', price: 75, description: 'نسبة متوازنة بين الإسبريسو والحليب الساخن.' },
             { name: 'كابتشينو', price: 85, description: 'إسبريسو مع رغوة كثيفة وحليب ساخن.', badge: 'popular' },
             { name: 'لاتيه', price: 85, description: 'قهوة إسبريسو مع حليب مخملي ورغوة خفيفة.', badge: 'popular' },
+            { name: 'إسبريسو لاتيه', price: 90, description: 'إسبريسو مكثّف مع حليب مخملي ورغوة غنية.', badge: 'new' },
+            { name: 'اسبانش لاتيه', price: 90, description: 'إسبريسو مع حليب مكثف محلى ونكهة كراميلية.', badge: 'new' },
             { name: 'نسكافيه', price: 70, description: 'مشروب قهوة سريع التحضير.' },
             { name: 'هوت شوكليت', price: 70, description: 'مشروب شوكولاتة دافئ غني وكريمي.' },
             { name: 'هوت شوكليت نوتيلا', price: 80, description: 'شوكولاتة ساخنة مع نكهة النوتيلا.', badge: 'specialty' }
@@ -56,6 +58,8 @@ const menuData = [
         items: [
             { name: 'آيس كوفي', price: 80, description: 'قهوة مثلجة', badge: 'popular' },
             { name: 'آيس لاتيه', price: 85, description: 'لاتيه مثلج', badge: 'popular' },
+            { name: 'آيس إسبريسو لاتيه', price: 90, description: 'إسبريسو لاتيه مثلج', badge: 'new' },
+            { name: 'آيس اسبانش لاتيه', price: 95, description: 'اسبانش لاتيه مثلج', badge: 'new' },
             { name: 'آيس موكا', price: 90, description: 'موكا مثلج' },
             { name: 'آيس وايت موكا', price: 90, description: 'وايت موكا مثلج' },
             { name: 'فرابتشينو', price: 95, description: 'فرابيه مثلج', badge: 'specialty' },
