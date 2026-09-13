@@ -833,6 +833,10 @@ function migrate(db: SqlJsDatabase) {
   // H2: تأمين — عمود "يجب تغيير كلمة المرور" لإجبار المدير ذي الكلمة الافتراضية على تغييرها
   try { db.run("ALTER TABLE users ADD COLUMN mustChangePassword INTEGER DEFAULT 0"); } catch { /* موجودة مسبقاً */ }
 
+  // عمود active (فُقد من الجداول القديمة: CREATE IF NOT EXISTS لا يضيفه) —
+  // مطلوب لـ getCurrentUser وlogin وinvitations (نفس نمط mustChangePassword).
+  try { db.run("ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1"); } catch { /* موجودة مسبقاً */ }
+
   // ===== Anti-Batman Phase 1: إدارة الموظفين بالبريد + الدعوات =====
   // هجرة إضافية بسيطة (نفس نمط mustChangePassword): بريد فريد + ربط موظف لحساب المستخدم.
   try { db.run("ALTER TABLE users ADD COLUMN email TEXT"); } catch { /* موجودة مسبقاً */ }

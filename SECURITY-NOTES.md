@@ -20,8 +20,9 @@
 
 ## 1b. خلل منشور مكتشف أثناء التدوير
 
-- `backend/src/auth.ts` — `getCurrentUser()` يستعلم عمود `active` غير الموجود في الـ DB الحيّة
-  → `GET /api/auth/me` يعيد 401 دائماً (خلل سابق، لا يخص التدوير). يُصلح بإزالة العمود من الاستعلام.
+- **مُصلَح**: `backend/src/db.ts` — `getCurrentUser()` يستعلم عمود `active` غير الموجود في الـ DB
+  الحيّة → `GET /api/auth/me` كان يعيد 401 دائماً. أُضيفت هجرة `ALTER TABLE users ADD COLUMN active`
+  (بنمط try/catch ذاته)؛ أُعيد البناء والتشغيل وتحقّق `/api/auth/me` → 200.
 
 ## 1c. Supabase (RLS) — نتيجة فحص 2026-09-13
 
