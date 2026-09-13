@@ -2,7 +2,7 @@
 // 6 نقاط بلا أي كتابة: لا شبكة، لا sync، لا بيانات — GET/أذونات فقط.
 // تشغيل: node c2-tests/server-smoke.cjs   (يفترض سيرفراً قائماً على localhost:3000)
 const BASE = process.env.SERVER_URL || 'http://localhost:3000';
-const GOOD_KEY = process.env.SERVER_KEY || '[REDACTED]';
+const GOOD_KEY = process.env.SERVER_KEY || '';
 
 let passed = 0, failed = 0;
 function record(name, ok, detail) {

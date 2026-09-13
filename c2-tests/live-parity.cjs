@@ -3,7 +3,7 @@
 // تشغيل: node c2-tests/live-parity.cjs   (يتطلب سيرفراً حياً على localhost:3000)
 const { mergePush, sameData, newestWins } = require('./safe-sync-engine');
 const BASE = process.env.SERVER_URL || 'http://localhost:3000';
-const KEY  = process.env.SERVER_KEY  || '[REDACTED]';
+const KEY  = process.env.SERVER_KEY  || '';
 const H = { 'Content-Type': 'application/json', 'x-api-key': KEY };
 
 let passed = 0, failed = 0;

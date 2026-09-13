@@ -158,7 +158,7 @@ export function getDeviceKeys(): string[] {
   const keys: string[] = [];
   const dk = process.env.DEVICE_API_KEY;
   if (dk) keys.push(dk);
-  const legacy = process.env.API_KEY || '[REDACTED]';
+  const legacy = process.env.API_KEY || '';
   if (legacy) keys.push(legacy);
   return keys;
 }
