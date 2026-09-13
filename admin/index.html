@@ -1643,6 +1643,7 @@
             <div class="sidebar-section">
                 <div class="sidebar-section-title">النظام</div>
                 <a class="sidebar-link" data-page="roles-page"><span class="icon">🔑</span>الأدوار والصلاحيات</a>
+                <a class="sidebar-link" data-page="batman-ask" id="batmanAskLink"><span class="icon">🦇</span>اسأل باتمان</a>
                 <a class="sidebar-link" data-page="audit-page"><span class="icon">📝</span>سجل التدقيق</a>
                 <a class="sidebar-link" data-page="backup-page"><span class="icon">💾</span>النسخ الاحتياطي</a>
                 <a class="sidebar-link" data-page="server-page"><span class="icon">⚙️</span>الخادم</a>
@@ -2208,6 +2209,12 @@
                 </div>
             </div>
 
+            <!-- ===== BATMAN ASK (قراءة فقط) ===== -->
+            <div class="page" id="page-batman-ask">
+                <div class="section-title">🦇 اسأل باتمان — مساعد المدير (قراءة فقط)</div>
+                <div id="batmanAskMount"></div>
+            </div>
+
             <!-- ===== AUDIT LOG ===== -->
             <div class="page" id="page-audit-page">
                 <div class="section-title">📝 αΪل التدقيق</div>
@@ -2552,6 +2559,7 @@ function initTabs(){
                 'purchases-page': ()=>loadPurchases(),
                 'expenses-page': ()=>{ populateExpenseForm(); loadExpenses(); },
                 'roles-page': ()=>loadRoleUsers(),
+                'batman-ask': ()=>BatmanQueries.mountAdminWidget('batmanAskMount'),
                 'audit-page': ()=>loadAuditLogs(),
                 'kb-page': ()=>{ refreshKBStats(); loadKBDocList(); },
             };
@@ -3470,7 +3478,23 @@ async function loadShifts(){
 async function startShift(){
     const empId = document.getElementById('shiftEmployee').value;
     if(!empId){ showToast('اختر الموظف','error'); return; }
-    try { await window.LuccaDB.Shifts.start(Number(empId)); loadShifts(); showToast('تم بدء الوردية'); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+    try { await window.LuccaDB.Shifts.start(Number(empId)); loadShifts(); showToast('تم بدء الوردية'); showProactiveShiftBrief(); } catch(e){ showToast('خطأ: '+e.message,'error'); }
+}
+
+// ===== رادار فتح الوردية: تنبيه استباقي قراءة-فقط (مخزون/مصروفات/كفاءة) قبل بدء العمل =====
+async function showProactiveShiftBrief(){
+    try{
+        if(!window.LuccaDB || !window.AdminAnalytics) return;
+        const snap = await window.AdminAnalytics.todaySnapshot(window.LuccaDB);
+        const alerts = (snap && snap.alerts) || [];
+        if(!alerts.length){
+            const sales = (snap && snap.kpis && snap.kpis.sales && snap.kpis.sales.value) || 0;
+            showToast('🦇 رادار الفتح: ✅ المؤشرات سليمة — مبيعات اليوم '+formatMoney(sales), 'success');
+        } else {
+            const brief = alerts.slice(0,3).map(a=>'· '+a.title+': '+a.message).join('\n');
+            showToast('🦇 رادار فتح الوردية:\n'+brief, 'warn');
+        }
+    }catch(e){ /* فحص استباقي غير حرج */ }
 }
 
 async function endShift(){
@@ -3515,6 +3539,7 @@ async function quickStartShift(mode){
         const res = await window.LuccaDB.Shifts.start(Number(empId), mode==='auto' ? period.label : 'بدء يدوي', mode==='auto' ? { shiftType: period.type, label: period.label } : {});
         quickLoadShiftStatus(); loadShifts();
         showToast(mode==='auto' ? 'تم بدء الشيفت التلقائي: '+period.label : 'تم بدء الوردية');
+        showProactiveShiftBrief();
     }catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
@@ -4541,9 +4566,9 @@ function luccaExcelToText(buf, maxRows, maxCols, maxSheets){
 async function luccaGenerateFileReport(){
     const src = window.__lastKBReport;
     if(!src) return aiBotReply('⚠️ لا يوجد ملف مرفوع حديثاً. ارفع ملف (Excel/CSV/نص) من شاشة "قاعدة المعرفة" ثم اطلب التقرير.', [{text:'رفع ملف',cmd:'open_kb'}]);
-    if(typeof window.OllamaAI === 'undefined') return aiBotReply('⚠️ محرك Ollama غير محمّل');
-    const avail = await window.OllamaAI.isAvailable();
-    if(!avail) return aiBotReply('⚠️ **Ollama غير متصل.** شغّل Ollama محلياً ثم أعد المحاولة (' + window.OllamaAI.host + ')');
+    if(typeof window.OllamaAI === 'undefined') return aiBotReply('⚠️ محرك LLM غير محمّل');
+    const avail = (typeof window.OllamaAI.llmReady === 'function') ? await window.OllamaAI.llmReady() : await window.OllamaAI.isAvailable();
+    if(!avail) return aiBotReply('⚠️ **لا مزود ذكاء متاح.** شغّل Ollama محلياً، أو اكتب في الرئيسية: "مفتاح openai: sk-..." ثم "الوضع التلقائي".');
     aiShowTyping();
     try{
         const system = 'أنت محاسب مالي خبير في مطعم "لوكا" (العملة ل.س). اقرأ بيانات الملف المقدم واكتب تقريراً بالعربية واضحاً ومكثفاً: أبرز الأرقام والمجاميع، القراءة حسب الأعمدة، أي ملاحظات أو تناقضات تلاحظها، وتوصيات عملية قابلة للتنفيذ. اعتمد في أي أرقام مجمعة على سطر "آلي (مجموع الأعمدة الرقمية...)" المرفق — إنه محسوب تلقائياً وموثوق تماماً، ولا تجمع الأرقام بنفسك أبداً. كن موجزاً (لا يتجاوز 450 كلمة). لا تفتعل أرقاماً غير موجودة في البيانات نفسها';
@@ -4614,6 +4639,7 @@ async function deleteKBDoc(id){
 <script src="../ocr-adapter.js"></script>
 <script src="../invoice-scanner.js"></script>
 <script src="../ai-pos-engine.js"></script>
+<script src="../batman-questions.js"></script>
 <script src="../forecasting.js"></script>
 <script src="../report-export.js"></script>
 <script src="../sync-engine.js"></script>
