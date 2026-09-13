@@ -3,8 +3,6 @@ import { Request, Response, NextFunction } from 'express';
 import { queryOne, getDb } from './db.js';
 
 // ===== إعدادات الأمان =====
-// توقيع الجلسات: سرّ مأخوذ من البيئة أو قيمة افتراضية (يُفضَّل ضبطه في .env في الإنتاج)
-const SESSION_SECRET = process.env.SESSION_SECRET || 'lucca-session-secret-change-me';
 const SESSION_TTL_MS = parseInt(process.env.SESSION_TTL_MS || String(12 * 60 * 60 * 1000)); // 12 ساعة
 export const SESSION_COOKIE = 'lucca_session';
 
