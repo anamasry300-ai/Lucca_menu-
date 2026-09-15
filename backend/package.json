@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "test": "node test/guard-regression.cjs && node test/checkout-idempotency.cjs",
+    "test": "node test/guard-regression.cjs && node test/checkout-idempotency.cjs && node test/runtime-smoke.cjs",
     "start": "node dist/index.js"
   },
   "dependencies": {

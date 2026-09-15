@@ -95,9 +95,12 @@ function securityHeaders(_req: express.Request, res: express.Response, next: exp
 }
 
 // === Input Sanitization (strip null bytes, limit string lengths) ===
+// حدود الحقل الواحد: 20000 حرف — تكفي لنصوص POS الطويلة (محتويات قاعدة المعرفة،
+// ملاحظات طلبات/فواتير/موردين) مع بقاء الحماية من إساءة استخدام الحمولة
+// (الجسم ككل محدود بـ express.json limit 5mb أعلاه). قبل كانت 5000 قد تقصّ النصوص.
 function sanitizeInput(obj: unknown): unknown {
   if (typeof obj === 'string') {
-    return obj.replace(/\0/g, '').slice(0, 5000);
+    return obj.replace(/\0/g, '').slice(0, 20000);
   }
   if (Array.isArray(obj)) {
     return obj.map(sanitizeInput);
