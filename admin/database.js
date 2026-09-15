@@ -1418,7 +1418,13 @@ const Orders = {
         }
 
         // 6. Sync to server in background
-        ServerAPI.checkout(orderId, { paymentMethod: paymentMethod || 'cash' }).catch(() => {});
+        // H4: نُرسل نفس paymentSyncId التي ثبّتها التحصيل المحلي — السيرفر يستبعد الازدواج
+        // (لا يعيد تسجيل دفع للفاتورة التي أكّدها هذا الجهاز محلياً) حتى لو أُعيدت المحاولة لاحقاً.
+        ServerAPI.checkout(orderId, {
+            paymentMethod: paymentMethod || 'cash',
+            paymentSyncId: (payment && payment.syncId) || undefined,
+            orderSyncId: (localOrder && localOrder.syncId) || undefined
+        }).catch(() => {});
 
         await _recordDrawerSale();
 

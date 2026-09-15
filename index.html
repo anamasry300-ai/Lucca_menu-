@@ -5196,10 +5196,15 @@
 
             for (const p of payments) {
                 try {
+                    // C5: الدفعات المتعددة (split) تُسجَّل بهوية مستقرة (syncId/orderSyncId) حتى
+                    // تُدمج مرتين بأمان مع السيرفر — وإلا تتكرر في المحاسبة عند المزامنة.
+                    if (typeof stampSyncRecord === 'function') {
+                        stampSyncRecord('payments', p, true);
+                        p.orderSyncId = order.syncId;
+                    }
                     await LuccaDB.db.add('payments', {
+                        ...p,
                         orderId: currentOrderId,
-                        amount: p.amount,
-                        method: p.method,
                         status: 'completed',
                         date: new Date().toISOString()
                     });
@@ -5226,8 +5231,21 @@
             document.getElementById('splitBillModal').classList.remove('show');
 
             if (totalPaid >= orderTotal) {
+                // C5: لا يُستدعى Orders.checkout هنا (كان يضيف دفعة كاملة ثانية فوق دفعات الـ split
+                // → ازدواج مقيّد في المحاسبة). نغلق الطلب محلياً بالدفعات المسجّلة فعلاً،
+                // وتصل البيانات للسيرفر عبر المزامنة الآمنة (syncId/orderSyncId أعلاه).
                 try {
-                    await LuccaDB.Orders.checkout(currentOrderId, order.paymentMethod);
+                    order.status = 'closed';
+                    order.paymentStatus = 'paid';
+                    order.totalPaid = order.totalPaid || totalPaid;
+                    order.changeAmount = (totalPaid - orderTotal);
+                    if (typeof stampSyncRecord === 'function') stampSyncRecord('orders', order, false);
+                    await LuccaDB.db.put('orders', order);
+                    // C5: دفعة فورية (best-effort) — ترفع الطلب المغلق + دفعات الـ split للسيرفر
+                    // بدل الاستدعاء المزدوج السابق، بدون أي تكرار دفع.
+                    if (LuccaDB.ServerSync && typeof LuccaDB.ServerSync.pushAll === 'function') {
+                        LuccaDB.ServerSync.pushAll().catch(() => {});
+                    }
                     currentOrderId = null;
                     currentOrder.length = 0;
                     renderOrderSummary();

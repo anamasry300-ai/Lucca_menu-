@@ -58,12 +58,15 @@ function normalizeOrderNumbers(): void {
 }
 
 // === Rate Limiter (in-memory) ===
-const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
 const RATE_LIMIT_MAX = 120; // requests per window
 const RATE_LIMIT_AUTH_MAX = 10; // auth attempts per window
 
+// كل استدعاء rateLimit() يحمل مخزنه الخاص (سكوب مستقل): سابقاً كانت كل حدود
+// الـ rate limit تتقاسم Map واحدة مفتاحية بالـ ip فقط، فكان عدّاد /api العام
+// يخلط بعدّاد /api/orders/:id/checkout → 429 خاطئ بعد 10 طلبات /api دون سبب.
 function rateLimit(windowMs = RATE_LIMIT_WINDOW, max = RATE_LIMIT_MAX) {
+  const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
@@ -292,10 +295,33 @@ app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout')
   try {
     const db = getDb();
     const orderId = req.params.id;
-    const { paymentMethod } = req.body;
+    const { paymentMethod, paymentSyncId, orderSyncId } = req.body || {};
+    const changeAmount = Number.isFinite(Number((req.body || {}).changeAmount)) ? Number((req.body || {}).changeAmount) : 0;
 
     const order = queryOne('SELECT * FROM orders WHERE id = ?', [orderId]);
     if (!order) { res.status(404).json({ error: 'Order not found' }); return; }
+
+    // H4: Idempotency — نفس الدفعة المرسلة من عميل أوفلاين (اكتمل تحصيلها محلياً) لا تُسجَّل مرتين.
+    // تُفحص قبل تحقق "الطلب مغلق" لأن إعادة محاولة نفس الدفعة قد تصادف طلباً أغلقته المحاولة الأولى.
+    // المصدر: body يحمل paymentSyncId (معرّف الدفعة المستقرة)، وعند وجوده سلفاً
+    // (إعادة محاولة بعد قطع اتصال أو مزامنة الجهاز نفسه) نعيد الطلب دون تكرار دفع أو إغلاق.
+    if (paymentSyncId) {
+      const dup = queryOne('SELECT id, orderId, orderSyncId FROM payments WHERE syncId = ?', [paymentSyncId]);
+      const sameOrder = dup && (
+        String(dup.orderId) === String(orderId) ||
+        (dup.orderSyncId && order.syncId && String(dup.orderSyncId) === String(order.syncId))
+      );
+      if (sameOrder) {
+        const already = queryOne('SELECT * FROM orders WHERE id = ?', [orderId]);
+        res.json({
+          success: true,
+          alreadyProcessed: true,
+          order: already ? { ...already, items: JSON.parse((already.items as string) || '[]') } : null,
+        });
+        return;
+      }
+    }
+
     if (order.status === 'closed') { res.status(409).json({ error: 'Order is already closed' }); return; }
 
     beginTransaction();
@@ -322,7 +348,7 @@ app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout')
       // 2. Close the order with payment info
       db.run(
         'UPDATE orders SET status = ?, paymentMethod = ?, paymentStatus = ?, totalPaid = ?, changeAmount = ?, orderNumber = ? WHERE id = ?',
-        ['closed', method, 'paid', total, 0, orderNumber, orderId]
+        ['closed', method, 'paid', total, changeAmount, orderNumber, orderId]
       );
 
       // 3. Free the table if this is a dine-in order
@@ -332,9 +358,12 @@ app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout')
       }
 
 // 4. Insert payment record (مع syncId/orderSyncId حتى يعكسه pull على جهاز آخر حال أُدرج الـ order عبر مزامنة)
+      // H4: عند ترجيع إعادة محاولة من عميل أوفلاين نُثبّت نفس paymentSyncId الذي أكده العميل محلياً
+      // (وبه استبعادنا الازدواج أعلاه) — أي إعادة إرسال لاحقة لن تُكرّر نفس الدفعة.
+      const paySyncId = paymentSyncId || newSyncId();
       db.run(
         'INSERT INTO payments (orderId, amount, method, status, createdBy, syncId, orderSyncId) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [orderId, total, method, 'completed', createdBy, newSyncId(), (order.syncId as string) || null]
+        [orderId, total, method, 'completed', createdBy, paySyncId, (orderSyncId || (order.syncId as string)) || null]
       );
 
       // 5. Insert order items into order_items table
@@ -702,9 +731,10 @@ app.post('/api/sync', authRequired, requirePermission('sync'), (req, res) => {
           );
         } catch { /* child table/column may not exist */ }
       }
-      // PT-OrderNumberNormalize: أرقام طلبات فريدة لكل يوم (السيرفر مصدر الحقيقة — يعالج طلبات أوفلاين المدفوعة)
-      try { normalizeOrderNumbers(); } catch { /* لا تُوقف الدمج إن تعذّرت الكتابة */ }
     }
+    // PT-OrderNumberNormalize: أرقام طلبات فريدة لكل يوم (السيرفر مصدر الحقيقة — يعالج طلبات أوفلاين المدفوعة)
+    // يُنفَّذ مرة واحدة فقط بعد دمج كل المخازن (لا مرة لكل مخزن في الحلقة أعلاه).
+    try { normalizeOrderNumbers(); } catch { /* لا تُوقف الدمج إن تعذّرت الكتابة */ }
     commitTransaction();
     // تسجيل سجل المزامنة (sync_log)
     try {
