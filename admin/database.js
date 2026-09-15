@@ -741,7 +741,8 @@ const Users = {
                 username: user.username,
                 name: user.name,
                 role: user.role,
-                active: user.active !== undefined ? user.active : true
+                active: user.active !== undefined ? user.active : true,
+                mustChangePassword: user.mustChangePassword ? (Number(user.mustChangePassword) === 1 || user.mustChangePassword === true) : false
             };
             localStorage.setItem('currentUser', JSON.stringify(safe));
             // الوصول الآمن للخادم: نسجّل دخولنا لدى الخادم للحصول على جلسة تُرفع صلاحيتنا الحقيقية.
@@ -837,6 +838,115 @@ const Users = {
         ServerAPI.setToken(null);
         localStorage.removeItem('currentUser');
         sessionStorage.removeItem('posAdminAuthed');
+    },
+
+    // ===== تغيير كلمة المرور (offline-first) =====
+    PENDING_PWD_KEY: 'lucca_pending_password_change',
+
+    _storePendingPasswordChange(data) {
+        try { localStorage.setItem(this.PENDING_PWD_KEY, JSON.stringify({ ...data, ts: new Date().toISOString() })); } catch(e) {}
+    },
+    _clearPendingPasswordChange() {
+        try { localStorage.removeItem(this.PENDING_PWD_KEY); } catch(e) {}
+    },
+    hasPendingPasswordChange() {
+        try { return !!localStorage.getItem(this.PENDING_PWD_KEY); } catch(e) { return false; }
+    },
+
+    // تغيير كلمة المرور محلياً أولاً، ثم محاولة دفعها للخادم.
+    // الخطأ المحلي (كلمة مرور خاطئة/قصيرة/افتراضية) يرمي — خطأ الشبكة لا يمنع التغيير.
+    async changePassword({ currentPassword, newPassword }) {
+        if (!currentPassword || !newPassword) throw new Error('كلمة المرور الحالية والجديدة مطلوبة');
+        if (String(newPassword).length < 6) throw new Error('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+        if (String(newPassword) === '123456') throw new Error('لا يمكن استخدام كلمة المرور الافتراضية 123456');
+
+        const me = this.getCurrentUser();
+        if (!me) throw new Error('لا يوجد مستخدم مسجل');
+
+        const users = await this.getAll();
+        const local = users.find(u => {
+            const idNum = Number(u.id);
+            const userIdNum = Number(u.userId != null ? u.userId : u.id);
+            const meId = Number(me.userId != null ? me.userId : me.id);
+            return (idNum === meId) || (idNum === Number(me.id)) || (userIdNum === meId) ||
+                   String(u.username || '').toLowerCase() === String(me.username || '').toLowerCase() ||
+                   String(u.email || '').toLowerCase() === String(me.email || '').toLowerCase();
+        });
+        if (!local) throw new Error('المستخدم المحلي غير موجود');
+
+        // التحقق من كلمة المرور الحالية محلياً (يعمل دون اتصال)
+        let ok = false;
+        if (local.password && String(local.password).startsWith('pbkdf2:')) {
+            const parts = local.password.split(':');
+            ok = (await this.pbkdf2Hash(currentPassword, parts[1])) === parts[2];
+        } else {
+            ok = (local.password === currentPassword);
+        }
+        if (!ok) throw new Error('كلمة المرور الحالية غير صحيحة');
+
+        // تحديث محلي فوري: تجزئة جديدة + إلغاء إلزامية التغيير
+        const salt = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
+        const hashed = await this.pbkdf2Hash(newPassword, salt);
+        const updated = { ...local, password: 'pbkdf2:' + salt + ':' + hashed, mustChangePassword: 0, updatedAt: new Date().toISOString() };
+        try { await db.put('users', updated); } catch(e) { throw new Error('تعذر حفظ التغيير محلياً'); }
+
+        const safe = { ...me, mustChangePassword: false };
+        localStorage.setItem('currentUser', JSON.stringify(safe));
+
+        // دفع للخادم إن أمكن؛ وإلا نُخزِن للمزامنة اللاحقة. لا يُعاد قفل الحساب هنا.
+        let status = 'local';
+        const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+        const token = ServerAPI.getToken();
+        try {
+            if (!token) { status = 'queued'; this._storePendingPasswordChange({ currentPassword, newPassword }); }
+            else {
+                const res = await fetch(`${url}/api/auth/password`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ currentPassword, newPassword }),
+                    signal: AbortSignal.timeout(4000)
+                });
+                if (res.ok) { status = 'synced'; this._clearPendingPasswordChange(); }
+                else { status = 'queued'; this._storePendingPasswordChange({ currentPassword, newPassword }); }
+            }
+        } catch(e) { status = 'queued'; this._storePendingPasswordChange({ currentPassword, newPassword }); }
+
+        return { ok: true, status };
+    },
+
+    // إعادة محاولة مزامنة تغيير كلمة المرور المؤجل (يستدعى عند الاتصال/التشغيل).
+    // لا يُعيد قفل الحساب أبداً — عند رفض الخادم يسجّل ويرجع {status:'rejected'}.
+    async syncPendingPasswordChange() {
+        const raw = localStorage.getItem(this.PENDING_PWD_KEY);
+        if (!raw) return null;
+        let pending; try { pending = JSON.parse(raw); } catch(e) { this._clearPendingPasswordChange(); return null; }
+        const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+        let token = ServerAPI.getToken();
+        try {
+            // لا جلسة → حاول تسجيل الدخول بكلمة المرور السابقة (لا تزال صالحة عند الخادم)
+            if (!token) {
+                const user = this.getCurrentUser();
+                const lr = await fetch(`${url}/api/auth/login`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: (user && (user.username || user.email)) || '', password: pending.currentPassword }),
+                    signal: AbortSignal.timeout(4000)
+                });
+                if (lr.ok) { const lj = await lr.json(); if (lj.token) { ServerAPI.setToken(lj.token); token = lj.token; } }
+            }
+            if (!token) return { status: 'queued' };
+            const res = await fetch(`${url}/api/auth/password`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify({ currentPassword: pending.currentPassword, newPassword: pending.newPassword }),
+                signal: AbortSignal.timeout(4000)
+            });
+            if (res.ok) { this._clearPendingPasswordChange(); return { status: 'synced' }; }
+            // الخادم رفض لاحقاً: لا نُعيد قفل الحساب بصمت — سجّل ونبّه.
+            console.warn('[Users] مزامنة تغيير كلمة المرور رُفضت من الخادم (status=' + res.status + ')');
+            return { status: 'rejected', code: res.status };
+        } catch(e) {
+            return { status: 'queued' };
+        }
     },
 
     getCurrentUser() {

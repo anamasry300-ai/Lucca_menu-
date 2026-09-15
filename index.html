@@ -23,6 +23,12 @@
     <script src="sync-engine.js"></script>
     <script src="menu-data.js"></script>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        .modal.must-change-modal { z-index: 9999; }
+        .modal.must-change-modal .modal-content { max-width: 380px; border-top: 4px solid var(--danger); }
+        .must-change-hint { display: none; }
+        .must-change-hint.show { display: block; }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -1232,6 +1238,9 @@
 
         // ==================== ADMIN LOGIN GATE ====================
         async function openAdminPanel() {
+            // إلزامية تغيير كلمة المرور: لا يمكن فتح أي واجهة مسؤول قبل التغيير.
+            const cu = window.LuccaDB ? window.LuccaDB.Users.getCurrentUser() : null;
+            if (cu && cu.mustChangePassword) { openMustChangeModal(); return; }
             // Check if already authenticated as admin in this session
             const authed = sessionStorage.getItem('posAdminAuthed');
             if (authed === '1') {
@@ -1263,6 +1272,12 @@
                 const currentUser = window.LuccaDB.Users.getCurrentUser();
                 window.currentUser = currentUser || null;
                 if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'manager')) {
+                    if (currentUser.mustChangePassword) {
+                        // إلزامية التغيير: نغلق الدخول ونعرض القفل — لا صلاحية قبل تعيين كلمة مرور جديدة.
+                        closeAdminLogin();
+                        openMustChangeModal();
+                        return;
+                    }
                     sessionStorage.setItem('posAdminAuthed', '1');
                     closeAdminLogin();
                     _showAdminPanelContent();
@@ -1284,6 +1299,50 @@
         function _showAdminPanelContent() {
             const modal = document.getElementById('adminPanelModal');
             if (modal) { modal.classList.add('show'); posLoadCategories(); posLoadProducts(); posLoadPaymentMethods(); }
+        }
+
+        // ===== MUST CHANGE PASSWORD (قفل إجباري بلا إغلاق) =====
+        function openMustChangeModal() {
+            const m = document.getElementById('mustChangeModal');
+            if (!m) return;
+            m.classList.add('show');
+            ['mcCurrentPass', 'mcNewPass', 'mcNewPass2'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+            const err = document.getElementById('mcError');
+            if (err) { err.style.display = 'none'; err.classList.remove('show'); }
+            const cur = document.getElementById('mcCurrentPass');
+            if (cur) cur.focus();
+        }
+
+        async function submitMustChange() {
+            const current = document.getElementById('mcCurrentPass').value;
+            const np1 = document.getElementById('mcNewPass').value;
+            const np2 = document.getElementById('mcNewPass2').value;
+            const err = document.getElementById('mcError');
+            const btn = document.getElementById('mcSaveBtn');
+            if (!current || !np1 || !np2) { err.textContent = 'أكمل جميع الحقول'; err.style.display = ''; err.classList.add('show'); return; }
+            if (np1 !== np2) { err.textContent = 'كلمتا المرور غير متطابقتين'; err.style.display = ''; err.classList.add('show'); return; }
+            err.style.display = 'none'; err.classList.remove('show');
+            btn.textContent = 'جارٍ الحفظ...'; btn.disabled = true;
+            try {
+                const res = await window.LuccaDB.Users.changePassword({ currentPassword: current, newPassword: np1 });
+                document.getElementById('mustChangeModal').classList.remove('show');
+                try {
+                    const sr = await window.LuccaDB.Users.syncPendingPasswordChange();
+                    if (sr && sr.status === 'rejected') showToast('تنبيه: فشلت مزامنة كلمة المرور مع الخادم لاحقاً');
+                } catch (_) {}
+                if (res && res.status !== 'synced') showToast('تم تغيير كلمة المرور محلياً — ستُزامن مع الخادم لاحقاً');
+                else showToast('تم تغيير كلمة المرور بنجاح');
+                sessionStorage.setItem('posAdminAuthed', '1');
+                window.currentUser = window.LuccaDB.Users.getCurrentUser();
+                _showAdminPanelContent();
+                if (typeof applyVoidPermission === 'function') applyVoidPermission();
+            } catch (e) {
+                err.textContent = e.message || 'تعذر تغيير كلمة المرور';
+                err.style.display = ''; err.classList.add('show');
+            } finally {
+                btn.textContent = 'حفظ وتغيير كلمة المرور';
+                btn.disabled = false;
+            }
         }
 
         function openKitchenDisplay(){
@@ -5337,7 +5396,7 @@
             if (e.key === '0') { selectTable(10); return; }
             // ESC = close modals
             if (e.key === 'Escape') {
-                document.querySelectorAll('.modal.show').forEach(m => m.classList.remove('show'));
+                document.querySelectorAll('.modal.show:not(.must-change-modal)').forEach(m => m.classList.remove('show'));
                 const aiWin = document.getElementById('aiChatWindow');
                 if(aiWin && aiWin.classList.contains('open')) aiWin.classList.remove('open');
                 return;
@@ -7316,5 +7375,30 @@ function matchAny(text, keywords){
     return keywords.some(k => text.includes(k));
 }
 </script>
+
+<!-- ===== MUST CHANGE PASSWORD MODAL (قفل إجباري بلا إغلاق) ===== -->
+<div class="modal must-change-modal" id="mustChangeModal">
+    <div class="modal-content">
+        <div style="text-align:center;padding:26px 24px 6px;">
+            <div style="font-size:2.4rem;margin-bottom:6px;">🔒</div>
+            <h3 style="font-family:'Playfair Display',serif;color:var(--text);margin:0 0 4px;">تغيير كلمة المرور مطلوب</h3>
+            <p style="color:var(--text-secondary);font-size:0.85rem;margin:0;">لأمان الحساب، يجب تعيين كلمة مرور جديدة قبل المتابعة.</p>
+        </div>
+        <div style="padding:16px 24px 22px;">
+            <input type="password" id="mcCurrentPass" placeholder="كلمة المرور الحالية" autocomplete="current-password"
+                style="width:100%;padding:11px 12px;border:2px solid var(--border);border-radius:10px;font-size:0.9rem;margin-bottom:12px;text-align:center;font-family:var(--font);direction:rtl;">
+            <input type="password" id="mcNewPass" placeholder="كلمة المرور الجديدة (6 أحرف على الأقل — لا تستخدم 123456)" autocomplete="new-password"
+                style="width:100%;padding:11px 12px;border:2px solid var(--border);border-radius:10px;font-size:0.9rem;margin-bottom:12px;text-align:center;font-family:var(--font);direction:rtl;">
+            <input type="password" id="mcNewPass2" placeholder="تأكيد كلمة المرور الجديدة" autocomplete="new-password"
+                style="width:100%;padding:11px 12px;border:2px solid var(--border);border-radius:10px;font-size:0.9rem;margin-bottom:14px;text-align:center;font-family:var(--font);direction:rtl;"
+                onkeydown="if(event.key==='Enter')submitMustChange()">
+            <button onclick="submitMustChange()" id="mcSaveBtn"
+                style="width:100%;padding:12px;background:var(--danger);color:white;border:none;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;font-family:var(--font);transition:all 0.2s;">
+                حفظ وتغيير كلمة المرور
+            </button>
+            <div id="mcError" class="must-change-hint" style="color:var(--danger);font-size:0.85rem;margin-top:10px;text-align:center;"></div>
+        </div>
+    </div>
+</div>
 </body>
 </html>

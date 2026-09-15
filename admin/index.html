@@ -1464,6 +1464,71 @@
             justify-content: flex-end;
         }
         .modal-footer .btn { min-width: 100px; }
+        /* ===== إلزامية تغيير كلمة المرور (قفل كامل — بلا إغلاق) ===== */
+        .modal-overlay.must-change-modal {
+            z-index: 9999;
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(5px);
+        }
+        .modal-overlay.must-change-modal .modal-box {
+            max-width: 380px;
+            width: 100%;
+            border-top: 4px solid var(--danger);
+            box-shadow: var(--shadow-lg);
+        }
+        .must-change-head {
+            text-align: center;
+            padding: 26px 24px 6px;
+        }
+        .must-change-head .must-change-icon {
+            font-size: 2.4rem;
+            margin-bottom: 6px;
+        }
+        .must-change-head h3 {
+            font-size: 1.25rem;
+            color: var(--text);
+            margin: 0 0 4px;
+        }
+        .must-change-head p {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin: 0;
+        }
+        .must-change-fields {
+            padding: 16px 24px 22px;
+        }
+        .must-change-fields .modal-field {
+            margin-bottom: 12px;
+        }
+        .must-change-fields .modal-field input {
+            width: 100%;
+            padding: 11px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-family: var(--font);
+            background: var(--surface);
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+        .must-change-fields .modal-field input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .must-change-hint {
+            display: none;
+            margin-top: 10px;
+            padding: 8px 10px;
+            border-radius: var(--radius);
+            background: var(--danger-surface);
+            border: 1px solid var(--danger);
+            color: var(--danger-dark);
+            font-size: 0.8rem;
+            text-align: center;
+        }
+        .must-change-footer {
+            padding: 0 24px 22px;
+        }
+        .must-change-footer .btn { width: 100%; }
         .detail-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -2461,15 +2526,27 @@ async function doLogin(){
         const u = await window.LuccaDB.Users.login(user, pass);
         currentUser = u;
         window.__luccaRole = u.role || 'user';
-        document.getElementById('loginScreen').style.display='none';
-        document.getElementById('app').style.display='flex';
-        document.getElementById('userDisplayName').textContent = u.displayName || u.username;
-        document.getElementById('userRoleDisplay').textContent = u.role || 'user';
-        document.getElementById('userAvatar').textContent = (u.displayName||u.username||'U')[0].toUpperCase();
-        initDateFilter();
-        initTabs();
-        refreshDashboard();
+        if (u.mustChangePassword) {
+            // إلزامية تغيير كلمة المرور: نعرض قفل بلا إغلاق ولا نفتح الواجهة قبل التغيير.
+            document.getElementById('loginError').textContent = '';
+            openMustChangeModal();
+            return;
+        }
+        enterApp(u);
     } catch(e){ document.getElementById('loginError').textContent = 'خطأ في تسجيل الدخول'; }
+}
+
+function enterApp(u){
+    currentUser = u || currentUser;
+    window.__luccaRole = (u && u.role) || currentUser.role || 'user';
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('app').style.display='flex';
+    document.getElementById('userDisplayName').textContent = u?.displayName || u?.username || '';
+    document.getElementById('userRoleDisplay').textContent = u?.role || 'user';
+    document.getElementById('userAvatar').textContent = ((u?.displayName||u?.username||'U'))[0].toUpperCase();
+    initDateFilter();
+    initTabs();
+    refreshDashboard();
 }
 
 function doLogout(){
@@ -3155,7 +3232,7 @@ function closeModal(id){
 
 // Close modal on overlay click
 document.addEventListener('click', function(e){
-    if (e.target.classList.contains('modal-overlay') && e.target.classList.contains('active')) {
+    if (e.target.classList.contains('modal-overlay') && e.target.classList.contains('active') && !e.target.classList.contains('must-change-modal')) {
         e.target.classList.remove('active');
     }
 });
@@ -3163,9 +3240,47 @@ document.addEventListener('click', function(e){
 // Close modal on Escape
 document.addEventListener('keydown', function(e){
     if (e.key === 'Escape') {
-        document.querySelectorAll('.modal-overlay.active').forEach(m=>m.classList.remove('active'));
+        document.querySelectorAll('.modal-overlay.active:not(.must-change-modal)').forEach(m=>m.classList.remove('active'));
     }
 });
+
+// ===== MUST CHANGE PASSWORD (قفل إجباري بلا إغلاق) =====
+function openMustChangeModal(){
+    const m = document.getElementById('mustChangeModal');
+    if(!m) return;
+    m.classList.add('active');
+    ['mcCurrentPass','mcNewPass','mcNewPass2'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+    const err = document.getElementById('mcError'); if(err) err.style.display='none';
+    const cur = document.getElementById('mcCurrentPass'); if(cur) cur.focus();
+}
+
+async function submitMustChange(){
+    const current = document.getElementById('mcCurrentPass').value;
+    const np1 = document.getElementById('mcNewPass').value;
+    const np2 = document.getElementById('mcNewPass2').value;
+    const err = document.getElementById('mcError');
+    const btn = document.getElementById('mcSaveBtn');
+    if(!current || !np1 || !np2){ err.textContent='أكمل جميع الحقول'; err.style.display=''; return; }
+    if(np1 !== np2){ err.textContent='كلمتا المرور غير متطابقتين'; err.style.display=''; return; }
+    err.style.display='none';
+    btn.disabled=true; btn.textContent='جارٍ الحفظ...';
+    try{
+        const res = await window.LuccaDB.Users.changePassword({ currentPassword: current, newPassword: np1 });
+        document.getElementById('mustChangeModal').classList.remove('active');
+        try {
+            const sr = await window.LuccaDB.Users.syncPendingPasswordChange();
+            if(sr && sr.status==='rejected') showToast('تنبيه: فشلت مزامنة كلمة المرور مع الخادم لاحقاً');
+        } catch(_){}
+        if (res && res.status !== 'synced') showToast('تم تغيير كلمة المرور محلياً — ستُزامن مع الخادم لاحقاً');
+        else showToast('تم تغيير كلمة المرور بنجاح');
+        enterApp(currentUser);
+    }catch(e){
+        err.textContent = e.message || 'تعذر تغيير كلمة المرور';
+        err.style.display='';
+    }finally{
+        btn.disabled=false; btn.textContent='حفظ وتغيير كلمة المرور';
+    }
+}
 
 // ===== BADGE SELECTOR =====
 function selectBadge(el){
@@ -4320,6 +4435,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
             if(exists){
                 currentUser = exists;
                 window.__luccaRole = exists.role || 'user';
+                const mustChange = !!(exists.mustChangePassword && (Number(exists.mustChangePassword)===1 || exists.mustChangePassword===true));
+                if (mustChange) {
+                    // إلزامية تغيير كلمة المرور: لا نفتح الواجهة — القفل الإجباري فقط.
+                    openMustChangeModal();
+                    return;
+                }
                 document.getElementById('loginScreen').style.display='none';
                 document.getElementById('app').style.display='flex';
                 document.getElementById('userDisplayName').textContent = exists.displayName || exists.username;
@@ -4934,5 +5055,34 @@ async function processAdminBot(text){
     return aiBotReply('🤔 ما فهمت. جرب:\n• "مبيعات اليوم"\n• "تقرير يومي"\n• "الموظفين"\n• "المنتجات"\n• "المصروفات"\n• "الفواتير"\n• "تكلفة"\n• "حسابات" / "P&L"\n• "توقع"\n• "المخزون"\n• "الموردين"\n• "قاعدة المعرفة"',[{text:'تقرير',cmd:'report'},{text:'المبيعات',cmd:'sales'},{text:'التكلفة',cmd:'تكلفة'},{text:'المعرفة',cmd:'knowledge'}]);
 }
 </script>
+
+<!-- ===== MUST CHANGE PASSWORD MODAL (قفل إجباري بلا إغلاق) ===== -->
+<div class="modal-overlay must-change-modal" id="mustChangeModal">
+    <div class="modal-box">
+        <div class="must-change-head">
+            <div class="must-change-icon">🔒</div>
+            <h3>تغيير كلمة المرور مطلوب</h3>
+            <p>لأمان الحساب، يجب تعيين كلمة مرور جديدة قبل المتابعة.</p>
+        </div>
+        <div class="must-change-fields">
+            <div class="modal-field">
+                <label>كلمة المرور الحالية</label>
+                <input type="password" id="mcCurrentPass" autocomplete="current-password" placeholder="كلمة المرور الحالية">
+            </div>
+            <div class="modal-field">
+                <label>كلمة المرور الجديدة</label>
+                <input type="password" id="mcNewPass" autocomplete="new-password" placeholder="6 أحرف على الأقل — لا تستخدم 123456">
+            </div>
+            <div class="modal-field">
+                <label>تأكيد كلمة المرور الجديدة</label>
+                <input type="password" id="mcNewPass2" autocomplete="new-password" placeholder="أعد كلمة المرور الجديدة">
+            </div>
+            <div class="must-change-hint" id="mcError"></div>
+        </div>
+        <div class="must-change-footer">
+            <button class="btn btn-danger" id="mcSaveBtn" onclick="submitMustChange()">حفظ وتغيير كلمة المرور</button>
+        </div>
+    </div>
+</div>
 </body>
 </html>

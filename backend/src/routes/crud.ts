@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getDb, saveDb, queryAll, queryOne, insert, getLastInsertId, beginTransaction, commitTransaction, rollbackTransaction } from '../db.js';
-import { authRequired, AuthRequest, roleHas } from '../auth.js';
+import { authRequired, requirePasswordChanged, AuthRequest, roleHas } from '../auth.js';
 
 const VALID_COL_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
@@ -9,6 +9,7 @@ const router = Router();
 // ===== H2: تفويض (Authorization) على الخادم =====
 // ===== H3: توحيد تطبيق التفويض على خريطة ROLE_PERMISSIONS (مصدر حقيقة واحد) =====
 router.use(authRequired as any);
+router.use(requirePasswordChanged as any);
 
 function isAdminish(req: AuthRequest): boolean {
   const id = req.identity;

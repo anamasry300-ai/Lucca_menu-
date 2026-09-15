@@ -197,6 +197,25 @@ export function requireRole(...roles: string[]) {
   };
 }
 
+// هل المستخدم الحالي مطلوب منه تغيير كلمة المرور أولاً؟ (لا هوية بشرية → لا فحص)
+function userMustChangePassword(identity: Identity | null): boolean {
+  if (!identity || identity.kind !== 'user' || identity.userId == null) return false;
+  try {
+    const u = queryOne('SELECT mustChangePassword FROM users WHERE id = ?', [identity.userId]);
+    return !!(u && Number(u.mustChangePassword) === 1);
+  } catch { /* تجاهل */ return false; }
+}
+
+// Middleware: يمنع أي عملية (قراءة/كتابة) لمستخدم بعلامة mustChangePassword —
+// يُستخدم للرواتر التي تكتفي بـ authRequired دون requirePermission (crud/special/batman/...).
+export function requirePasswordChanged(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.identity) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  if (userMustChangePassword(req.identity)) {
+    res.status(403).json({ error: 'Password change required (mustChangePassword)' }); return;
+  }
+  next();
+}
+
 // Middleware: يتطلب صلاحية معيّنة (403 إن لم تكن لدى الهوية)
 export function requirePermission(perm: string) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -204,13 +223,8 @@ export function requirePermission(perm: string) {
     if (!identity) { res.status(401).json({ error: 'Unauthorized' }); return; }
     if (!roleHas(identity.role, perm)) { res.status(403).json({ error: 'Forbidden: missing permission ' + perm }); return; }
     // H2: فرض تغيير كلمة مرور المدير ذات الكلمة الافتراضية قبل أي عملية مُميَّزة
-    if (identity.kind === 'user' && identity.userId != null && perm !== 'password.change') {
-      try {
-        const u = queryOne('SELECT mustChangePassword FROM users WHERE id = ?', [identity.userId]);
-        if (u && Number(u.mustChangePassword) === 1) {
-          res.status(403).json({ error: 'Password change required (mustChangePassword)' }); return;
-        }
-      } catch { /* تجاهل */ }
+    if (perm !== 'password.change' && userMustChangePassword(identity)) {
+      res.status(403).json({ error: 'Password change required (mustChangePassword)' }); return;
     }
     next();
   };

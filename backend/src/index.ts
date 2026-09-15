@@ -12,7 +12,7 @@ import reportRoutes from './routes/reports.js';
 import batmanRoutes from './routes/batman.js';
 import adminRoutes from './routes/admin.js';
 import tableLocksRoutes from './routes/tableLocks.js';
-import { authRequired, requirePermission, resolveIdentity, requireRole, AuthRequest, SESSION_COOKIE, ADMIN_ONLY_STORES, roleHas, getDeviceKeys } from './auth.js';
+import { authRequired, requirePermission, requirePasswordChanged, resolveIdentity, requireRole, AuthRequest, SESSION_COOKIE, ADMIN_ONLY_STORES, roleHas, getDeviceKeys } from './auth.js';
 import logger, { httpLoggerMiddleware } from './logger.js';
 import { startBackupScheduler } from './backup.js';
 
@@ -159,14 +159,14 @@ app.use('/api/auth', authRoutes);
 
 // H1: تزويد كشك POS بمفتاح جهاز device-scoped — يتطلب جلسة admin (لا مفتاح/secret في السورس).
 // يُزوَّد الكشك مرة عبر هذه الاستدعاء (مصادقة admin)، لا يُخزّن حرفياً في الواجهة، ويمكن تدويره دون إعادة نشر.
-app.post('/api/auth/provision-device', authRequired, requireRole('admin'), (_req, res) => {
+app.post('/api/auth/provision-device', authRequired, requirePasswordChanged, requireRole('admin'), (_req, res) => {
   const keys = getDeviceKeys();
   if (keys.length) res.json({ deviceKey: keys[0] });
   else res.status(500).json({ error: 'No device key configured (set DEVICE_API_KEY)' });
 });
 
 // H1: استعلام عن حالة الجهاز (admin) — لا يُعاد أي secret.
-app.get('/api/auth/device-status', authRequired, requireRole('admin'), (_req, res) => {
+app.get('/api/auth/device-status', authRequired, requirePasswordChanged, requireRole('admin'), (_req, res) => {
   res.json({ configured: getDeviceKeys().length > 0 });
 });
 
@@ -205,7 +205,7 @@ app.use('/api/admin', adminRoutes);
 //   target=ollama  — يوجّه إلى Ollama المحلي عبر /v1/chat/completions
 // لا يخزّن المفتاح في الواجهة النهائية: البطاقة هنا بين يدي السيرفر فقط.
 const ALLOWED_PROXY_BASES = /^https?:\/\//i;
-app.post(['/api/proxy-llm', '/api/openai'], async (req, res) => {
+app.post(['/api/proxy-llm', '/api/openai'], authRequired, requirePasswordChanged, async (req, res) => {
   const body = (req.body as Record<string, unknown>) || {};
 
   const target = String((req.headers['x-lucca-target'] as string) || body.target || 'openai').trim();

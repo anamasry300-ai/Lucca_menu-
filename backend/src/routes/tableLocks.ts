@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getDb, queryOne } from '../db.js';
-import { authRequired } from '../auth.js';
+import { authRequired, requirePasswordChanged } from '../auth.js';
 
 // ===== Phase 2: Advisory table locks (تنسيق متعدد الأجهزة) =====
 // قفل استشاري لكل طاولة: يحميه جهاز واحد فقط حتى انتهاء الصلاحية (60 ثانية) أو التحرير الصريح.
@@ -20,7 +20,7 @@ function isRealTableId(id: string): boolean {
 }
 
 // حالة القفل الحالية (transparency للشاشات الأخرى)
-router.get('/:tableId/lock', authRequired, (req: Request, res: Response) => {
+router.get('/:tableId/lock', authRequired, requirePasswordChanged, (req: Request, res: Response) => {
   try {
     const tableId = String(req.params.tableId || '');
     if (!isRealTableId(tableId)) { res.status(400).json({ error: 'tableId must be a numeric dined-in table' }); return; }
@@ -34,7 +34,7 @@ router.get('/:tableId/lock', authRequired, (req: Request, res: Response) => {
 });
 
 // اكتساب القفل: نفس الجهاز → تجديد وقت الانتهاء؛ جهاز آخر → 409 مع بيانات الحامل
-router.post('/:tableId/lock', authRequired, (req: Request, res: Response) => {
+router.post('/:tableId/lock', authRequired, requirePasswordChanged, (req: Request, res: Response) => {
   try {
     const tableId = String(req.params.tableId || '');
     if (!isRealTableId(tableId)) { res.status(400).json({ error: 'tableId must be a numeric dined-in table' }); return; }
@@ -70,7 +70,7 @@ router.post('/:tableId/lock', authRequired, (req: Request, res: Response) => {
 });
 
 // تحرير القفل: حصري للحامل (يستخدمه المحرك عند انتهاء التحصيل/الفتح)
-router.post('/:tableId/unlock', authRequired, (req: Request, res: Response) => {
+router.post('/:tableId/unlock', authRequired, requirePasswordChanged, (req: Request, res: Response) => {
   try {
     const tableId = String(req.params.tableId || '');
     if (!tableId) { res.status(400).json({ error: 'tableId is required' }); return; }

@@ -1,10 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { getDb, saveDb, queryAll, queryOne } from '../db.js';
-import { authRequired, AuthRequest } from '../auth.js';
+import { authRequired, requirePasswordChanged, AuthRequest } from '../auth.js';
 
 const router = Router();
 
 router.use(authRequired as any);
+router.use(requirePasswordChanged as any);
 
 function adminish(req: AuthRequest): boolean {
   const id = req.identity;
