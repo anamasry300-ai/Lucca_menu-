@@ -5175,13 +5175,11 @@
         async function confirmSplitPayment() {
             if (!currentOrderId) return;
             const rows = document.querySelectorAll('.split-payment-row');
-            let totalPaid = 0;
             const payments = [];
             rows.forEach(row => {
                 const method = row.querySelector('.split-pm-select')?.value || 'cash';
                 const amount = parseFloat(row.querySelector('.split-pm-amount')?.value) || 0;
                 if (amount > 0) {
-                    totalPaid += amount;
                     payments.push({ method, amount });
                 }
             });
@@ -5192,67 +5190,47 @@
             const order = orders.find(o => o.id === currentOrderId);
             if (!order) return;
 
-            const orderTotal = order.total || 0;
+            // P1: كل جزء يحصل على paymentSyncId مستقر — أي إعادة محاولة لنفس الملف
+            // (أو مزامنة لاحقة) يستبعدها السيرفر (idempotent) فلا يتكرر أي دفع ولا يُغلق الطلب مرتين.
+            payments.forEach(p => {
+                if (!p.paymentSyncId) {
+                    p.paymentSyncId = (window.crypto && crypto.randomUUID)
+                        ? crypto.randomUUID()
+                        : ('split-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
+                }
+            });
 
-            for (const p of payments) {
-                try {
-                    // C5: الدفعات المتعددة (split) تُسجَّل بهوية مستقرة (syncId/orderSyncId) حتى
-                    // تُدمج مرتين بأمان مع السيرفر — وإلا تتكرر في المحاسبة عند المزامنة.
-                    if (typeof stampSyncRecord === 'function') {
-                        stampSyncRecord('payments', p, true);
-                        p.orderSyncId = order.syncId;
-                    }
-                    await LuccaDB.db.add('payments', {
-                        ...p,
-                        orderId: currentOrderId,
-                        status: 'completed',
-                        date: new Date().toISOString()
-                    });
-                } catch(e) {}
+            try {
+                // P1: تحصيل صارم عبر السيرفر فقط (بدون إغلاق محلي ولا pushAll ولا دفع محلي مزيف)
+                const closed = await LuccaDB.Orders.checkoutToServer(currentOrderId, { payments });
+                if (!closed) {
+                    showToast('❌ تعذر الاتصال بالسيرفر — الطلب بقي مفتوحاً ولم يُسجَّل أي دفع، أعد المحاولة', 'error');
+                    return; // يبقى المودال مفتوحاً — لا إغلاق محلي
+                }
+            } catch (e) {
+                const msg = (e && e.status === 409)
+                    ? (e.message || 'مبلغ الدفعات لا يطابق إجمالي الطلب')
+                    : String((e && e.message) || 'تعذر التحصيل');
+                showToast('❌ ' + msg + ' — الطلب بقي مفتوحاً، لم يُغلق', 'error');
+                return; // المودال يبقى — المستخدم يعدّل المبالغ
             }
 
-            if (totalPaid >= orderTotal) {
-                order.paymentStatus = 'paid';
-                order.totalPaid = totalPaid;
-                order.changeAmount = totalPaid - orderTotal;
-                order.paymentMethod = payments.map(p => p.method).join(' + ');
-            } else {
-                order.paymentStatus = 'partial';
-                order.totalPaid = totalPaid;
-            }
-            await LuccaDB.db.put('orders', order);
-
-            const diff = totalPaid - orderTotal;
-            let msg = `✅ تم تسجيل الدفع: ${payments.map(p => `${p.method} ${p.amount}`).join(' + ')}`;
+            const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+            const diff = totalPaid - (order.total || 0);
+            let msg = `✅ تم تحصيل الدفع مقسّماً (${payments.map(p => `${p.method} ${p.amount}`).join(' + ')})`;
             if (diff > 0) msg += `\nالمتبقي للمصروف: ${diff.toFixed(0)} ج.م`;
             else if (diff < 0) msg += `\nالمتبقي على العميل: ${Math.abs(diff).toFixed(0)} ج.م`;
 
             showToast(msg);
             document.getElementById('splitBillModal').classList.remove('show');
 
-            if (totalPaid >= orderTotal) {
-                // C5: لا يُستدعى Orders.checkout هنا (كان يضيف دفعة كاملة ثانية فوق دفعات الـ split
-                // → ازدواج مقيّد في المحاسبة). نغلق الطلب محلياً بالدفعات المسجّلة فعلاً،
-                // وتصل البيانات للسيرفر عبر المزامنة الآمنة (syncId/orderSyncId أعلاه).
-                try {
-                    order.status = 'closed';
-                    order.paymentStatus = 'paid';
-                    order.totalPaid = order.totalPaid || totalPaid;
-                    order.changeAmount = (totalPaid - orderTotal);
-                    if (typeof stampSyncRecord === 'function') stampSyncRecord('orders', order, false);
-                    await LuccaDB.db.put('orders', order);
-                    // C5: دفعة فورية (best-effort) — ترفع الطلب المغلق + دفعات الـ split للسيرفر
-                    // بدل الاستدعاء المزدوج السابق، بدون أي تكرار دفع.
-                    if (LuccaDB.ServerSync && typeof LuccaDB.ServerSync.pushAll === 'function') {
-                        LuccaDB.ServerSync.pushAll().catch(() => {});
-                    }
-                    currentOrderId = null;
-                    currentOrder.length = 0;
-                    renderOrderSummary();
-                    await loadTables();
-                    refreshOrdersTracker();
-                } catch(e) {}
-            }
+            // P1: نجاح السيرفر — نحرر الواجهة (الطلب المدفوع وصل من السيرفر مصدر الحقيقة،
+            // وداخله paymentMethod='split' ودفعات الأجزاء مسجّلة). لا كتابة مدفوعات محلية هنا.
+            currentOrderId = null;
+            currentOrder.length = 0;
+            renderOrderSummary();
+            await loadTables();
+            refreshOrdersTracker();
         }
 
         // ═══ Sync Queue (Offline-First Backup) ═══════════════════
@@ -6628,35 +6606,11 @@ async function processAiCommand(text){
         const desc = text.replace(/فاتورة|\d+/g,'').trim() || 'فاتورة يدوية';
         const method = t.includes('كاش')||t.includes('نقدي')?'cash':t.includes('فيزا')||t.includes('كارت')?'card':t.includes('واتساب')||t.includes('تحويل')?'transfer':'cash';
         try{
-            await window.LuccaDB.Expenses.add({
-                description:'فاتورة: '+desc,
-                amount:0,
-                category:'إيراد',
-                date:new Date().toISOString()
-            });
-            // Create a manual order record
-            const orderId = Date.now();
-            await window.LuccaDB.Orders.add({
-                id: orderId,
-                orderNumber: 'INV-'+orderId,
-                total: amount,
-                totalAmount: amount,
-                paymentMethod: method,
-                paymentStatus: 'paid',
-                status: 'paid',
-                items: [{name:desc, quantity:1, price:amount, total:amount}],
-                customerName: '',
-                date: new Date().toISOString(),
-                createdAt: new Date().toISOString()
-            });
-            // تدقيق إلزامي للفاتورة اليدوية
-            if(window.LuccaDB && window.LuccaDB.AuditLogs){
-                try {
-                    const cu = window.LuccaDB.Users.getCurrentUser();
-                    window.LuccaDB.AuditLogs.log('AI_RECORD_INVOICE','orders',orderId,null,{amount,description:desc,method},(cu&&cu.name)||'unknown').catch(()=>{});
-                } catch(_){}
+            const res = await window.LuccaDB.Orders.recordManualInvoice({ amount, description: desc, method });
+            if(!res || !res.success){
+                return aiBotReply('❌ ' + ((res && res.error) || 'تعذر تسجيل الفاتورة - تحقق من الاتصال بالسيرفر'));
             }
-            return aiBotReply('✅ **تم تسجيل الفاتورة:**\n• المبلغ: '+formatMoney(amount)+' ل.س\n• الوصف: '+desc+'\n• طريقة الدفع: '+({cash:'كاش',card:'فيزا',transfer:'تحويل'}[method]||method)+'\n• رقم الفاتورة: INV-'+orderId,[
+            return aiBotReply('✅ **تم تسجيل الفاتورة:**\n• المبلغ: '+formatMoney(amount)+' ل.س\n• الوصف: '+desc+'\n• طريقة الدفع: '+({cash:'كاش',card:'فيزا',transfer:'تحويل'}[method]||method)+'\n• رقم الفاتورة: '+res.orderNumber,[
                 {text:'فاتورة جديدة',cmd:'invoices_list'},
                 {text:'تقرير يومي',cmd:'daily_report'}
             ]);

@@ -1357,7 +1357,9 @@ const Orders = {
         };
 
         // 3. Deduct inventory (work in background — خارج المعاملة المالية)
-        Inventory.deductForCheckout(localOrder.items || []).catch(() => {});
+        // C3-P0: خصم المخزون أصبح على الخادم داخل معاملة /checkout نفسها (مصدر الحقيقة الوحيد، غير مزدوج).
+        // يُعطَّل الخصم المحلي هنا حتى لا يُخصم مرتين (محلياً + خادماً) — الخادم يرد 409 عند عجز المخزون.
+        // Inventory.deductForCheckout(localOrder.items || []).catch(() => {});
 
         // 4. Close the order record
         localOrder.status = 'closed';
@@ -1429,6 +1431,98 @@ const Orders = {
         await _recordDrawerSale();
 
         return { ...localOrder, _invoiceId: invoiceId };
+    },
+
+    // P1: تحصيل صارم عبر السيرفر فقط (بلا إغلاق محلي عند تعذر الاتصال وبلا دفع محلي مزيف).
+    // المستخدم: تقسيم الدفع (confirmSplitPayment) والدفع التلقائي في ai-pos.
+    //   - يعود الطلب المغلق من السيرفر (مصدر الحقيقة)،
+    //   - null إذا تعذّر الاتصال (الطلب يبقى مفتوحاً — لا دفع محلي، لا إغلاق، لا pushAll)،
+    //   - يرمي خطأً برمز 409 إذا رفض السيرفر (مبلغ الدفعات ≠ الإجمالي …) — الطلب يبقى مفتوحاً.
+    async checkoutToServer(orderId, data) {
+        const orders = await db.getAll('orders');
+        const localOrder = orders.find(o => o.id === orderId);
+        if (!localOrder) throw new Error('الطلب غير موجود');
+        const payload = (typeof data === 'string') ? { paymentMethod: data } : (data || {});
+        const serverResult = await ServerAPI.checkout(orderId, payload);
+        if (serverResult && serverResult.success) {
+            if (serverResult.order) await db.put('orders', serverResult.order);
+            const tid = serverResult.order ? serverResult.order.tableId : localOrder.tableId;
+            if (tid && !isNaN(parseInt(tid))) {
+                try { await Tables.update(parseInt(tid), { status: 'available', currentOrder: null }); } catch (_) {}
+            }
+            return serverResult.order || { ...localOrder, status: 'closed' };
+        }
+        return null; // تعذّر الاتصال — لا إغلاق محلي ولا دفع مزيف
+    },
+
+    // P1: تسجيل فاتورة يدوية (بيع خارجي) عبر السيرفر فقط - بلا أي طلب paid محلي.
+    //  1) انشاء طلب مفتوح (pending/unpaid) على السيرفر عبر crud POST (هوية الجلسة/الجهاز).
+    //  2) اقفاله عبر /checkout (مسار التحصيل الوحيد) -> دفعة + تدقيق + وردية اليوم.
+    // فشل الاتصال او رفض السيرفر -> لا تسجل الفاتورة ابدا، ويزال الطلب المفتوح الشبح.
+    async recordManualInvoice({ amount, description, method } = {}) {
+        const amt = Number(amount);
+        if (!isFinite(amt) || amt <= 0) throw new Error('المبلغ غير صالح');
+        const desc = String(description || 'فاتورة يدوية').trim();
+        const m = ['cash', 'card', 'transfer'].includes(method) ? method : 'cash';
+        const now = new Date().toISOString();
+        const order = {
+            status: 'pending',
+            paymentStatus: 'unpaid',
+            orderType: 'takeaway',
+            tableId: 'takeaway',
+            orderNumber: 'INV-' + Date.now(),
+            items: [{ name: desc, quantity: 1, price: amt, unitPrice: amt, total: amt }],
+            subtotal: amt,
+            discount: 0,
+            discountAmount: 0,
+            discountType: 'percent',
+            tax: 0,
+            total: amt,
+            paymentMethod: m,
+            createdBy: (typeof Users !== 'undefined' && Users.getCurrentUser) ? (Users.getCurrentUser()?.name || 'invoice') : 'invoice',
+            customerName: '',
+            date: now,
+            createdAt: now
+        };
+
+        let created = null;
+        try {
+            created = await ServerAPI.add('orders', order);
+        } catch (e) {
+            throw new Error('تعذر الاتصال بالسيرفر - لم تسجل الفاتورة (' + ((e && e.message) || 'ليس متاحا حاليا') + ')');
+        }
+        if (!created || !created.id) {
+            throw new Error('فشل انشاء الطلب على السيرفر - لم تسجل الفاتورة');
+        }
+        const serverId = created.id;
+
+        const paymentSyncId = 'inv-' + serverId + '-' + Date.now();
+        let closed = null;
+        try {
+            closed = await ServerAPI.checkout(serverId, { paymentMethod: m, paymentSyncId });
+        } catch (e) {
+            try { await ServerAPI.remove('orders', serverId); } catch (_) {}
+            throw e;
+        }
+        if (!closed || !closed.success) {
+            try { await ServerAPI.remove('orders', serverId); } catch (_) {}
+            throw new Error('تعذر اقفال الفاتورة على السيرفر - لم تسجل');
+        }
+
+        // عكس حقيقة السيرفر محليا فقط (لا كتابة status/paid يدوية)
+        try {
+            await db.put('orders', closed.order || { ...order, id: serverId, status: 'closed', paymentStatus: 'paid', totalPaid: amt });
+        } catch (_) {}
+
+        return {
+            success: true,
+            orderId: serverId,
+            amount: amt,
+            description: desc,
+            method: m,
+            orderNumber: (closed.order && closed.order.orderNumber) || ('INV-' + serverId),
+            order: closed.order || null
+        };
     },
 
     async updateOrder(orderId, updates) {

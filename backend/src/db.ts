@@ -159,6 +159,12 @@ export function beginTransaction(): void {
   getDb().exec('BEGIN');
 }
 
+// C3-P0: قفل كتابة فوري (BEGIN IMMEDIATE) للمعاملات المالية (checkout/void) —
+// يأخذ قفل الكتابة من البداية فيمنع تداخل أي كتابة أخرى أثناء التحصيل/الإلغاء
+export function beginImmediateTransaction(): void {
+  getDb().exec('BEGIN IMMEDIATE');
+}
+
 export function commitTransaction(): void {
   getDb().exec('COMMIT');
 }
@@ -406,6 +412,19 @@ function migrate(db: SqlJsDatabase) {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    -- P1: جلسات المستخدمين في قاعدة البيانات (خارج ذاكرة السيرفر) — تصمد أمام إعادة التشغيل
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      userId INTEGER NOT NULL,
+      username TEXT DEFAULT '',
+      role TEXT DEFAULT '',
+      createdAt INTEGER DEFAULT 0,
+      expiresAt INTEGER DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sessions_userId ON sessions(userId);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expiresAt ON sessions(expiresAt);
 
     CREATE TABLE IF NOT EXISTS inventory (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

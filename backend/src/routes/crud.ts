@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getDb, saveDb, queryAll, queryOne, insert, getLastInsertId, beginTransaction, commitTransaction, rollbackTransaction } from '../db.js';
 import { authRequired, requirePasswordChanged, AuthRequest, roleHas } from '../auth.js';
+import { restoreStockAfterVoid } from '../stock.js';
 
 const VALID_COL_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
@@ -24,8 +25,10 @@ function isAdminish(req: AuthRequest): boolean {
 const READ_RESTRICTED = new Set(['users', 'audit_logs', 'daily_shifts', 'shifts']);
 
 // مخازن إدارية حساسة: الكتابة/الحذف عليها إداري/مدير فقط (كما في H2)
+// P1: 'refunds' أُزيل من هنا — مسار الاسترداد الصريح أصبح مسموحاً للمدير (صلاحية refunds.write)
+//     (ويبقى محجوباً على الكاشير/الجهاز لأن دورهما بلا تلك الصلاحية).
 const WRITE_ADMIN_STORES = new Set([
-  'users', 'settings', 'audit_logs', 'daily_shifts', 'shifts', 'refunds', 'suppliers', 'stock_movements', 'inventory_alerts'
+  'users', 'settings', 'audit_logs', 'daily_shifts', 'shifts', 'suppliers', 'stock_movements', 'inventory_alerts'
 ]);
 
 // خريطة كل مخزن → صلاحية كتابته. المصدر: ROLE_PERMISSIONS (auth.ts).
@@ -79,6 +82,11 @@ function storeFor(req: Request): string {
 
 const VALID_TABLE_STATUSES = new Set(['available', 'occupied', 'reserved', 'cleaning', 'closed']);
 const VALID_ORDER_STATUSES = new Set(['pending', 'in_preparation', 'ready', 'served', 'completed', 'cancelled', 'closed']);
+// C3-P0: حالات الطلب "قيد العمل" — فقط هذه تُنشأ/تُعدَّل عبر CRUD؛ الإقفال/الدفع حصري عبر checkout/void
+const ORDER_WORKING_STATUSES = new Set(['pending', 'in_preparation', 'ready', 'served']);
+const PAYMENT_TERMINAL_SET = new Set(['paid', 'refunded']);
+// C3-P0: حقول مالية محلورة في الطلب لا تتغيّر عبر CRUD (تحددها /checkout و /void)
+const ORDER_MONEY_IMMUTABLE = ['totalPaid', 'paidAmount', 'changeAmount', 'paymentMethod', 'paymentMethodId'];
 const JSON_COLUMNS = new Set(['items', 'modifiers']);
 
 function parseRow(table: string, row: Record<string, unknown>): Record<string, unknown> {
@@ -120,14 +128,45 @@ function serializeRow(obj: Record<string, unknown>): Record<string, unknown> {
   return row;
 }
 
-function recordAuditLog(action: string, objectType: string, objectId: string | number, newValue?: unknown) {
+// C3-P0: اسم الفاعل من هوية الطلب (للتدقيق التوثيقي بدلاً من 'system' العامة)
+function actorName(req: Request): string {
+  const id = (req as AuthRequest).identity;
+  return (id && id.username) || (id && id.role) || 'unknown';
+}
+
+// C3-P0: هل الطلب مدفوع/مغلق/ملغى؟ (العرض الختامي — أي كتابة لاحقة = 409)
+function isOrderPaidOrClosed(row: Record<string, unknown>): boolean {
+  const status = String(row.status || '');
+  const ps = String(row.paymentStatus || '');
+  if (status === 'closed' || status === 'completed' || status === 'cancelled') return true;
+  return ps === 'paid' || ps === 'refunded';
+}
+
+// C3-P0: الإجمالي المتوقع من الأصناف والخصم والضريبة — يمنع كتابة total عشوائي (إجبار الحساب الصحيح)
+function computeExpectedTotal(data: Record<string, unknown>, existing?: Record<string, unknown>): number | null {
+  const pick = (k: string) => data[k] !== undefined ? data[k] : (existing ? existing[k] : undefined);
+  const subtotal = Number(pick('subtotal'));
+  if (!Number.isFinite(subtotal)) return null;
+  const discount = Number(pick('discount') || 0);
+  const tax = Number(pick('tax') || 0);
+  const discountType = String(pick('discountType') || 'percent');
+  const discountAmount = discountType === 'fixed' ? discount : subtotal * (discount / 100);
+  return subtotal - discountAmount + tax;
+}
+
+function recordAuditLog(action: string, objectType: string, objectId: string | number, newValue?: unknown, userName = 'system') {
   try {
     const db = getDb();
     db.run(
       "INSERT INTO audit_logs (action, objectType, objectId, newValue, userName, createdAt) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-      [action, objectType, String(objectId), typeof newValue === 'string' ? newValue : JSON.stringify(newValue || ''), 'system']
+      [action, objectType, String(objectId), typeof newValue === 'string' ? newValue : JSON.stringify(newValue || ''), userName || 'system']
     );
   } catch (_) { /* audit logging is best-effort */ }
+}
+
+// C3-P0: تدقيق الرفض المالي المصرَّح به (حتى يعرف المدير أن محاولةً رُفضت ولم تُنفَّذ أبداً)
+function auditReject(req: Request, store: string, id: string | number, reason: string) {
+  recordAuditLog(`${store}.rejected`, store, id, JSON.stringify({ reason, attemptedBy: actorName(req) }), actorName(req));
 }
 
 const SAFE_TABLES = new Set([
@@ -224,6 +263,65 @@ router.post('/:store', (req: Request, res: Response) => {
       return;
     }
 
+    // C3-P0: لا يُنشأ طلب مغلق/مدفوع عبر CRUD — الإقفال/الدفع حصري عبر /checkout و /void
+    if (store === 'orders') {
+      const hasTerminalStatus = data.status && !ORDER_WORKING_STATUSES.has(data.status as string);
+      const hasTerminalPay = data.paymentStatus && PAYMENT_TERMINAL_SET.has(data.paymentStatus as string);
+      const markedPaid = data.paid === true || data.paid === 1 || data.paid === 'true';
+      if (hasTerminalStatus || hasTerminalPay || markedPaid) {
+        auditReject(req, 'orders', String(data.orderId ?? ''), 'محاولة إنشاء طلب مغلق/مدفوع عبر CRUD');
+        res.status(409).json({ error: 'لا يمكن إنشاء طلب مغلق/مدفوع عبر CRUD — استخدم /checkout للتحصيل و /void للإلغاء' });
+        return;
+      }
+    }
+
+    // C3-P0: الدفعات لا تُسجَّل عبر CRUD — المصدر الوحيد هو /checkout (المعاملة الكاملة على الخادم)
+    if (store === 'payments') {
+      auditReject(req, 'payments', String(data.orderId ?? ''), 'محاولة إضافة دفعة عبر CRUD');
+      res.status(409).json({ error: 'لا يمكن إضافة دفعات عبر CRUD — التحصيل حصري عبر /checkout' });
+      return;
+    }
+
+    // C3-P0: استرداد نقدي مُتحقق منه فقط: سبب + قيمة موجبة ≤ صافي المدفوع + طلب مدفوع فعلاً
+    if (store === 'refunds') {
+      const amount = Number(data.amount || 0);
+      const reason = String(data.reason || '').trim();
+      if (!reason) {
+        auditReject(req, 'refunds', String(data.orderId ?? ''), 'استرداد بدون سبب');
+        res.status(409).json({ error: 'سبب الاسترداد إلزامي ولا يمكن تركه فارغاً' }); return;
+      }
+      if (!(amount > 0)) {
+        auditReject(req, 'refunds', String(data.orderId ?? ''), 'استرداد بقيمة غير موجبة');
+        res.status(409).json({ error: 'قيمة الاسترداد يجب أن تكون أكبر من صفر' }); return;
+      }
+      if (data.orderId != null) {
+        const refundOrder = queryOne('SELECT total, totalPaid, paymentStatus FROM orders WHERE id = ?', [data.orderId]);
+        if (!refundOrder) {
+          auditReject(req, 'refunds', String(data.orderId ?? ''), 'استرداد لطلب غير موجود');
+          res.status(400).json({ error: 'الطلب المرتبط غير موجود' }); return;
+        }
+        if (String(refundOrder.paymentStatus || '') !== 'paid') {
+          auditReject(req, 'refunds', String(data.orderId ?? ''), 'استرداد لطلب غير مدفوع');
+          res.status(409).json({ error: 'لا يمكن استرداد طلب غير مدفوع — أكمِل الدفع أولاً عبر /checkout' }); return;
+        }
+        const netPaid = Number(refundOrder.totalPaid) || Number(refundOrder.total) || 0;
+        if (amount > netPaid) {
+          auditReject(req, 'refunds', String(data.orderId ?? ''), `استرداد ${amount} > صافي المدفوع ${netPaid}`);
+          res.status(409).json({ error: 'قيمة الاسترداد أكبر من صافي المدفوع للطلب' }); return;
+        }
+        // P1: مجموع الاستردادات السابقة + هذه الاسترداد يجب ألا يتجاوز صافي المدفوع — يمنع الاسترداد المزدوج
+        let alreadyRefunded = 0;
+        try {
+          const agg = queryOne('SELECT COALESCE(SUM(amount), 0) AS s FROM refunds WHERE orderId = ?', [data.orderId]);
+          alreadyRefunded = Number(agg && agg.s) || 0;
+        } catch { /* جدول قديم بلا refunds */ }
+        if (alreadyRefunded + amount > netPaid) {
+          auditReject(req, 'refunds', String(data.orderId ?? ''), `استرداد مزدوج: مجموع ${alreadyRefunded} + ${amount} > ${netPaid}`);
+          res.status(409).json({ error: `مجموع الاستردادات (${(alreadyRefunded + amount).toFixed(2)}) يتجاوز صافي المدفوع (${netPaid.toFixed(2)}) — توقف، لا يُسمح بالاسترداد المزدوج` }); return;
+        }
+      }
+    }
+
     // F4: منع فتح وردية كاش ثانية على نفس الصندوق (لا يُسمح بأكثر من وردية مفتوحة)
     if (store === 'cash_registers' && data.status === 'open') {
       const openCount = queryOne("SELECT COUNT(*) as c FROM cash_registers WHERE status = 'open' ");
@@ -273,6 +371,21 @@ router.post('/:store', (req: Request, res: Response) => {
         rollbackTransaction();
         throw e;
       }
+    } else if (store === 'refunds') {
+      // P1: الاسترداد الصريح داخل معاملة: يُسجَّل الاسترداد ثم تعاد مخزون الوصفات/الأصناف
+      // التي خصمها التحصيل — مرة واحدة فقط (كل حركة sale للطلب ← حركة return واحدة).
+      beginTransaction();
+      try {
+        const db = getDb();
+        id = insert(`INSERT INTO \`${table}\` (${cols}) VALUES (${vals})`, safeKeys.map(k => data[k]));
+        if (data.orderId != null) {
+          restoreStockAfterVoid(String(data.orderId));
+        }
+        commitTransaction();
+      } catch (e) {
+        rollbackTransaction();
+        throw e;
+      }
     } else {
       id = insert(`INSERT INTO \`${table}\` (${cols}) VALUES (${vals})`, safeKeys.map(k => data[k]));
     }
@@ -296,6 +409,57 @@ router.put('/:store/:id', (req: Request, res: Response) => {
     const allKeys = Object.keys(data);
     const keys = allKeys.filter(k => VALID_COL_RE.test(k) && k.length <= 64);
     if (keys.length === 0) { res.json({ success: true }); return; }
+
+    // C3-P0: الدفعات لا تُعدَّل عبر CRUD — التحصيل حصري عبر /checkout و /void
+    if (store === 'payments') {
+      auditReject(req, 'payments', id, 'محاولة تعديل دفعة عبر CRUD');
+      res.status(409).json({ error: 'لا يمكن تعديل الدفعات عبر CRUD — التحصيل حصري عبر /checkout' });
+      return;
+    }
+
+    // C3-P0: قيود الطلبات — لا إغلاق/دفع عبر CRUD، ولا تغيير أموال محلورة، وإجبار الحساب الصحيح للإجمالي
+    let existingOrder: Record<string, unknown> | undefined;
+    if (store === 'orders') {
+      existingOrder = queryOne('SELECT * FROM orders WHERE id = ?', [id]);
+      if (!existingOrder) { res.status(404).json({ error: 'Order not found' }); return; }
+      // طلب مدفوع/مغلق/ملغى لا يُعدَّل ولا يُنقل (لا صمت — 409 صريح)
+      if (isOrderPaidOrClosed(existingOrder)) {
+        auditReject(req, 'orders', id, 'محاولة تعديل طلب مدفوع/مغلق');
+        res.status(409).json({ error: 'الطلب مدفوع/مغلق — لا يُعدَّل عبر CRUD (التحصيل/الإلغاء عبر /checkout و /void)' });
+        return;
+      }
+      const incStatus = data.status ? String(data.status) : '';
+      const incPay = data.paymentStatus ? String(data.paymentStatus) : '';
+      const markedPaid = data.paid === true || data.paid === 1 || data.paid === 'true';
+      if ((incStatus && !ORDER_WORKING_STATUSES.has(incStatus)) || (incPay && PAYMENT_TERMINAL_SET.has(incPay)) || markedPaid) {
+        auditReject(req, 'orders', id, `حالة/دفع نافذ مردود: status=${incStatus} paymentStatus=${incPay} paid=${String(data.paid)}`);
+        res.status(409).json({ error: 'لا يمكن إغلاق/دفع طلب عبر CRUD — استخدم /checkout للتحصيل و /void للإلغاء' });
+        return;
+      }
+      // حقول مالية محلورة — لا تتغيّر يدوياً (متغيراتها تحددها /checkout و /void فقط)
+      for (const k of ORDER_MONEY_IMMUTABLE) {
+        if (data[k] === undefined) continue;
+        const exV = existingOrder[k] === undefined || existingOrder[k] === null ? '' : String(existingOrder[k]);
+        if (k === 'paymentMethod' && !exV) continue; // لم تُحدَّد بعد — يُسمح بالتثبيت لأول مرة
+        const inf = Number(data[k]);
+        const exf = Number(existingOrder[k]);
+        if (Number.isFinite(inf) && Number.isFinite(exf)) {
+          if (Math.abs(inf - exf) < 0.01) continue;
+        } else if (String(data[k]) === exV) {
+          continue;
+        }
+        auditReject(req, 'orders', id, `تغيير يدوي للحقل المالي "${k}" (${exV} → ${String(data[k])})`);
+        res.status(409).json({ error: `لا يمكن تغيير "${k}" يدوياً عبر CRUD — يُحدَّد هذا الحقل من /checkout أو /void` });
+        return;
+      }
+      // الإجمالي يجب أن يطابق الحساب: الأصناف − الخصم + الضريبة (يمنع تعميد total = 0 بالشباك)
+      const expectedTotal = computeExpectedTotal(data, existingOrder);
+      if (data.total !== undefined && expectedTotal != null && Math.abs(Number(data.total) - expectedTotal) > 0.01) {
+        auditReject(req, 'orders', id, `إجمالي غير مطابق للحساب: ${String(data.total)} ≠ ${expectedTotal}`);
+        res.status(409).json({ error: 'الإجمالي لا يطابق الحساب (الأصناف − الخصم + الضريبة) — أُعِد حسابه صحياً' });
+        return;
+      }
+    }
 
     // Validation for table status updates
     if (store === 'tables' && data.status && !VALID_TABLE_STATUSES.has(data.status as string)) {
@@ -329,6 +493,12 @@ router.put('/:store/:id', (req: Request, res: Response) => {
       saveDb();
     }
 
+    // C3-P0: تدقيق تعديل الصفوف المالية/الطلبات (نجاح التعديل يُسجَّل وليس فقط الإنشاء)
+    if (store === 'orders' || store === 'order_items' || store === 'payments') {
+      const after = queryOne(`SELECT * FROM \`${table}\` WHERE id = ?`, [id]);
+      if (after) recordAuditLog('update', store, id, after, actorName(req));
+    }
+
     res.json({ success: true });
   } catch (e: unknown) {
     res.status(500).json({ error: (e as Error).message });
@@ -343,8 +513,36 @@ router.delete('/:store/:id', (req: Request, res: Response) => {
   try {
     const db = getDb();
     const table = tableNameForStore(store);
+
+    // C3-P0: الدفعات لا تُحذف عبر CRUD (المصدر الوحيد: /checkout)، والاستردادات حذفها admin فقط
+    if (store === 'payments') {
+      auditReject(req, 'payments', id, 'محاولة حذف دفعة عبر CRUD');
+      res.status(409).json({ error: 'لا يمكن حذف دفعة عبر CRUD — التحصيل/الإلغاء عبر /checkout و /void' });
+      return;
+    }
+    if (store === 'refunds') {
+      const idnty = (req as AuthRequest).identity;
+      if (!idnty || idnty.role !== 'admin') {
+        auditReject(req, 'refunds', id, 'محاولة حذف سجل استرداد بدون دور admin');
+        res.status(403).json({ error: 'حذف سجل الاسترداد يتطلب صلاحية admin' });
+        return;
+      }
+    }
+
+    // C3-P0: الطلب المدفوع/المغلق لا يُحذف عبر CRUD + تدقيق الحذف للصفوف المالية
+    let deletedRow: Record<string, unknown> | undefined;
+    if (store === 'orders' || store === 'order_items' || store === 'payments' || store === 'refunds') {
+      deletedRow = queryOne(`SELECT * FROM \`${table}\` WHERE id = ?`, [id]);
+      if (store === 'orders' && deletedRow && isOrderPaidOrClosed(deletedRow)) {
+        auditReject(req, 'orders', id, 'محاولة حذف طلب مدفوع/مغلق');
+        res.status(409).json({ error: 'الطلب مدفوع/مغلق — لا يُحذف عبر CRUD' });
+        return;
+      }
+      if (!deletedRow) { res.status(404).json({ error: 'Not found' }); return; }
+    }
     db.run(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
     saveDb();
+    if (deletedRow) recordAuditLog('delete', store, id, deletedRow, actorName(req));
     res.json({ success: true });
   } catch (e: unknown) {
     res.status(500).json({ error: (e as Error).message });

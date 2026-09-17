@@ -6,8 +6,9 @@ import { queryOne, getDb } from './db.js';
 const SESSION_TTL_MS = parseInt(process.env.SESSION_TTL_MS || String(12 * 60 * 60 * 1000)); // 12 ساعة
 export const SESSION_COOKIE = 'lucca_session';
 
-// ===== تخزين الجلسات في الذاكرة (قصير الأجل) =====
-interface Session {
+// ===== تخزين الجلسات في SQLite (P1: خارج الذاكرة — تعيش مع السيرفر وتصمد أمام إعادة التشغيل) =====
+// الجلسات في جدول sessions (يُنشأ في db.ts migrate بجوار بقية الجداول) — READING/الإلغاء مباشرة من DB.
+export interface Session {
   token: string;
   userId: number;
   username: string;
@@ -15,14 +16,14 @@ interface Session {
   createdAt: number;
   expiresAt: number;
 }
-const sessions = new Map<string, Session>();
 
 function now(): number { return Date.now(); }
 
-// تنظيف الجلسات المنتهية (يُستدعى عند كل تحقق)
-function sweepSessions() {
-  const t = now();
-  for (const [token, s] of sessions) { if (s.expiresAt <= t) sessions.delete(token); }
+// تنظيف الجلسات المنتهية (يُستدعى عند كل تحقق) — سطر واحد في DB بدل اجتياح الذاكرة
+function sweepSessions(): void {
+  try {
+    getDb().run('DELETE FROM sessions WHERE expiresAt <= ?', [now()]);
+  } catch { /* الجدول قد لا يكون مُنشأ بعد في أول لحظة */ }
 }
 
 // ===== كلمات المرور: PBKDF2-SHA512 (نفس مخطط العميل الحالي) =====
@@ -68,27 +69,49 @@ export function migrateLegacyPassword(userId: number, password: string, currentS
   } catch { /* فشل الهجرة لا يمنع الدخول */ }
 }
 
-// ===== إنشاء/تحقق/إبطال الجلسة =====
+// ===== إنشاء/تحقق/إبطال الجلسة (SQLite — ليست في الذاكرة) =====
 export function createSession(user: { id: number; username: string; role: string }): string {
   const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, {
-    token, userId: user.id, username: user.username, role: user.role,
-    createdAt: now(), expiresAt: now() + SESSION_TTL_MS,
-  });
+  const nowMs = now();
+  const expiresAt = nowMs + SESSION_TTL_MS;
+  try {
+    getDb().run(
+      'INSERT OR REPLACE INTO sessions (token, userId, username, role, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?)',
+      [token, user.id, user.username, user.role, nowMs, expiresAt]
+    );
+  } catch { /* جدول الجلسات غير جاهز — لن نكسر الدخول */ }
   return token;
 }
 
+const lastSweepRef: { current: number } = { current: 0 };
+
 export function getSessionUser(token: string | undefined): Session | null {
   if (!token) return null;
-  sweepSessions();
-  const s = sessions.get(token);
-  if (!s) return null;
-  if (s.expiresAt <= now()) { sessions.delete(token); return null; }
-  return s;
+  if (now() - lastSweepRef.current > 60_000) { sweepSessions(); lastSweepRef.current = now(); }
+  let row: Record<string, unknown> | null | undefined;
+  try { row = queryOne('SELECT token, userId, username, role, createdAt, expiresAt FROM sessions WHERE token = ?', [token]); }
+  catch { row = null; }
+  if (!row || row.token == null) return null;
+  const expiresAt = Number(row.expiresAt) || 0;
+  if (expiresAt <= now()) {
+    try { getDb().run('DELETE FROM sessions WHERE token = ?', [token]); } catch { /* تجاهل */ }
+    return null;
+  }
+  return {
+    token: String(row.token),
+    userId: Number(row.userId),
+    username: String(row.username || ''),
+    role: String(row.role || ''),
+    createdAt: Number(row.createdAt) || 0,
+    expiresAt,
+  };
 }
 
 export function destroySession(token: string | undefined) {
-  if (token) sessions.delete(token);
+  if (!token) return;
+  try {
+    getDb().run('DELETE FROM sessions WHERE token = ?', [token]);
+  } catch { /* لا يوجد جدول بعد */ }
 }
 
 // ===== الأدوار والصلاحيات =====
@@ -129,6 +152,9 @@ export const ROLE_PERMISSIONS: Record<string, Set<string>> = {
 // جداول حساسة أن كتابتها تتطلب صلاحيات إدارية (وليس device/cashier)
 export const ADMIN_ONLY_STORES = new Set([
   'users', 'settings', 'audit_logs', 'daily_shifts', 'shifts', 'invitations',
+  // C3-P0: مخازن مالية/مخزون لا تُزامَن إلا بهوية إدارية — الدفعات والاستردادات والمخزون
+  // تُكتب على السيرفر حصرياً عبر checkout/void/إدارة المخزون، وليس عبر مزامنة جهاز عادي.
+  'payments', 'refunds', 'inventory', 'stock_movements', 'cash_registers',
 ]);
 
 export function roleHas(role: string, perm: string): boolean {

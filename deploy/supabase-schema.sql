@@ -1,4 +1,6 @@
 -- =====================================================
+-- DEPRECATED: استخدم supabase-schema-v2.sql بدلاً من هذا الملف
+-- =====================================================
 -- LUCCA CAFFE POS — Supabase PostgreSQL Schema
 -- =====================================================
 -- Execute this in Supabase SQL Editor (Dashboard > SQL)

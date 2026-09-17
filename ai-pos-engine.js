@@ -25,6 +25,7 @@ class AIPosEngine {
         };
         this.pendingAction = null;
         this.pendingPurchaseDraft = null;
+        this.pendingSplit = null;
     }
 
     // هل المستخدم الحالي من صلاحية المدير/الإدارة (مُعفى من حد الموافقة الصريح)
@@ -1036,13 +1037,12 @@ class AIPosEngine {
 
             const total = order.total || order.totalAmount || 0;
 
-            // Process payment via Orders.checkout
-            try {
-                await window.LuccaDB.Orders.checkout(order.id, paymentMethod);
-            } catch(checkoutErr) {
-                // Fallback: update order status manually
-                await window.LuccaDB.Orders.update(order.id, { status: 'completed', paymentStatus: 'paid' });
-                await window.LuccaDB.Tables.update(tableNum, { status: 'available', currentOrder: null });
+            // P1: التحصيل حصري عبر /checkout على السيرفر (مصدر الحقيقة) —
+            // إعادة المحاولة idempotent (الدفعة بنفس paymentSyncId لا تُسجَّل مرتين)،
+            // وفشل الاتصال/الرفض يُبقي الطلب مفتوحاً بلا أي دفع محلي أو إغلاق محلي.
+            const closed = await window.LuccaDB.Orders.checkoutToServer(order.id, { paymentMethod });
+            if (!closed) {
+                return { success: false, message: '❌ تعذر الاتصال بالسيرفر — الطلب ' + order.id + ' بقي مفتوحاً ولم يُسجَّل أي دفع. أعد المحاولة.' };
             }
 
             this.context.currentTable = null;
@@ -1056,7 +1056,7 @@ class AIPosEngine {
                 table: tableNum
             };
         } catch (e) {
-            return { success: false, message: '❌ خطأ في إغلاق الطاولة: ' + e.message };
+            return { success: false, message: '❌ التحصيل مرفوض: ' + (e && e.status === 409 ? e.message : e.message) + ' — الطاولة والطلب بقيان مفتوحين' };
         }
     }
 
@@ -1105,23 +1105,14 @@ class AIPosEngine {
             const total = order.total || order.totalAmount || 0;
             const payAmount = amount || total;
 
-            // Record payment
-            await window.LuccaDB.Orders.update(order.id, {
-                status: 'paid',
-                paymentStatus: 'paid',
-                paymentMethod: method,
-                totalPaid: payAmount,
-                changeAmount: Math.max(0, payAmount - total),
-                paidAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            });
-
-            // Release table
-            const tables = await window.LuccaDB.Tables.getAll();
-            const table = tables.find(t => String(t.number) === String(tableNum) || String(t.id) === String(tableNum));
-            if (table) {
-                await window.LuccaDB.Tables.update(table.id || tableNum, { status: 'available' });
+            // P1: التحصيل حصري عبر /checkout على السيرفر (مصدر الحقيقة) —
+            // لا Orders.update بدفع محلي، لا إغلاق محلي، لا دفع مزيف عند فشل الاتصال.
+            const closed = await window.LuccaDB.Orders.checkoutToServer(order.id, { paymentMethod: method });
+            if (!closed) {
+                return { success: false, message: '❌ تعذر الاتصال بالسيرفر — الطلب ' + order.id + ' بقي مفتوحاً ولم يُسجَّل أي دفع. أعد المحاولة.' };
             }
+
+            // P1: الطاولة حرّرها السيرفر (وحدّثها العميل محلياً عبر checkoutToServer) — لا حاجة لتعديل إضافي
 
             this.context.currentTable = null;
             this.context.currentOrderId = null;
@@ -1137,7 +1128,7 @@ class AIPosEngine {
 
             return { success: true, message: msg, table: tableNum, orderId: order.id, total, method };
         } catch (e) {
-            return { success: false, message: '❌ خطأ في الدفع: ' + e.message };
+            return { success: false, message: '❌ خطأ في الدفع: ' + ((e && e.message) || e) + ' — الطلب بقي مفتوحاً' };
         } finally {
             await this._releaseTableLock(tableNum);
         }
@@ -1153,14 +1144,116 @@ class AIPosEngine {
             if (!order) return { success: false, message: '❌ ما في طلب مفتوح على الطاولة ' + tableNum };
 
             const total = order.total || order.totalAmount || 0;
+            // P1: نحفظ سياق التقسيم في انتظار تفاصيل المستخدم — يستهلكها process() عند الرسالة التالية
+            this.pendingSplit = { orderId: order.id, tableNum: String(tableNum), total };
             return {
                 success: true,
-                message: '💸 **تقسيم الحساب - الطاولة ' + tableNum + '**\n\nالإجمالي: ' + total + ' ل.س\n\nاكتب المبلغ لكل طريقة دفع:\nمثال: "ادفع 200 كاش والباقي فيزا"',
+                message: '💸 **تقسيم الحساب - الطاولة ' + tableNum + '**\n\nالإجمالي: ' + total + ' ل.س\n\nاكتب المبلغ لكل طريقة دفع:\nمثال: "ادفع 200 كاش والباقي فيزا" أو "200 كاش و 300 فيزا"',
                 needsInput: true,
                 awaitingSplitDetails: true
             };
         } catch (e) {
             return { success: false, message: '❌ ' + e.message };
+        }
+    }
+
+    // P1: يفسّر رسالة التفاصيل التالية ("ادفع 200 كاش والباقي فيزا"، "كاش 200 فيزا 300")
+    // ويعيد أجزاء الدفع {method, amount}. null إذا لم يجد أي جزء صالح.
+    _parseSplitParts(text) {
+        const t = String(text || '').replace(/[،,]/g, ' ');
+        const methodKw = {
+            cash: /(?:كاش|نقدي|نقد|cash)/i,
+            card: /(?:فيزا|كارت|visa|card|فوري)/i,
+            transfer: /(?:تحويل|transfer|واتساب|بنك|bank)/i
+        };
+        const restHint = /(?:الباقي|باقي|rest)/i.test(t);
+
+        // "المبلغ + الطريقة" أو "الطريقة + المبلغ" — ما يطابق يكون جزءاً صريحاً
+        const pairRe = /(\d+(?:[.,]\d+)?)\s*(كاش|نقدي|نقد|cash|فيزا|كارت|visa|card|فوري|تحويل|transfer|واتساب|بنك|bank)|(كاش|نقدي|نقد|cash|فيزا|كارت|visa|card|فوري|تحويل|transfer|واتساب|بنك|bank)\s*(\d+(?:[.,]\d+)?)/gi;
+        const raw = [];
+        let m;
+        while ((m = pairRe.exec(t)) !== null) {
+            let amount, kw;
+            if (m[1]) { amount = Number(m[1].replace(',', '.')); kw = m[2]; }
+            else { amount = Number(m[4].replace(',', '.')); kw = m[3]; }
+            let method = null;
+            for (const [mm, re] of Object.entries(methodKw)) if (re.test(String(kw))) { method = mm; break; }
+            if (!method || !isFinite(amount) || amount <= 0) continue;
+            raw.push({ method, amount });
+        }
+        if (raw.length === 0) return null;
+
+        // دمج نفس الطريقة
+        const map = {};
+        for (const p of raw) map[p.method] = (map[p.method] || 0) + p.amount;
+        const parts = Object.keys(map).map(method => ({ method, amount: map[method] }));
+
+        // طريقة "الباقي" إن وُجدت نصاً صريحاً، وإلا افتراضياً card ثم cash
+        let restMethod = null;
+        if (restHint) {
+            const rm = t.match(/(?:الباقي|باقي|rest)\s*([^0-9]*?)(كاش|نقدي|نقد|cash|فيزا|كارت|visa|card|فوري|تحويل|transfer|واتساب|بنك|bank)/i);
+            if (rm && rm[2]) {
+                for (const [mm, re] of Object.entries(methodKw)) if (re.test(String(rm[2]))) { restMethod = mm; break; }
+            }
+            if (!restMethod) {
+                restMethod = parts.some(p => p.method === 'card') ? 'cash' : 'card';
+            }
+        }
+
+        return { parts, restHint, restMethod };
+    }
+
+    // P1: تنفيذ تفاصيل التقسيم المحصَّلة من المستخدم → مسار /checkout على السيرفر فقط.
+    async _executeSplitDetails(sp, userInput) {
+        const parsed = this._parseSplitParts(userInput);
+        if (!parsed || parsed.parts.length === 0) {
+            return { success: false, message: '💸 لتقسيم الدفع اكتب المبلغ مع طريقة الدفع لكل جزء.\nمثال: "ادفع 200 كاش والباقي فيزا" أو "200 كاش و 300 فيزا".\nاكتب "إلغاء" للإلغاء.' };
+        }
+        const total = Number(sp.total) || 0;
+        const parts = parsed.parts.slice();
+        if (parsed.restHint) {
+            const sumExplicit = parts.reduce((s, p) => s + p.amount, 0);
+            const remainder = total - sumExplicit;
+            if (remainder <= 0.01) {
+                return { success: false, message: '❌ مجموع الدفعات المذكورة (' + sumExplicit + ') يغطي الإجمالي أو يزيده (' + total + ' ل.س) — لا بقيّة. الطلب بقي مفتوحاً.' };
+            }
+            parts.push({ method: parsed.restMethod || 'cash', amount: remainder });
+        }
+        const sum = parts.reduce((s, p) => s + p.amount, 0);
+        if (Math.abs(sum - total) > 0.01) {
+            return { success: false, message: '❌ مجموع الدفعات (' + sum + ') لا يطابق إجمالي الطلب (' + total + ' ل.س) — الطلب بقي مفتوحاً. أعد الكتابة.\nمثال: "ادفع 200 كاش والباقي فيزا".' };
+        }
+
+        // P1: كل جزء يحصل على paymentSyncId مستقر (idempotent عند إعادة المحاولة)
+        const payments = parts.map(p => ({
+            method: p.method,
+            amount: p.amount,
+            paymentSyncId: (window.crypto && crypto.randomUUID)
+                ? crypto.randomUUID()
+                : ('split-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10))
+        }));
+
+        const lock = await this._acquireTableLock(sp.tableNum);
+        if (!lock.ok) {
+            return { success: false, message: '⛔ الطاولة ' + sp.tableNum + ' محمية حالياً على جهاز تاني' + (lock.holder ? ' (' + lock.holder + ')' : '') + '.\nما نقدر نتحصّل عليها من هنا إلا بعد ما يخلص الجهاز التاني.' };
+        }
+        try {
+            // التحصيل حصري عبر /checkout على السيرفر (مصدر الحقيقة) — لا إغلاق محلي، لا دفع مزيف
+            const closed = await window.LuccaDB.Orders.checkoutToServer(sp.orderId, { payments });
+            if (!closed) {
+                return { success: false, message: '❌ تعذر الاتصال بالسيرفر — الطلب ' + sp.orderId + ' بقي مفتوحاً ولم يُسجَّل أي دفع. أعد المحاولة (أعد أمر التقسيم).' };
+            }
+            this.context.currentTable = null;
+            this.context.currentOrderId = null;
+            await this.logAudit('split_payment', { table: sp.tableNum, orderId: sp.orderId, total, parts });
+            const labels = { cash: 'كاش', card: 'فيزا', transfer: 'تحويل' };
+            const lines = payments.map(p => '• ' + (labels[p.method] || p.method) + ': ' + p.amount + ' ل.س');
+            return { success: true, message: '✅ **تم تحصيل الدفع مقسّماً عبر السيرفر:**\n' + lines.join('\n') + '\n\n🎉 الطلب ' + sp.orderId + ' أُغلق والدفعات سُجلت.', table: sp.tableNum };
+        } catch (e) {
+            const msg = (e && e.status === 409) ? (e.message || 'مبلغ الدفعات لا يطابق الإجمالي') : String((e && e.message) || 'تعذر التحصيل');
+            return { success: false, message: '❌ ' + msg + ' — الطلب بقي مفتوحاً', table: sp.tableNum };
+        } finally {
+            await this._releaseTableLock(sp.tableNum);
         }
     }
 
@@ -1543,7 +1636,7 @@ class AIPosEngine {
         return { success: false, message: (r && r.message) || '❌ لم أتمكن من تسجيل المصروف.' };
     }
 
-    // تسجيل فاتورة يدوية (بيع خارجي): إنشاء سجل طلب مدفوع + سجل إيراد + تدقيق
+    // تسجيل فاتورة يدوية (بيع خارجي): إنشاء طلب مفتوح على السيرفر ثم تحصيله عبر /checkout فقط
     async toolRecordInvoice(params) {
         // مصفوفة باتمان: تسجيل فاتورة يدوية — فوق الحد يتطلب موافقة
         const invAmountText = (params._rawText || '').match(/فاتورة\s+(\d+(?:[.,]\d+)?)/i);
@@ -1563,24 +1656,13 @@ class AIPosEngine {
         const desc = text.replace(/فاتورة|\d+/g, '').replace(/سين|EGP|جنية|باوند|ل\.س/g, '').trim() || 'فاتورة يدوية';
         const method = /فيزا|كارت|card/.test(text) ? 'card' : /واتساب|تحويل|transfer/.test(text) ? 'transfer' : 'cash';
         try {
-            const now = new Date().toISOString();
-            const orderId = Date.now();
-            await window.LuccaDB.Orders.add({
-                id: orderId,
-                orderNumber: 'INV-' + orderId,
-                total: amount,
-                totalAmount: amount,
-                paymentMethod: method,
-                paymentStatus: 'paid',
-                status: 'paid',
-                items: [{ name: desc, quantity: 1, price: amount, total: amount }],
-                customerName: '',
-                date: now,
-                createdAt: now
-            });
-            await this.logAudit('record_invoice', { amount, description: desc, method, orderId });
+            const res = await window.LuccaDB.Orders.recordManualInvoice({ amount, description: desc, method });
+            if (!res || !res.success) {
+                return { success: false, message: '❌ ' + ((res && res.error) || 'تعذر تسجيل الفاتورة - تحقق من الاتصال بالسيرفر') };
+            }
+            await this.logAudit('record_invoice', { amount, description: desc, method, orderId: res.orderId });
             const methodLabel = { cash: 'كاش', card: 'فيزا', transfer: 'تحويل' }[method] || method;
-            return { success: true, message: '✅ **تم تسجيل الفاتورة:\n• المبلغ: ' + this._fmtMoney(amount) + ' ل.س\n• الوصف: ' + desc + '\n• طريقة الدفع: ' + methodLabel + '\n• رقم الفاتورة: INV-' + orderId, table: null };
+            return { success: true, message: '✅ **تم تسجيل الفاتورة:\n• المبلغ: ' + this._fmtMoney(amount) + ' ل.س\n• الوصف: ' + desc + '\n• طريقة الدفع: ' + methodLabel + '\n• رقم الفاتورة: ' + res.orderNumber, table: null };
         } catch (e) {
             return { success: false, message: '❌ فشل تسجيل الفاتورة: ' + e.message };
         }
@@ -2586,6 +2668,24 @@ class AIPosEngine {
                 this.pendingAction = null;
                 return { success: true, message: '✅ تم الإلغاء.' };
             }
+        }
+
+        // ===== SPLIT PAYMENT DETAILS (P1) — تكملة toolSplitPayment =====
+        // الرسالة التالية بعد "awaitingSplitDetails" تحمل أجزاء الدفع → تحصيل عبر /checkout فقط.
+        if (this.pendingSplit) {
+            const t = (userInput || '').trim();
+            if (/^(لا|كلا|cancel|إلغاء|الغي|no|nothing)/i.test(t)) {
+                this.pendingSplit = null;
+                return { success: true, message: '✅ تم إلغاء تقسيم الدفع — الطلب بقي مفتوحاً.' };
+            }
+            const sp = this.pendingSplit;
+            // نستهلك السياق فقط إذا بدا النص كأجزاء دفع صالحة؛ وإلا نطلب التفاصيل مجدداً
+            const parsed = this._parseSplitParts(t);
+            if (!parsed || parsed.parts.length === 0) {
+                return { success: true, message: '💸 لتقسيم الدفع على الطاولة ' + sp.tableNum + ' اكتب المبلغ مع طريقة الدفع لكل جزء:\nمثال: "ادفع 200 كاش والباقي فيزا".\nاكتب "إلغاء" للإلغاء.' };
+            }
+            this.pendingSplit = null;
+            return await this._executeSplitDetails(sp, t);
         }
 
         // ===== MULTI-COMMAND SUPPORT =====

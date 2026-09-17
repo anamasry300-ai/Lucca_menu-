@@ -2,7 +2,9 @@ import 'dotenv/config';
 import crypto from 'crypto';
 import express from 'express';
 import cors from 'cors';
-import { initDb, getDb, saveDb, closeDb, queryAll, queryOne, beginTransaction, commitTransaction, rollbackTransaction } from './db.js';
+import { initDb, getDb, saveDb, closeDb, queryAll, queryOne, beginTransaction, beginImmediateTransaction, commitTransaction, rollbackTransaction } from './db.js';
+import { lookup } from 'node:dns/promises';
+import { HttpError, applyStockDeduction, restoreStockAfterVoid } from './stock.js';
 import crudRoutes from './routes/crud.js';
 import specialRoutes from './routes/special.js';
 import analyticsRoutes from './routes/analytics.js';
@@ -22,6 +24,44 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '').split(',').filter(Bo
 // مولّد هوية مزامنة مستقرة (يستخدمه السيرفر للصفوف التي ينشئها بنفسه مثل دفعات checkout)
 function newSyncId(): string {
   return crypto.randomUUID();
+}
+
+// C3-P0: حالات الطلب "قيد العمل" وقيم final للدفع — تُستخدم في قيود sync و crud
+const ORDER_WORKING = new Set(['pending', 'in_preparation', 'ready', 'served']);
+const PAYMENT_TERMINAL = new Set(['paid', 'refunded']);
+
+// C3-P0: P1: تدقيق بسيط على السيرفر (يُسجَّل نجاح/رفض المعاملات المالية)
+function logAudit(action: string, objectType: string, objectId: string | number, newValue: unknown, userName: string) {
+  try {
+    getDb().run(
+      "INSERT INTO audit_logs (action, objectType, objectId, oldValue, newValue, userName, createdAt) VALUES (?, ?, ?, '', ?, ?, datetime('now'))",
+      [action, objectType, String(objectId), typeof newValue === 'string' ? newValue : JSON.stringify(newValue || ''), userName || 'system']
+    );
+  } catch { /* audit best-effort */ }
+}
+
+// P1: اسم الفاعل للتدقيق — مستخدم الجلسة (اسمه/يوزرنيم) أو الجهاز
+function actorFrom(req: any): string {
+  const identity = req && req.identity;
+  if (identity && identity.kind === 'user') return String(identity.username || identity.name || 'user');
+  if (identity && identity.kind === 'device') return 'device';
+  return 'system';
+}
+
+// C3-P0: خطأ HTTP قابل للفصل صراحةً داخل معاملة DB (يُستخدم عند عجز المخزون أثناء checkout)
+// ملاحظة: HttpError أصبح مُصدَّراً من ./stock.js (يستخدمه /checkout و /void ومسار الاسترداد).
+// تبقّى أدوات المخزون (applyStockDeduction / restoreStockAfterVoid) في ./stock.js — انظر أعلاه.
+
+// C3-P0: الإجمالي المتوقع (الأصناف − الخصم + الضريبة) — يمنع إبدال total عشوائياً بالمزامنة
+function expectedTotalFrom(incoming: Record<string, unknown>, existing?: Record<string, unknown>): number | null {
+  const pick = (k: string) => incoming[k] !== undefined ? incoming[k] : (existing ? existing[k] : undefined);
+  const subtotal = Number(pick('subtotal'));
+  if (!Number.isFinite(subtotal)) return null;
+  const discount = Number(pick('discount') || 0);
+  const tax = Number(pick('tax') || 0);
+  const discountType = String(pick('discountType') || 'percent');
+  const discountAmount = discountType === 'fixed' ? discount : subtotal * (discount / 100);
+  return subtotal - discountAmount + tax;
 }
 
 // تتبّع رقم التسلسل اليومي الحر لأرقام الطلبات (ORD-YYYYMMDD-NNN)
@@ -210,7 +250,76 @@ app.use('/api/admin', adminRoutes);
 //   target=openai  (الافتراضي) — يوجّه إلى base (البيئة أو العميل) مع Bearer key
 //   target=ollama  — يوجّه إلى Ollama المحلي عبر /v1/chat/completions
 // لا يخزّن المفتاح في الواجهة النهائية: البطاقة هنا بين يدي السيرفر فقط.
+// P1: حارس SSRF — قائمة بيضاء للمضيفين، منع العناوين الخاصة/الميتاداتا، لا تتبع redirects،
+//     سقف مهلة، سقف حجم الطلب والاستجابة. (المصادقة: authRequired + requirePasswordChanged مثل باتمان.)
 const ALLOWED_PROXY_BASES = /^https?:\/\//i;
+
+// قائمة بيضاء صارمة للمضيفات المسموح بها (حالة صغيرة). تشمل بيئة openai/ollama افتراضياً.
+const PROXY_HOST_ALLOWLIST_BASE = new Set(['api.openai.com', 'api.x.ai', 'localhost', '127.0.0.1']);
+function proxyAllowedHosts(): Set<string> {
+  const s = new Set(PROXY_HOST_ALLOWLIST_BASE);
+  for (const envKey of ['OPENAI_BASE_URL', 'OLLAMA_BASE_URL']) {
+    const v = String(process.env[envKey] || '').trim();
+    if (!v) continue;
+    try { const h = new URL(v).hostname.toLowerCase(); if (h) s.add(h); } catch { /* تجاهل */ }
+  }
+  return s;
+}
+
+// P1: هل العنوان عنوان "خاص/ميتاداتا" يجب رفض الوصول إليه؟
+function isPrivateIp(ip: string): boolean {
+  const v6 = ip.toLowerCase();
+  if (v6.includes(':')) {
+    if (v6 === '::1' || v6 === '::') return true;
+    if (v6.startsWith('fe80') || v6.startsWith('fc') || v6.startsWith('fd')) return true;
+    const m = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v6);
+    if (m) return isPrivateIp(m[1]); // IPv4-mapped
+    return false;
+  }
+  const o = String(ip).split('.').map((x) => Number(x));
+  if (o.length !== 4 || o.some((x) => !Number.isInteger(x) || x < 0 || x > 255)) return true;
+  const [a, b] = o;
+  if (a === 10) return true;                    // 10/8
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16/12
+  if (a === 192 && b === 168) return true;      // 192.168/16
+  if (a === 169 && b === 254) return true;      // 169.254/16 (metadata 169.254.169.254)
+  if (a === 127) return true;                   // 127/8 loopback
+  if (a === 0) return true;                     // 0/8
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64/10
+  if (a >= 224 && a <= 255) return true;        // multicast/reserved
+  return false;
+}
+
+// P1: فحص SSRF قبل أي اتصال — قائمة بيضاء + رفض العناوين الخاصة (حتى بعد DNS)
+async function assertSafeUpstreamHost(base: string): Promise<{ host: string }> {
+  let url: URL;
+  try { url = new URL(base); } catch { throw new HttpError(400, 'base غير صالح — تعذّر تحليل العنوان'); }
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) throw new HttpError(400, 'base غير صالح — لا يوجد مضيف');
+
+  const allowedHosts = proxyAllowedHosts();
+  if (!allowedHosts.has(host)) {
+    throw new HttpError(400, `مضيف ${host} غير مسموح في قاعدة التوجيه (SSRF block) — أضف مضيف مزوّدك إلى OPENAI_BASE_URL / OLLAMA_BASE_URL`);
+  }
+  // الاستثناء المطوِّر المحلي يُسمح به (Ollama الشائع localhost/11434)
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return { host };
+
+  try {
+    // حل DNS (حتى العناوين الحرفية تمر دون طلب) — نفحص العنوان المُحلَّل لصدّ إعادة توجيه/تسمّم
+    const { address } = await lookup(host, { family: 0 });
+    if (isPrivateIp(address)) {
+      throw new HttpError(400, `عنوان ${host} خاص/ميتاداتا (${address}) — غير مسموح (SSRF block)`);
+    }
+  } catch (e) {
+    if (e instanceof HttpError) throw e;
+    throw new HttpError(400, `تعذّر التحقق من عنوان ${host} — رُفض الطلب (SSRF block)`);
+  }
+  return { host };
+}
+
+const MAX_PROXY_BODY_BYTES = 1_000_000;      // سقف حجم الطلب (payload)
+const MAX_PROXY_TIMEOUT_MS = 120_000;        // سقف مهلة المزود مهما طلب العميل
+
 app.post(['/api/proxy-llm', '/api/openai'], authRequired, requirePasswordChanged, async (req, res) => {
   const body = (req.body as Record<string, unknown>) || {};
 
@@ -227,6 +336,14 @@ app.post(['/api/proxy-llm', '/api/openai'], authRequired, requirePasswordChanged
   const base = rawBase.replace(/\/+$/, '');
   if (!ALLOWED_PROXY_BASES.test(base)) {
     res.status(400).json({ ok: false, error: 'base غير صالح — يجب أن يبدأ بـ http(s)://' }); return;
+  }
+
+  // P1: حارس SSRF قبل أي طلب من المزود
+  try {
+    await assertSafeUpstreamHost(base);
+  } catch (e: unknown) {
+    const status = (e as any).status || 400;
+    res.status(status).json({ ok: false, error: (e as Error).message }); return;
   }
 
   // المفتاح: يُرسله العميل (localStorage) أو مفتاح البيئة
@@ -246,7 +363,7 @@ app.post(['/api/proxy-llm', '/api/openai'], authRequired, requirePasswordChanged
     res.status(400).json({ ok: false, error: 'لا يوجد messages / prompt' }); return;
   }
 
-  // payload chat/completions (OpenAI-compatible)
+  // P1: سقف حجم الطلب (payload)
   const payload: Record<string, unknown> = {
     model,
     messages,
@@ -254,8 +371,15 @@ app.post(['/api/proxy-llm', '/api/openai'], authRequired, requirePasswordChanged
     ...(body.max_tokens !== undefined ? { max_tokens: body.max_tokens } : {}),
     stream: false
   };
+  const payloadStr = JSON.stringify(payload);
+  if (payloadStr.length > MAX_PROXY_BODY_BYTES) {
+    res.status(413).json({ ok: false, error: 'حجم الطلب تجاوز الحد المسموح' }); return;
+  }
 
-  const timeoutMs = Number(body.timeoutMs) || 120_000;
+  // P1: سقف مهلة المزود
+  const requested = Number(body.timeoutMs) || MAX_PROXY_TIMEOUT_MS;
+  const timeoutMs = Math.min(requested, MAX_PROXY_TIMEOUT_MS);
+
   try {
     const upstream = await fetch(`${base}/chat/completions`, {
       method: 'POST',
@@ -264,11 +388,20 @@ app.post(['/api/proxy-llm', '/api/openai'], authRequired, requirePasswordChanged
         ...(key ? { Authorization: `Bearer ${key}` } : {}),
         ...(target === 'ollama' ? { 'x-lucca-target': 'ollama' } : {})
       },
-      body: JSON.stringify(payload),
+      body: payloadStr,
+      redirect: 'manual', // P1: لا نتبع redirects (صدّ SSRF عبر إعادة توجيه)
       signal: AbortSignal.timeout(timeoutMs)
     });
 
+    // P1: رد إعادة توجيه (3xx) → لا نتبعه، نرفض
+    if (upstream.status >= 300 && upstream.status < 400) {
+      res.status(502).json({ ok: false, provider: target, error: `المزود أراد إعادة توجيه (HTTP ${upstream.status}) — غير مسموح` }); return;
+    }
+
     const rawText = await upstream.text();
+    if (rawText.length > MAX_PROXY_BODY_BYTES) {
+      res.status(502).json({ ok: false, provider: target, error: 'استجابة المزود تجاوزت الحد المسموح' }); return;
+    }
     let j: Record<string, unknown> | null = null;
     try { j = rawText ? JSON.parse(rawText) : null; } catch { /* ليس JSON صالح */ }
 
@@ -294,45 +427,93 @@ app.post(['/api/proxy-llm', '/api/openai'], authRequired, requirePasswordChanged
 
 // Sync: POST /api/sync
 // Checkout endpoint: atomically close order and free table
+// P1: يدعم division (split) — body.payments = [{ method|paymentMethod, amount, paymentSyncId }]
+//     ومجموع الأجزاء يجب أن يطابق إجمالي الطلب (وإلا 409 والطلب يبقى مفتوحاً).
+//     التحصيل الكامل داخل معاملة واحدة: طلب مغلق + دفعة/دفعات + خصم مخزون مرة + تدقيق.
 app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout'), (req, res) => {
   try {
     const db = getDb();
-    const orderId = req.params.id;
-    const { paymentMethod, paymentSyncId, orderSyncId } = req.body || {};
-    const changeAmount = Number.isFinite(Number((req.body || {}).changeAmount)) ? Number((req.body || {}).changeAmount) : 0;
+    const orderId = String(req.params.id);
+    const body = req.body || {};
+    const { paymentMethod, paymentSyncId, orderSyncId, payments } = body;
+    const changeAmount = Number.isFinite(Number(body.changeAmount)) ? Number(body.changeAmount) : 0;
 
     const order = queryOne('SELECT * FROM orders WHERE id = ?', [orderId]);
     if (!order) { res.status(404).json({ error: 'Order not found' }); return; }
 
-    // H4: Idempotency — نفس الدفعة المرسلة من عميل أوفلاين (اكتمل تحصيلها محلياً) لا تُسجَّل مرتين.
+    const isSameOrder = (p: Record<string, unknown>) => (
+      String(p.orderId) === String(orderId) ||
+      (p.orderSyncId && order.syncId && String(p.orderSyncId) === String(order.syncId))
+    );
+
+    // تقسيم الدفع: قائمة أجزاء كلٌّ بدفته المستقرة (paymentSyncId)
+    const splitPayments = Array.isArray(payments) && payments.length > 0 ? payments : null;
+
+    // H4: Idempotency — نفس الدفعة/الأجزاء المرسلة من عميل أوفلاين (اكتمل تحصيلها محلياً) لا تُسجَّل مرتين.
     // تُفحص قبل تحقق "الطلب مغلق" لأن إعادة محاولة نفس الدفعة قد تصادف طلباً أغلقته المحاولة الأولى.
-    // المصدر: body يحمل paymentSyncId (معرّف الدفعة المستقرة)، وعند وجوده سلفاً
-    // (إعادة محاولة بعد قطع اتصال أو مزامنة الجهاز نفسه) نعيد الطلب دون تكرار دفع أو إغلاق.
-    if (paymentSyncId) {
-      const dup = queryOne('SELECT id, orderId, orderSyncId FROM payments WHERE syncId = ?', [paymentSyncId]);
-      const sameOrder = dup && (
-        String(dup.orderId) === String(orderId) ||
-        (dup.orderSyncId && order.syncId && String(dup.orderSyncId) === String(order.syncId))
-      );
-      if (sameOrder) {
+    if (splitPayments) {
+      const parts: Array<{ method: string; amount: number; syncId: string }> = splitPayments.map((p: any) => ({
+        method: String((p && (p.method || p.paymentMethod)) || 'cash'),
+        amount: Number((p && p.amount) || 0),
+        syncId: String((p && p.paymentSyncId) || '').trim() || newSyncId(),
+      }));
+      if (parts.some(p => !(p.amount > 0))) { res.status(400).json({ error: 'قيمة كل دفعة يجب أن تكون أكبر من صفر' }); return; }
+      // لو وُجدت كل أجزاء الـ split (بنفس syncId) لنفس الطلب → أُنجزت بالفعل → alreadyProcessed
+      const found = parts.filter(p => {
+        if (!p.syncId) return false;
+        const dup = queryOne('SELECT id, orderId, orderSyncId FROM payments WHERE syncId = ?', [p.syncId]);
+        return !!dup && isSameOrder(dup);
+      });
+      if (found.length === parts.length && parts.length > 0) {
         const already = queryOne('SELECT * FROM orders WHERE id = ?', [orderId]);
-        res.json({
-          success: true,
-          alreadyProcessed: true,
-          order: already ? { ...already, items: JSON.parse((already.items as string) || '[]') } : null,
-        });
+        res.json({ success: true, alreadyProcessed: true, order: already ? { ...already, items: JSON.parse((already.items as string) || '[]') } : null });
+        return;
+      }
+    } else if (paymentSyncId) {
+      const dup = queryOne('SELECT id, orderId, orderSyncId FROM payments WHERE syncId = ?', [paymentSyncId]);
+      if (dup && isSameOrder(dup)) {
+        const already = queryOne('SELECT * FROM orders WHERE id = ?', [orderId]);
+        res.json({ success: true, alreadyProcessed: true, order: already ? { ...already, items: JSON.parse((already.items as string) || '[]') } : null });
         return;
       }
     }
 
     if (order.status === 'closed') { res.status(409).json({ error: 'Order is already closed' }); return; }
+    if (order.status === 'cancelled' || order.status === 'completed') { res.status(409).json({ error: `Order is already ${order.status}` }); return; }
 
-    beginTransaction();
+    const total = (order.total as number) || 0;
+    const createdBy = (order.createdBy as string) || 'unknown';
+    const today = new Date().toISOString().slice(0, 10);
+
+    // تحديد الدفعات الفعلية التي سيُغلق بها الطلب — خارج المعاملة (لا كتابات قبل تأكيد الصلاحية)
+    let method: string;
+    let payRows: Array<{ amount: number; method: string; syncId: string }>;
+    if (splitPayments) {
+      const parts = splitPayments.map((p: any) => ({
+        method: String((p && (p.method || p.paymentMethod)) || 'cash'),
+        amount: Number((p && p.amount) || 0),
+        syncId: String((p && p.paymentSyncId) || '').trim() || newSyncId(),
+      }));
+      const collected = parts.reduce((s, p) => s + p.amount, 0);
+      if (Math.abs(collected - total) > 0.01) {
+        // P1: مبلغ الدفعات لا يغطي الإجمالي (أو يجاوزه) → لا يُغلق الطلب، يبقى مفتوحاً.
+        // التدقيق يُسجَّل خارج أي معاملة (لا يُتراجع مع rollback).
+        logAudit('checkout.rejected', 'orders', orderId,
+          { reason: `split ${collected} ≠ total ${total}`, attemptedBy: actorFrom(req) },
+          actorFrom(req));
+        res.status(409).json({ error: `مبلغ الدفعات (${collected.toFixed(2)}) لا يطابق إجمالي الطلب (${total.toFixed(2)}) — لم يُغلق الطلب، أعد المحاولة بالمبلغ الصحيح` });
+        return;
+      }
+      method = parts.length === 1 ? parts[0].method : 'split';
+      payRows = parts.map(p => ({ amount: p.amount, method: p.method, syncId: p.syncId }));
+    } else {
+      method = (paymentMethod as string) || 'cash';
+      payRows = [{ amount: total, method, syncId: paymentSyncId || newSyncId() }];
+    }
+    const orderSync = (orderSyncId || (order.syncId as string)) || null;
+
+    beginImmediateTransaction(); // C3-P0: قفل كتابة فوري — لا تداخل مع أي كتابة أخرى أثناء التحصيل
     try {
-      const total = (order.total as number) || 0;
-      const method = paymentMethod || 'cash';
-      const createdBy = (order.createdBy as string) || 'unknown';
-      const today = new Date().toISOString().slice(0, 10);
 
       // 1. Generate order_number if missing (ORD-YYYYMMDD-NNN)
       let orderNumber = order.orderNumber as string;
@@ -360,14 +541,14 @@ app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout')
         db.run('UPDATE tables_store SET status = ?, currentOrder = ? WHERE id = ?', ['available', null, Number(tableId)]);
       }
 
-// 4. Insert payment record (مع syncId/orderSyncId حتى يعكسه pull على جهاز آخر حال أُدرج الـ order عبر مزامنة)
-      // H4: عند ترجيع إعادة محاولة من عميل أوفلاين نُثبّت نفس paymentSyncId الذي أكده العميل محلياً
-      // (وبه استبعادنا الازدواج أعلاه) — أي إعادة إرسال لاحقة لن تُكرّر نفس الدفعة.
-      const paySyncId = paymentSyncId || newSyncId();
-      db.run(
-        'INSERT INTO payments (orderId, amount, method, status, createdBy, syncId, orderSyncId) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [orderId, total, method, 'completed', createdBy, paySyncId, (orderSyncId || (order.syncId as string)) || null]
-      );
+      // 4. Insert payment record(s) (مع syncId/orderSyncId حتى يعكسه pull على جهاز آخر)
+      // لكل جزء من الـ split سطرُه الخاص بهويته المستقرة (paymentSyncId) — idempotent عند الإعادة.
+      for (const pr of payRows) {
+        db.run(
+          'INSERT INTO payments (orderId, amount, method, status, createdBy, syncId, orderSyncId) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [orderId, pr.amount, pr.method, 'completed', createdBy, pr.syncId, orderSync]
+        );
+      }
 
       // 5. Insert order items into order_items table
       const items = JSON.parse((order.items as string) || '[]');
@@ -379,17 +560,23 @@ app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout')
         );
       }
 
+      // C3-P0: خصم المخزون داخل نفس معاملة التحصيل (مصدر الحقيقة = السيرفر).
+      // غير مزدوج (يُتخطى إن سبقت حركة sale لنفس الطلب)، وعجز المخزون ← 409 وتراجع كامل.
+      // لاحظ: يُنفَّذ مرة واحدة حتى مع الدفع المقسّم (كل أجزاء الـ split داخل نفس المعاملة).
+      applyStockDeduction(String(orderId), items);
+
       // 6. Insert status history record
       db.run(
         "INSERT INTO order_status_history (orderId, status, changedBy, createdAt) VALUES (?, ?, ?, datetime('now'))",
         [orderId, 'closed', createdBy]
       );
 
-      // 7. Update daily shift sales data
+      // 7. Update daily shift sales data (نقدي/إلكتروني: للـ split نجمع أجزاء الكاش فقط)
       const existingShift = queryOne('SELECT * FROM daily_shifts WHERE date = ?', [today]);
       if (existingShift) {
-        const cashSales = method === 'cash' ? (existingShift.cashSales as number || 0) + total : (existingShift.cashSales as number || 0);
-        const cardSales = method !== 'cash' ? (existingShift.cardSales as number || 0) + total : (existingShift.cardSales as number || 0);
+        const cashTotal = payRows.reduce((s, p) => s + (p.method === 'cash' ? p.amount : 0), 0);
+        const cashSales = (existingShift.cashSales as number || 0) + cashTotal;
+        const cardSales = (existingShift.cardSales as number || 0) + (total - cashTotal);
         const totalSales = (existingShift.totalSales as number || 0) + total;
         const orderCount = (existingShift.orderCount as number || 0) + 1;
         db.run(
@@ -398,11 +585,18 @@ app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout')
         );
       }
 
+      // P1: تدقيق التحصيل (نجاح) — المبلغ ونوع الدفع وعدد الأجزاء والفاعل
+      logAudit('checkout', 'orders', orderId,
+        { total, method, parts: payRows.map(p => ({ method: p.method, amount: p.amount, syncId: p.syncId })), actor: actorFrom(req) },
+        actorFrom(req));
+
       commitTransaction();
       const closedOrder = queryOne('SELECT * FROM orders WHERE id = ?', [orderId]);
       res.json({ success: true, order: closedOrder ? { ...closedOrder, items: JSON.parse((closedOrder.items as string) || '[]') } : null });
     } catch (e) {
       rollbackTransaction();
+      // C3-P0: عجز المخزون أثناء التحصيل / P1: خطأ مبلغ الدفعات — خطأ 409 واضح مع تراجع كامل للمعاملة
+      if (e instanceof HttpError) { res.status(e.status).json({ error: e.message }); return; }
       throw e;
     }
   } catch (e: unknown) {
@@ -440,7 +634,7 @@ app.post('/api/orders/:id/void', authRequired, requirePermission('refunds.void')
     const originalUserId = (order as any).userId ?? null;
     const total = (order.total as number) || 0;
 
-    beginTransaction();
+    beginImmediateTransaction(); // C3-P0: قفل كتابة فوري للمعاملات المالية (void)
     try {
       // 1. Insert refund (مكتمل بياناته: الموظف الأصلي + مَن ألغى + السبب)
       db.run(
@@ -466,6 +660,9 @@ app.post('/api/orders/:id/void', authRequired, requirePermission('refunds.void')
         "INSERT INTO order_status_history (orderId, status, changedBy, notes, createdAt) VALUES (?, ?, ?, ?, datetime('now'))",
         [orderId, 'cancelled', cancellerName, `reason: ${reason}, note: ${note || ''}`]
       );
+
+      // C3-P0: إعادة المخزون الذي خصمه التحصيل — مرة واحدة فقط (داخل نفس المعاملة)
+      try { restoreStockAfterVoid(String(orderId)); } catch { /* best-effort داخل المعاملة */ }
 
       // 5. Audit with BOTH the original employee and the canceller (no silent void)
       try {
@@ -661,6 +858,39 @@ app.post('/api/sync', authRequired, requirePermission('sync'), (req, res) => {
             const legacy = queryOne(`SELECT * FROM \`${target}\` WHERE id = ?`, [item.id]);
             if (legacy && !legacy.syncId) existing = legacy;
           } catch { existing = undefined; }
+        }
+
+        // C3-P0: قيود التزامن المالي — الخادم مصدر الحقيقة للدفع/الإغلاق.
+        // لهويات غير إدارية (device/cashier/kitchen):
+        //  - الطلب الوارد بحالة نافذة/مدفوعة (paid/closed/... ) لا يُقبل إطلاقاً (لا عبر INSERT ولا UPDATE).
+        //  - الطلب المغلق/المدفوع على السيرفر لا يُعدَّل من أي عميل محدود.
+        //  - الإجمالي يجب أن يطابق الحساب (الأصناف − الخصم + الضريبة) — لا last-write-wins على total.
+        if (store === 'orders' && !isAdminish) {
+          const incStatus = normItem.status ? String(normItem.status) : '';
+          const incPay = normItem.paymentStatus ? String(normItem.paymentStatus) : '';
+          const incTerminal = (incStatus && !ORDER_WORKING.has(incStatus)) || incPay === 'paid' || incPay === 'refunded';
+          const exTerminal = existing && existing.status && !ORDER_WORKING.has(String(existing.status));
+          if (incTerminal || exTerminal) {
+            log.conflicts++;
+            log.skipped++;
+            log.conflictDetail.push({
+              syncId: syncId || null,
+              store,
+              reason: incTerminal
+                ? 'الطلب وارد بحالة نافذة/مدفوعة — لا يُقبل عبر المزامنة (التحصيل عبر /checkout)'
+                : 'الطلب مغلق/مدفوع على السيرفر — لا يُعدَّل من عميل محدود'
+            });
+            continue;
+          }
+          if (normItem.total !== undefined) {
+            const expT = expectedTotalFrom(normItem, existing);
+            if (expT != null && Math.abs(Number(normItem.total) - expT) > 0.01) {
+              log.conflicts++;
+              log.skipped++;
+              log.conflictDetail.push({ syncId: syncId || null, store, reason: 'تغيير يدوي للإجمالي غير مطابق للحساب — اترك إجمالي الخادم كما هو' });
+              continue;
+            }
+          }
         }
 
         // 2) دمج

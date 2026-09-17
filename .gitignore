@@ -10,3 +10,4 @@ backend/logs/
 *.log.gz
 *.db
 test.txt
+.github/workflows/
