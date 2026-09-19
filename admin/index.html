@@ -1712,6 +1712,7 @@
                 <a class="sidebar-link" data-page="audit-page"><span class="icon">📝</span>سجل التدقيق</a>
                 <a class="sidebar-link" data-page="backup-page"><span class="icon">💾</span>النسخ الاحتياطي</a>
                 <a class="sidebar-link" data-page="server-page"><span class="icon">⚙️</span>الخادم</a>
+                <a class="sidebar-link" data-page="system-page"><span class="icon">🩺</span>حالة النظام</a>
                 <a class="sidebar-link" data-page="printer-page"><span class="icon">🖨️</span>الطابعة</a>
             </div>
         </nav>
@@ -2343,6 +2344,16 @@
                 </div></div>
             </div>
 
+            <!-- ===== SYSTEM HEALTH ===== -->
+            <div class="page" id="page-system-page">
+                <div class="section-title">🩺 حالة النظام</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+                    <button class="btn btn-primary" onclick="SystemHealth.run()">🔄 إعادة الفحص</button>
+                    <span style="align-self:center;font-size:.78rem;color:var(--text-muted)">كل قيمة تُقرأ من المكوّنات الفعلية لحظة الفحص — لا قيم ثابتة.</span>
+                </div>
+                <div id="systemHealthGrid"></div>
+            </div>
+
             <!-- ===== PRINTER ===== -->
             <div class="page" id="page-printer-page">
                 <div class="section-title">🖨️ الطابعة الحرارية</div>
@@ -2656,6 +2667,8 @@ function initTabs(){
                 'roles-page': ()=>loadRoleUsers(),
                 'batman-ask': ()=>BatmanQueries.mountAdminWidget('batmanAskMount'),
                 'audit-page': ()=>loadAuditLogs(),
+                'server-page': ()=>{},
+                'system-page': ()=>SystemHealth.run(),
                 'kb-page': ()=>{ refreshKBStats(); loadKBDocList(); },
             };
             if(loaders[page]) loaders[page]();
@@ -4796,6 +4809,7 @@ async function deleteKBDoc(id){
 <script src="../invoice-scanner.js"></script>
 <script src="../ai-pos-engine.js"></script>
 <script src="../batman-questions.js"></script>
+<script src="system-health.js"></script>
 <script src="../forecasting.js"></script>
 <script src="../report-export.js"></script>
 <script src="../sync-engine.js"></script>

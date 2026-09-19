@@ -1,7 +1,7 @@
 /*
 ╔══════════════════════════════════════════════════════════════╗
 ║   LUCCA LLM Adapter — Ollama Local (Default) + OpenAI Optional ║
-║   Ollama المحلي (qwen2.5-coder:7b) هو الخيار الأساسي المجاني،  ║
+║   Ollama المحلي (qwen2.5:3b) هو الخيار الأساسي المجاني،       ║
 ║   ويُضاف OpenAI API (أو أي مزود متوافق chat/completions) كمزود ║
 ║   احتياطي "عند الحاجة" عبر إعدادات محلية مرنة (localStorage).  ║
 ║                                                               ║
@@ -23,7 +23,7 @@ window.OllamaAI = (function() {
     }
 
     const OLLAMA_HOST = kGet('luccaOllamaHost') || 'http://localhost:11434';
-    const DEFAULT_MODEL = kGet('luccaOllamaModel') || 'qwen2.5-coder:7b';
+    const DEFAULT_MODEL = kGet('luccaOllamaModel') || 'qwen2.5:3b';
 
     // ============ H1: عنوان السيرفر والمصادقة (لبروكسي LLM) ============
     // نفس اصطلاح الواجهات: luccaServerUrl + (session luccaToken أو device x-api-key)

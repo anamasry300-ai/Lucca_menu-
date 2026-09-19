@@ -353,7 +353,7 @@ app.post(['/api/proxy-llm', '/api/openai'], authRequired, requirePasswordChanged
   }
 
   const model = String(body.model || '').trim()
-    || (target === 'ollama' ? (process.env.OLLAMA_MODEL || 'qwen2.5-coder:7b') : (process.env.OPENAI_MODEL || 'gpt-4o-mini'));
+    || (target === 'ollama' ? (process.env.OLLAMA_MODEL || 'qwen2.5:3b') : (process.env.OPENAI_MODEL || 'gpt-4o-mini'));
 
   // بناء messages: يدعم { messages:[...] } أو { prompt:'...' }
   const messages: Array<{ role: string; content: string }> | null =

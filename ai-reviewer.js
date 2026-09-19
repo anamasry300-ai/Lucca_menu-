@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 
 const OLLAMA = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
-const MODEL = process.env.OLLAMA_MODEL || 'qwen2.5-coder:7b';
+const MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:3b';
 const WORKSPACE = path.resolve(__dirname);
 const AUDIT_DIR = path.join(WORKSPACE, '.ai-review');
 const REPORT_FILE = path.join(AUDIT_DIR, 'report.json');
