@@ -425,11 +425,25 @@ app.post(['/api/proxy-llm', '/api/openai'], authRequired, requirePasswordChanged
   }
 });
 
-// Sync: POST /api/sync
 // Checkout endpoint: atomically close order and free table
 // P1: يدعم division (split) — body.payments = [{ method|paymentMethod, amount, paymentSyncId }]
 //     ومجموع الأجزاء يجب أن يطابق إجمالي الطلب (وإلا 409 والطلب يبقى مفتوحاً).
 //     التحصيل الكامل داخل معاملة واحدة: طلب مغلق + دفعة/دفعات + خصم مخزون مرة + تدقيق.
+// P2-A5: الإجمالي يُعاد حسابه على السيرفر من الأصناف فقط (مصدر الحقيقة) قبل أي تحقق/دفع —
+//         تُتجاهل قيمة total القادمة من العميل وتُخزَّن القيمة المحسوبة في معاملة الإغلاق نفسها.
+function checkoutTotals(order: Record<string, unknown>): { subtotal: number; discountAmount: number; total: number } {
+  let raw = order.items ?? '[]';
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { raw = []; } }
+  const arr = Array.isArray(raw) ? raw : [];
+  const subtotal = arr.reduce((s: number, it: any) =>
+    s + (Number(it && it.quantity) || 1) * (Number((it && (it.unitPrice ?? it.price)) || 0)), 0);
+  const discount = Number(order.discount) || 0;
+  const discountType = String(order.discountType || 'percent');
+  const discountAmount = discountType === 'fixed' ? discount : subtotal * (discount / 100);
+  const tax = Number(order.tax) || 0;
+  return { subtotal, discountAmount, total: subtotal - discountAmount + tax };
+}
+
 app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout'), (req, res) => {
   try {
     const db = getDb();
@@ -440,6 +454,9 @@ app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout')
 
     const order = queryOne('SELECT * FROM orders WHERE id = ?', [orderId]);
     if (!order) { res.status(404).json({ error: 'Order not found' }); return; }
+
+    // P2-A5: إجبار الحساب الصحيح قبل الدفع — يُعاد احتساب الإجماليات من الأصناف ويُستخدم ما خُصم للتو
+    Object.assign(order, checkoutTotals(order));
 
     const isSameOrder = (p: Record<string, unknown>) => (
       String(p.orderId) === String(orderId) ||
@@ -529,10 +546,10 @@ app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout')
         }
       }
 
-      // 2. Close the order with payment info
+      // 2. Close the order with payment info (P2-A5: يخزّن الإجماليات المحسوبة على السيرفر)
       db.run(
-        'UPDATE orders SET status = ?, paymentMethod = ?, paymentStatus = ?, totalPaid = ?, changeAmount = ?, orderNumber = ? WHERE id = ?',
-        ['closed', method, 'paid', total, changeAmount, orderNumber, orderId]
+        'UPDATE orders SET status = ?, paymentMethod = ?, paymentStatus = ?, totalPaid = ?, changeAmount = ?, orderNumber = ?, subtotal = ?, discountAmount = ?, total = ? WHERE id = ?',
+        ['closed', method, 'paid', total, changeAmount, orderNumber, order.subtotal, order.discountAmount, total, orderId]
       );
 
       // 3. Free the table if this is a dine-in order
@@ -634,19 +651,40 @@ app.post('/api/orders/:id/void', authRequired, requirePermission('refunds.void')
     const originalUserId = (order as any).userId ?? null;
     const total = (order.total as number) || 0;
 
+    // P2-A3: void لا يُسمح إلا لطلب مدفوع فعلاً (صافي مدفوع > 0) — لا إلغاء/استرداد لطلب مفتوح
+    const payStatus = String(order.paymentStatus || '');
+    const netPaid = Number(order.totalPaid) > 0 ? Number(order.totalPaid) : (total > 0 ? total : 0);
+    if (payStatus !== 'paid' || !(netPaid > 0)) {
+      res.status(409).json({ error: 'الطلب غير مدفوع — لا يمكن إلغاؤه/استرداده عبر /void. أكمِل الدفع عبر /checkout أو احذف الطلب المفتوح' });
+      return;
+    }
+    // P2-A3: سقف الاسترداد = الصافي المدفوع − مجموع الاستردادات السابقة (يمنع المسترد > المدفوع)
+    let alreadyRefunded = 0;
+    try {
+      const agg = queryOne('SELECT COALESCE(SUM(amount), 0) AS s FROM refunds WHERE orderId = ?', [orderId]);
+      alreadyRefunded = Number(agg && agg.s) || 0;
+    } catch { /* طاولة الاستردادات قديمة/غير متاحة */ }
+    const refundable = netPaid - alreadyRefunded;
+    if (!(refundable > 0.01)) {
+      res.status(409).json({ error: 'لا مبلغ متبقٍ لاسترداده — الطلب مُستردّ بكامله سابقاً' });
+      return;
+    }
+    // P2-A3: اتخذنا "void يعيد الصافي المتبقي مرة واحدة" — لا يتجاوز سقف الصافي أبداً
+    const voidAmount = refundable;
+
     beginImmediateTransaction(); // C3-P0: قفل كتابة فوري للمعاملات المالية (void)
     try {
       // 1. Insert refund (مكتمل بياناته: الموظف الأصلي + مَن ألغى + السبب)
       db.run(
         'INSERT INTO refunds (orderId, amount, reason, note, refundMethod, createdBy, voidedBy, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, datetime(\'now\'))',
-        [orderId, total, String(reason).trim(), (note || '').trim(), refundMethod || order.paymentMethod || 'cash', originalBy, cancellerName]
+        [orderId, voidAmount, String(reason).trim(), (note || '').trim(), refundMethod || order.paymentMethod || 'cash', originalBy, cancellerName]
       );
 
       // 2. Cancel the order with void metadata
       db.run(
         `UPDATE orders SET status = 'cancelled', voidReason = ?, voidNote = ?, voidedAt = datetime('now'),
            voidedBy = ?, paymentStatus = 'refunded', refundAmount = ? WHERE id = ?`,
-        [String(reason).trim(), (note || '').trim(), cancellerName, total, orderId]
+        [String(reason).trim(), (note || '').trim(), cancellerName, voidAmount, orderId]
       );
 
       // 3. Free the table
@@ -664,14 +702,29 @@ app.post('/api/orders/:id/void', authRequired, requirePermission('refunds.void')
       // C3-P0: إعادة المخزون الذي خصمه التحصيل — مرة واحدة فقط (داخل نفس المعاملة)
       try { restoreStockAfterVoid(String(orderId)); } catch { /* best-effort داخل المعاملة */ }
 
+      // P2-A3: حركة صندوق سالبة مرة — تُنقص وردية اليوم بنفس المقدار داخل نفس المعاملة.
+      // Idempotent: الطلب أصبح cancelled في نفس المعاملة — void ثانٍ يُرفض قبل الوصول إلى هنا.
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const sh = queryOne('SELECT * FROM daily_shifts WHERE date = ?', [today]);
+        if (sh) {
+          const m = String(refundMethod || order.paymentMethod || 'cash');
+          const cashPart = (m === 'cash' || m === 'كاش') ? voidAmount : 0;
+          db.run(
+            'UPDATE daily_shifts SET cashSales = ?, cardSales = ?, totalSales = ? WHERE date = ?',
+            [Number(sh.cashSales || 0) - cashPart, Number(sh.cardSales || 0) - (voidAmount - cashPart), Number(sh.totalSales || 0) - voidAmount, today]
+          );
+        }
+      } catch { /* best-effort */ }
+
       // 5. Audit with BOTH the original employee and the canceller (no silent void)
       try {
         db.run(
           `INSERT INTO audit_logs (action, objectType, objectId, oldValue, newValue, userName, createdAt)
            VALUES ('order.void_refund', 'orders', ?, ?, ?, ?, datetime('now'))`,
           [orderId,
-           JSON.stringify({ total, status: order.status, createdBy: originalBy, userId: originalUserId }),
-           JSON.stringify({ refundAmount: total, reason, note, cancelledBy: cancellerName, cancellerRole, originalEmployee: originalBy }),
+           JSON.stringify({ total, netPaid, alreadyRefunded, status: order.status, createdBy: originalBy, userId: originalUserId }),
+           JSON.stringify({ refundAmount: voidAmount, reason, note, cancelledBy: cancellerName, cancellerRole, originalEmployee: originalBy }),
            cancellerName]
         );
       } catch { /* audit may be unavailable */ }
@@ -762,10 +815,10 @@ app.post('/api/sync', authRequired, requirePermission('sync'), (req, res) => {
   try {
     db = getDb();
     const data = req.body || {};
-    // H2: هوية الطلب — نمنع مزامنة المخازن الإدارية (users/settings/audit/daily_shifts/shifts)
-    // إلا لهوية بصلاحية إدارية (admin/manager). مفتاح الجهاز (device) لا يمكنه تعديلها.
+    // H2+P2-A4: نمنع مزامنة المخازن الإدارية (users/settings/audit/daily_shifts/shifts والمالية/المخزون)
+    // إلا بهوية دور admin حصراً. manager/cashier/device لا يمسّون users أبداً (خصوصاً role/password).
     const identity = resolveIdentity(req as AuthRequest);
-    const isAdminish = identity ? (identity.role === 'admin' || identity.role === 'manager') : false;
+    const isAdminish = identity ? (identity.role === 'admin') : false;
     const stores = [
       'users', 'invitations', 'tables', 'tables_store', 'orders', 'customers', 'settings', 'inventory',
       'purchases', 'employees', 'attendance', 'expenses', 'shifts', 'daily_shifts',

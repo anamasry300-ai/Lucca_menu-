@@ -590,7 +590,7 @@ const ServerAPI = {
         }
     },
 
-    async add(store, item) {
+    async add(store, item, opts) {
         try {
             const headers = this.authHeaders('application/json');
             const res = await fetch(`${this.getBaseUrl()}/api/${store}`, {
@@ -607,8 +607,10 @@ const ServerAPI = {
             return null;
         } catch(e) {
             if (e && e.status === 409) throw e;
-            // فشل الشبكة (لا استجابة) — احفظ للـ offline queue ثم أعد null (رموز callers fire-and-forget)
-            this._enqueueOffline('POST', '/api/' + store, item);
+            // P2-A6: noQueue للعمليات الحساسة (إنشاء طلب فاتورة) — لا طابور أوفلاين يخلق أوردات شبح لاحقاً
+            if (!(opts && opts.noQueue)) {
+                this._enqueueOffline('POST', '/api/' + store, item);
+            }
             return null;
         }
     },
@@ -1282,155 +1284,11 @@ const Orders = {
 
     // Professional checkout: closes order, saves invoice+payment, updates inventory, frees table
     async checkout(orderId, paymentMethod) {
-        const orders = await db.getAll('orders');
-        const localOrder = orders.find(o => o.id === orderId);
-        if (!localOrder) throw new Error('الطلب غير موجود');
-        if (localOrder.status === 'closed') throw new Error('الطلب مغلق بالفعل');
-
-        // Best-effort: if a cash drawer is open, the sale is auto-recorded into it
-        // (aligns Orders.checkout with CashRegister — silent & never blocks checkout).
-        const _recordDrawerSale = async () => {
-            try {
-                if (typeof CashRegister === 'undefined' || !CashRegister.getActiveDrawer || !CashRegister.recordTransaction) return;
-                const od = await CashRegister.getActiveDrawer();
-                if (od) {
-                    const amt = Number(localOrder.total) || Number(localOrder.totalAmount) ||
-                        (localOrder.items || []).reduce((s, i) => s + (Number(i.total) || ((Number(i.price) || 0) * (Number(i.quantity) || 1))), 0);
-                    await CashRegister.recordTransaction(od.id, 'sale', amt, paymentMethod || 'cash', 'فاتورة#' + localOrder.id);
-                }
-            } catch (_) {}
-        };
-
-        // Try server checkout first (atomic)
-        const serverResult = await ServerAPI.checkout(orderId, { paymentMethod: paymentMethod || 'cash' });
-        if (serverResult && serverResult.success) {
-            // Server handled it atomically — sync local state from server
-            if (serverResult.order) {
-                await db.put('orders', serverResult.order);
-            }
-            if (localOrder.tableId && !isNaN(parseInt(localOrder.tableId))) {
-                await Tables.update(parseInt(localOrder.tableId), { status: 'available', currentOrder: null });
-            }
-            await _recordDrawerSale();
-            return { ...localOrder, status: 'closed' };
-        }
-
-        // Server unavailable — do local checkout atomically (معاملة IDB واحدة على المخازن المالية
-        // تمنع حالة "فاتورة بلا دفعة" أو "طلب مغلق بلا فاتورة" عند فشل في منتصف العملية)
-        const now = new Date().toISOString();
-        const subtotal = localOrder.subtotal || (localOrder.items || []).reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
-        const discountAmount = localOrder.discountAmount || (subtotal * (localOrder.discount || 0) / 100);
-        // الضريبة ملغاة (قرار الإدارة): الإجمالي يُعاد حسابه دائماً دون أي ضريبة — حتى للطلبات القديمة.
-        const total = subtotal - discountAmount;
-
-        // 1. Create invoice (immutable record of the sale)
-        const invoice = {
-            orderId: localOrder.id,
-            orderSyncId: localOrder.syncId,
-            tableId: localOrder.tableId,
-            orderType: localOrder.orderType || null,
-            cashierName: localOrder.cashierName || '',
-            deliveryAddress: localOrder.deliveryAddress || '',
-            customerName: localOrder.customerName || '',
-            customerPhone: localOrder.customerPhone || '',
-            items: localOrder.items || [],
-            subtotal,
-            discount: localOrder.discount || 0,
-            discountAmount,
-            tax: localOrder.tax || 0,
-            total,
-            paymentMethod: paymentMethod || 'cash',
-            date: now,
-            createdBy: Users.getCurrentUser()?.name || 'unknown'
-        };
-
-        // 2. Prepare payment record
-        const _payUser = Users.getCurrentUser && Users.getCurrentUser();
-        const payment = {
-            orderId: localOrder.id,
-            orderSyncId: localOrder.syncId,
-            amount: total,
-            method: paymentMethod || 'cash',
-            date: now,
-            createdBy: _payUser?.name || 'unknown',
-            userId: _payUser?.id != null ? _payUser.id : null
-        };
-
-        // 3. Deduct inventory (work in background — خارج المعاملة المالية)
-        // C3-P0: خصم المخزون أصبح على الخادم داخل معاملة /checkout نفسها (مصدر الحقيقة الوحيد، غير مزدوج).
-        // يُعطَّل الخصم المحلي هنا حتى لا يُخصم مرتين (محلياً + خادماً) — الخادم يرد 409 عند عجز المخزون.
-        // Inventory.deductForCheckout(localOrder.items || []).catch(() => {});
-
-        // 4. Close the order record
-        localOrder.status = 'closed';
-        localOrder.paymentMethod = paymentMethod || 'cash';
-        localOrder.paymentStatus = 'paid';
-        localOrder.totalPaid = total;
-        localOrder.changeAmount = 0;
-
-        // معاملة IDB واحدة: فاتورة + دفعة + إغلاق الطلب + تحديث order_items
-        const invoiceId = await new Promise((resolve, reject) => {
-            try {
-                const tx = db.db.transaction(['invoices', 'payments', 'orders', 'order_items'], 'readwrite');
-                const invStore = tx.objectStore('invoices');
-                const payStore = tx.objectStore('payments');
-                const ordStore = tx.objectStore('orders');
-                const oiStore = tx.objectStore('order_items');
-
-                let invId = null;
-                stampSyncRecord('invoices', invoice, true);
-                const invReq = invStore.add(invoice);
-                invReq.onsuccess = () => {
-                    invId = invReq.result;
-                    payment.invoiceId = invId;
-                    stampSyncRecord('payments', payment, true);
-                    const payReq = payStore.add(payment);
-                    payReq.onsuccess = () => { payment.id = payReq.result; };
-
-                    stampSyncRecord('orders', localOrder, false);
-                    ordStore.put(localOrder);
-
-                    // order_items: إزالة المكررات الحالية للطلب ثم إدراج جرد الأصناف النهائي
-                    let oiExistingReq;
-                    try {
-                        oiExistingReq = oiStore.index('orderId').getAll(String(localOrder.id));
-                    } catch (e) {
-                        // قواعد بيانات قديمة قد تفتقد الفهرس — نرجع لكل السجلات ونصفّي بمعرف الطلب
-                        oiExistingReq = oiStore.getAll();
-                    }
-                    oiExistingReq.onsuccess = () => {
-                        const existing = (oiExistingReq.result || []).filter(r => String(r.orderId) === String(localOrder.id));
-                        existing.forEach(r => oiStore.delete(r.id));
-                        (localOrder.items || []).forEach(item => {
-                            const oi = { orderId: localOrder.id, orderSyncId: localOrder.syncId, ...item };
-                            stampSyncRecord('order_items', oi, true);
-                            oiStore.add(oi);
-                        });
-                    };
-                };
-                tx.oncomplete = () => resolve(invId);
-                tx.onerror = () => reject(tx.error || new Error('checkout transaction failed'));
-                tx.onabort = () => reject(tx.error || new Error('checkout transaction aborted'));
-            } catch(e) { reject(e); }
-        });
-
-        // 5. Free the table (best-effort — لو فشلت تبقى الطاولة محجوزة كحارس أمان)
-        if (localOrder.tableId && !isNaN(parseInt(localOrder.tableId))) {
-            try { await Tables.update(parseInt(localOrder.tableId), { status: 'available', currentOrder: null }); } catch(e) {}
-        }
-
-        // 6. Sync to server in background
-        // H4: نُرسل نفس paymentSyncId التي ثبّتها التحصيل المحلي — السيرفر يستبعد الازدواج
-        // (لا يعيد تسجيل دفع للفاتورة التي أكّدها هذا الجهاز محلياً) حتى لو أُعيدت المحاولة لاحقاً.
-        ServerAPI.checkout(orderId, {
-            paymentMethod: paymentMethod || 'cash',
-            paymentSyncId: (payment && payment.syncId) || undefined,
-            orderSyncId: (localOrder && localOrder.syncId) || undefined
-        }).catch(() => {});
-
-        await _recordDrawerSale();
-
-        return { ...localOrder, _invoiceId: invoiceId };
+        // P2-A1: واجهة قديمة محوّلة — أصبحت مجرد استدعاء للمسار الصارم عبر السيرفر (لا إقفال محلي أبداً).
+        // يُستدعى هذا فقط للتوافق مع كود قديم؛ زر الدفع في index.html يستدعي checkoutToServer مباشرة.
+        // تعذّر الاتصال/رفض السيرفر → يُعيد null والطلب يبقى مفتوحاً (بلا closed/paid محلي، بلا دفعة/فاتورة محلية).
+        const closed = await this.checkoutToServer(orderId, { paymentMethod: paymentMethod || 'cash' });
+        return closed;
     },
 
     // P1: تحصيل صارم عبر السيرفر فقط (بلا إغلاق محلي عند تعذر الاتصال وبلا دفع محلي مزيف).

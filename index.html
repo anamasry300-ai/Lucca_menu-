@@ -4964,6 +4964,29 @@
             if (!reason) { showToast('يجب إدخال سبب الإلغاء/الاسترداد'); document.getElementById('voidReason').focus(); return; }
 
             try {
+                // الوضع السحابي: الإلغاء/الاسترداد عبر دالة void_order الذرية فحسب (لا كتابة نقدية محلية، لا استرداد مزدوج).
+                if ((localStorage.getItem('luccaDataMode') || 'local') === 'supabase' && window.LuccaDB && typeof window.LuccaDB.Orders.void === 'function') {
+                    try {
+                        await window.LuccaDB.Orders.void(_voidOrderId, reason, note);
+                        document.getElementById('voidOrderModal').classList.remove('show');
+                        document.getElementById('orderSearchModal').classList.remove('show');
+                        await loadTables();
+                        if (typeof performOrderSearch === 'function') await performOrderSearch();
+                        setOrderStatus(`❌ تم إلغاء وتسجيل استرداد طلب #${_voidOrderId} (السبب: ${reason})`, 'success');
+                        showToast('تم إلغاء الطلب وتسجيل الاسترداد على السيرفر');
+                        _voidOrderId = null;
+                        _viewingOrderId = null;
+                        return;
+                    } catch (e) {
+                        // رفض/تعذر السيرفر — في الوضع السحابي لا مسار محلي (مصدر الحقيقة = السيرفر)
+                        const vmsg = (e && e.status) ? ((e && e.message) || 'رفض السيرفر الإلغاء/الاسترداد') : 'تعذر الاتصال بالسيرفر — لم يُلغَ الطلب، أعد المحاولة';
+                        showToast('❌ ' + vmsg, 'error');
+                        _voidOrderId = null;
+                        _viewingOrderId = null;
+                        return;
+                    }
+                }
+
                 // يحاول التسجيل الخادمي أولاً (يسجل الموظف الأصلي + مَن ألغى في audit + refund)
                 if (window.ServerAPI && ServerAPI.post && navigator.onLine !== false) {
                     try {

@@ -86,6 +86,50 @@
     }
   };
 
+  // اسم الفاعل الحالي (لاستدعاءات RPC الآمنة)
+  function currentActorName() {
+    try {
+      const u = window.localStorage.getItem('currentUser');
+      if (u) {
+        const parsed = JSON.parse(u);
+        if (parsed && (parsed.name || parsed.username)) return parsed.name || parsed.username;
+      }
+    } catch (e) {}
+    return '';
+  }
+
+  // استدعاء دالة RPC موحّدة مع تحويل أخطاء PostgREST إلى عقد موحّد:
+  //   - تعذّر الوصول (شبكة) → يُعيد null (الطلب يبقى مفتوحاً — بلا دفع/إغلاق محلي).
+  //   - رفض السيرفر (status صريح) → يرمي Error مع {status, code}.
+  //   - الدالة غير مؤمّنة في قاعدة البيانات → يرمي خطأ إرشادياً ينبه لتنفيذ SQL المطلوب.
+  async function invokeRpc(name, args, missingHint) {
+    let data = null;
+    let error = null;
+    try {
+      const r = await _supabase.rpc(name, args);
+      data = r && r.data;
+      error = r && r.error;
+    } catch (e) {
+      error = e;
+    }
+    if (!data && error) {
+      const msg = String((error && error.message) || (error && error.error_description) || (error && error.details) || 'تعذر الاتصال بالسيرفر');
+      const status = (error && error.status) || null;
+      const code = (error && error.code) || null;
+      // بلا status/code → مشكلة اتصال/شبكة → null (لا إغلاق محلي، لا دفع مزيف)
+      if (!status && !code) return null;
+      const fnMissing = code === '42883' || code === 'PGRST202'
+        || /could not find (the )?function/i.test(msg)
+        || /function .* does not exist/i.test(msg);
+      throw Object.assign(new Error(fnMissing ? missingHint : msg), { status: status || 400, code });
+    }
+    if (!data || typeof data.success === 'undefined') return null;
+    if (data.success === false) {
+      throw Object.assign(new Error(data.error || 'رفض السيرفر العملية'), { status: data.status || 409 });
+    }
+    return data;
+  }
+
   const Users = {
     async _hashPassword(password, salt){
       if(!window.crypto || !window.crypto.subtle) return null;
@@ -286,23 +330,120 @@
       return (data || []).map(toCamel);
     },
     async updateStatus(orderId, status) { return this.update(orderId, { status }); },
+
+    // P2-A1: واجهة قديمة محوّلة — تحصيل صارم عبر دالة checkout_order الذرية (لا إقفال محلي).
+    // يُستدعى فقط للتوافق مع كود قديم؛ زر الدفع في index.html يستدعي checkoutToServer مباشرة.
     async checkout(orderId, paymentMethod) {
+      return this.checkoutToServer(orderId, { paymentMethod: paymentMethod || 'cash' });
+    },
+
+    // التحصيل الذري الوحيد في الوضع السحابي — POST /rest/v1/rpc/checkout_order.
+    //   - يُعيد الطلب المغلق من السيرفر (مصدر الحقيقة) بعد التحويل إلى camelCase،
+    //   - null إذا تعذّر الاتصال (الطلب يبقى مفتوحاً — لا دفع محلي، لا إغلاق، لا pushAll)،
+    //   - يرمي خطأً برمز status (409/400/…) إذا رفض السيرفر (مبلغ ≠ إجمالي، عجز مخزون…).
+    async checkoutToServer(orderId, data) {
       const order = await _db.get('orders', orderId);
       if (!order) throw new Error('الطلب غير موجود');
-      if (order.status === 'closed') throw new Error('الطلب مغلق بالفعل');
-      const now = new Date().toISOString();
-      const updates = {
-        status: 'closed',
-        paymentMethod: paymentMethod || 'cash',
-        paymentStatus: 'paid',
-        totalPaid: order.total || 0,
-        changeAmount: 0
+      const payload = (typeof data === 'string') ? { paymentMethod: data } : (data || {});
+
+      // تقسيم الدفع: كل جزء {method, amount, paymentSyncId} — يطابق توقيع دالة checkout_order
+      const splitParts = Array.isArray(payload.payments) && payload.payments.length > 0
+        ? payload.payments.map((p) => ({
+            method: String((p && (p.method || p.paymentMethod)) || 'cash'),
+            amount: Number((p && p.amount) || 0),
+            paymentSyncId: String((p && p.paymentSyncId) || '').trim() || undefined
+          })).filter((p) => p.amount > 0)
+        : null;
+
+      const rpcArgs = {
+        p_order_id: Number(orderId),
+        p_payment_method: splitParts ? null : (payload.paymentMethod || 'cash'),
+        p_payment_sync_id: splitParts ? null : (payload.paymentSyncId || undefined),
+        p_order_sync_id: payload.orderSyncId || undefined,
+        p_change_amount: Number.isFinite(Number(payload.changeAmount)) ? Number(payload.changeAmount) : 0,
+        p_payments: splitParts || null,
+        p_created_by: currentActorName()
       };
-      await _db.put('orders', { ...order, ...updates, id: orderId });
-      if (order.tableId && !isNaN(parseInt(order.tableId))) {
-        await Tables.update(parseInt(order.tableId), { status: 'available', currentOrder: null });
+
+      const res = await invokeRpc(
+        'checkout_order',
+        rpcArgs,
+        'التحصيل السحابي يحتاج تنفيذ deploy/supabase-rpc-v1.sql في Supabase SQL Editor أولاً (دالة checkout_order غير موجودة)'
+      );
+      if (!res) return null; // تعذّر الاتصال — الطلب يبقى مفتوحاً
+      return res.order ? toCamel(res.order) : { ...order, status: 'closed', paymentStatus: 'paid' };
+    },
+
+    // إلغاء/استرداد ذري عبر دالة void_order — يمنع الاسترداد المزدوج (سقف = صافي المدفوع − المسترد سابقاً).
+    // السلوك مطابق لـ /void على السيرفر المحلي: سببه إلزامي، والدالة تعيد الطلب الملغى أو تُرمي خطأ برمز.
+    async void(orderId, reason, note, refundMethod) {
+      const res = await invokeRpc(
+        'void_order',
+        {
+          p_order_id: Number(orderId),
+          p_reason: String(reason || '').trim(),
+          p_note: String(note || '').trim(),
+          p_refund_method: refundMethod || null,
+          p_created_by: currentActorName()
+        },
+        'الإلغاء/الاسترداد السحابي يحتاج تنفيذ deploy/supabase-rpc-v1.sql في Supabase SQL Editor أولاً (دالة void_order غير موجودة)'
+      );
+      if (!res) return null; // تعذّر الاتصال — الطلب يبقى كما هو، لا إلغاء محلي
+      return res.order ? toCamel(res.order) : null;
+    },
+
+    // تسجيل فاتورة يدوية (بيع خارجي) عبر دالة checkout_order فقط — بلا أي طلب paid محلي.
+    //  1) إنشاء طلب مفتوح (pending/unpaid) على السحابة.
+    //  2) إقفاله عبر checkout_order (دفعة + تدقيق + تخزين) في معاملة واحدة.
+    // فشل الاتصال أو رفض السيرفر → لا تُسجَّل الفاتورة أبداً ويُحذف الطلب المفتوح (لا حالة شبحية).
+    async recordManualInvoice({ amount, description, method } = {}) {
+      const amt = Number(amount);
+      if (!isFinite(amt) || amt <= 0) throw new Error('المبلغ غير صالح');
+      const desc = String(description || 'فاتورة يدوية').trim();
+      const m = ['cash', 'card', 'transfer'].includes(method) ? method : 'cash';
+      const now = new Date().toISOString();
+      const order = {
+        status: 'pending',
+        paymentStatus: 'unpaid',
+        orderType: 'takeaway',
+        tableId: 'takeaway',
+        orderNumber: 'INV-' + Date.now(),
+        items: [{ name: desc, quantity: 1, price: amt, unitPrice: amt, total: amt }],
+        subtotal: amt,
+        discount: 0,
+        discountAmount: 0,
+        discountType: 'percent',
+        tax: 0,
+        total: amt,
+        paymentMethod: m,
+        createdBy: currentActorName() || 'invoice',
+        customerName: '',
+        date: now,
+        createdAt: now
+      };
+      let created = null;
+      try {
+        created = await _db.add('orders', order);
+      } catch (e) {
+        throw new Error('تعذر الاتصال بالسيرفر - لم تسجل الفاتورة (' + ((e && e.message) || 'ليس متاحاً حالياً') + ')');
       }
-      return { ...order, ...updates };
+      if (!created || !created.id) {
+        throw new Error('فشل إنشاء الطلب على السيرفر - لم تسجل الفاتورة');
+      }
+      const serverId = created.id;
+      const paymentSyncId = 'inv-' + serverId + '-' + Date.now();
+      try {
+        const closed = await this.checkoutToServer(serverId, { paymentMethod: m, paymentSyncId });
+        if (!closed) {
+          throw new Error('تعذر الاتصال بالسيرفر - لم تسجل الفاتورة، أعد المحاولة');
+        }
+        return { success: true, orderId: serverId, order: closed };
+      } catch (e) {
+        // إزالة الطلب المفتوح "الشبح" — لم تُقبل الفاتورة ضمنياً
+        try { await _db.delete('orders', serverId); } catch (_) {}
+        if (e && e.status) throw e;
+        throw new Error('تعذر إقفال الفاتورة على السيرفر - لم تسجل. أعد المحاولة لاحقاً');
+      }
     }
   };
 

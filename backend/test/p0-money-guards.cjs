@@ -131,6 +131,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
     r = await createOrder(NULL_ITEMS, 5, 5);
     await check('Case1: create open order → 201', r.status === 201, `status=${r.status}`);
     const o1 = r.json?.id;
+    await check('Case1: الإجماليات محسوبة على السيرفر من الأصناف (5 ادعاء ← 0 فعلي)', r.json?.total === 0 && r.json?.subtotal === 0, `subtotal=${r.json?.subtotal} total=${r.json?.total}`);
     r = await api('PUT', `/api/orders/${o1}`, { status: 'paid', total: 0 }, token);
     await check('Case1: PUT {status:paid,total:0} → 409', r.status === 409, `status=${r.status} ${JSON.stringify(r.json || {})}`);
     r = await api('GET', `/api/orders/${o1}`, null, token);
@@ -141,8 +142,10 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
     await check('Case1: PUT {paymentStatus:paid} → 409', r.status === 409, `status=${r.status}`);
     r = await api('PUT', `/api/orders/${o1}`, { totalPaid: 50 }, token);
     await check('Case1: PUT {totalPaid:50} → 409', r.status === 409, `status=${r.status}`);
-    r = await api('PUT', `/api/orders/${o1}`, { total: 0 }, token);
-    await check('Case1: PUT {total:0} (غيّر الإجمالي يدوياً) → 409', r.status === 409, `status=${r.status} ${JSON.stringify(r.json || {})}`);
+    r = await api('PUT', `/api/orders/${o1}`, { total: 999 }, token);
+    await check('Case1: PUT {total:999} يُقبل لكن الإجمالي يبقى محسوباً على السيرفر (0) → 200', r.status === 200, `status=${r.status} ${JSON.stringify(r.json || {})}`);
+    r = await api('GET', `/api/orders/${o1}`, null, token);
+    await check('Case1: الإجمالي لم يُعتمَّد من العميل (999) بل من الأصناف (0)', Number(r.json?.total) === 0, `total=${r.json?.total}`);
     r = await api('PUT', `/api/orders/${o1}`, { customerNotes: 'ملاحظة تشغيلية' }, token);
     await check('Case1: PUT {customerNotes} على طلب مفتوح → 200 (تعديل تشغيلي مسموح)', r.status === 200, `status=${r.status}`);
     r = await api('PUT', `/api/orders/${o1}`, { subtotal: 5, discount: 0, tax: 0, total: 5, paymentMethod: 'cash' }, token);

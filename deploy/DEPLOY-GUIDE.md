@@ -30,7 +30,33 @@
 └──────────────────────────────────────────────────────────┘
 ```
 
----
+> ## ⚠️ الخطوة الأهم الآن: طبقة المال الذرية (RPC) — إلزامية قبل التحصيل/الإلغاء في الوضع السحابي
+>
+> الواجهة تشتغل على GitHub Pages/Vercel وتقدر **تقرأ وتكتب** الجداول من كل الأجهزة، لكن التحصيل/الإلغاء
+> (money) كان **ناقصاً في الوضع السحابي**: لا معاملة ذرية، لا خصم مخزون، لا منع استرداد مزدوج.
+> الحل: دالتان PostgreSQL بـ `SECURITY DEFINER` تنفذان التحصيل والإلغاء **في معاملة واحدة** داخل قاعدة البيانات:
+>
+> 1. من **Supabase Dashboard** → **SQL Editor** → **New query**.
+> 2. افتح ملف **`deploy/supabase-rpc-v1.sql`** والصقه بالكامل ثم **Run** (مرة واحدة؛ آمن لإعادة التشغيل).
+> 3. تظهر رسالة نجاح: `LUCCA RPC v1 applied: checkout_order + void_order ready`.
+> 4. الملف يضيف: أعمدة `sync_id`/بيانات الـ void، إنشاء `stock_movements` و `product_recipes`،
+>    إنشاء `checkout_order(...)` و `void_order(...)`، ومنح anon حق التنفيذ.
+>
+> **لا حاجة لأي سيرفر إضافي** — كل جهاز يستدعي الدالة عبر `POST /rest/v1/rpc/checkout_order` بـ anon key.
+> بدون تنفيذ الملف يظهر خطأ واضح يوجّهك للتشغيل وتظل الطلبات مفتوحة (لا خسارة ولا دفع مزيف).
+>
+> **التحقق بعد التنفيذ** (لو مشروعك الحالي `uudimvcdkaacqaxgajbk.supabase.co`):
+> ```powershell
+> $k='<anon key من supabase-db.js (SUPABASE_ANON_KEY)>'
+> $h=@{apikey=$k;Authorization="Bearer $k"}
+> # 1) الدالة موجودة ومتاحة:
+> Invoke-RestMethod -Method Post -Uri "https://uudimvcdkaacqaxgajbk.supabase.co/rest/v1/rpc/checkout_order" -Headers $h -ContentType 'application/json' -Body '{"p_order_id":-1,"p_payment_method":"cash"}'
+> # رد متوقع: JSON فيه "Order not found" (وليس خطأ "function does not exist").
+> # 2) تحصيل سليم: أنشئ طلباً بـ items[{name,price,quantity}] عبر POST orders ثم استدعِ الدالة بمعرف الصف:
+> Invoke-RestMethod -Method Post -Uri "https://uudimvcdkaacqaxgajbk.supabase.co/rest/v1/rpc/checkout_order" -Headers $h -ContentType 'application/json' -Body '{"p_order_id":<id>,"p_payment_method":"cash","p_change_amount":0}'
+> # رد: {"success":true,"order":{... status:"closed", payment_status:"paid", total=مجموع items}}
+> # 3) تكرار النداء بنفس p_payment_sync_id → {"already_processed":true} بلا دفعة مكررة.
+> ```
 
 ## 📝 الخطوة 1: إنشاء حساب Supabase
 
@@ -191,9 +217,15 @@ vercel --prod
 - **Database Password** متستخدمش في الكود — ده للـ Supabase Dashboard بس
 
 ### الـ Backend القديم
-- **محتاجش** الـ Express backend تاني — Supabase بيعمل كل حاجة
+- **محتاجش** الـ Express backend تاني — Supabase بيعمل كل حاجة (بعد تنفيذ `supabase-rpc-v1.sql`)
 - **محتاجش** SQLite — Supabase uses PostgreSQL
 - **الـ Electron app** يقدر يفضل يشتغل offline مع IndexedDB + Supabase للـ sync
+
+### التبديل بين الوضعين (محلي / سحابي)
+- من **لوحة التحكم** → صفحة "إعدادات الخادم" → "مصدر البيانات" (المبدّل الجديد)، أو يدوياً:
+  - `localStorage.setItem('luccaDataMode','local')` → البيانات عبر IndexedDB + خادم localhost/SQLite
+  - `localStorage.setItem('luccaDataMode','supabase')` → البيانات والمال عبر Supabase أونلاين
+- في الوضع **السحابي**: التحصيل/الإلغاء عبر RPC ذري — محظور أي كتابة نقدية محلية/يدوية (مثل الوضع المحلي تماماً).
 
 ### التكاليف (Pricing)
 | Plan | Price | يكفي؟ |
@@ -214,6 +246,9 @@ vercel --prod
 |---------|------|
 | الصفحة ما بتفتحش | تأكد إن `supabase-db.js` فيه URL و Key صحيحين |
 | "Failed to fetch" | تأكد من internet + إن Supabase project شغال |
+| رسالة "function does not exist"/"checkout_order غير موجودة" | لم تنفّذ `deploy/supabase-rpc-v1.sql` — نفّذه من SQL Editor ثم أعد المحاولة |
+| التحصيل رُفض بـ 409 "لا يطابق إجمالي الطلب" | مبلغ الدفعات ≠ مجموع الأصناف — تأكد من الأصناف في الطلب |
+| عجز مخزون عند التحصيل | خصص $allowNegativeStock لـ true (أو وفّر الكميات) |
 | البيانات ما بتظهرش | تأكد من RLS policies شغالة |
 | الأزرار ما بتشتغلش | افتح Console (F12) وشوف الأخطاء |
 | التحديث بطيء | تأكد من الـ internet + جرب page refresh |
@@ -224,8 +259,10 @@ vercel --prod
 
 | الملف | الوظيفة |
 |-------|---------|
-| `deploy/supabase-schema.sql` | Database schema كامل لـ Supabase |
-| `deploy/supabase-db.js` | بديل database.js يشتغل مع Supabase |
+| `deploy/supabase-schema.sql` | Database schema كامل (النسخة المطبقة فعلياً في القاعدة الحالية — snake_case) |
+| `deploy/supabase-rpc-v1.sql` | **طبقة المال الذرية (إلزامي)**: `checkout_order` + `void_order` + أعمدة/جداول ناقصة + GRANT anon |
+| `deploy/supabase-schema-v2.sql` | مخطط v2 الأحدث (لم يُطبَّق على القاعدة الحالية) |
+| `deploy/supabase-db.js` | نسخة قديمة من الـ adapter (النسخة الفعّالة في الجذر الآن: `supabase-db.js`) |
 | `deploy/vercel.json` | إعدادات Vercel للنشر |
 
 ---

@@ -2313,6 +2313,24 @@
                 <div class="section-title">🌐 إعدادات الخادم</div>
                 <div class="panel"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                        <div style="flex:2;min-width:220px">
+                            <label>مصدر البيانات</label>
+                            <select id="dataMode" style="padding:8px;border:1px solid var(--border);border-radius:6px;width:100%">
+                                <option value="local">محلي (خادم خارجي localhost + SQLite/MultiSync)</option>
+                                <option value="supabase">سحابي (Supabase — يشتغل أونلاين على كل الأجهزة)</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-success" onclick="saveDataMode()">حفظ المصدر</button>
+                    </div>
+                    <div id="dataModeStatus" style="margin-top:8px;font-size:0.85rem"></div>
+                    <div style="margin-top:8px;font-size:0.8rem;color:var(--text-muted)">
+                        💡 الوضع <b>السحابي</b> يعمل مباشرة عبر الإنترنت بدون تشغيل خادم محلي، وربطه بقاعدة Supabase الحالية.
+                        قبل استعمال التحصيل/الإلغاء في هذا الوضع، نفّذ أولاً
+                        <code>deploy/supabase-rpc-v1.sql</code> في Supabase → SQL Editor (يُفتح مرة واحدة فقط).
+                    </div>
+                </div></div>
+                <div class="panel"><div class="panel-body">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
                         <div style="flex:3;min-width:200px"><label>رابط الخادم</label><input type="text" id="serverUrl" placeholder="http://localhost:3000"></div>
                         <button class="btn btn-primary" onclick="saveServer()">حفظ</button>
                     </div>
@@ -4303,6 +4321,21 @@ async function handleImport(event){
 }
 
 // ===== SERVER =====
+function currentDataMode(){ return localStorage.getItem('luccaDataMode') || 'local'; }
+
+function saveDataMode(){
+    const mode = document.getElementById('dataMode').value;
+    const prompt = mode === 'supabase'
+        ? 'الوضع السحابي يربط التطبيق بنفس قاعدة Supabase أونلاين لكل الأجهزة. هل تأكدت من تنفيذ deploy/supabase-rpc-v1.sql في SQL Editor؟'
+        : 'العودة إلى الوضع المحلي تعني تشغيل خادم لوكل (localhost:3000) للتحصيل. متابعة؟';
+    if(!confirm(prompt)) return;
+    localStorage.setItem('luccaDataMode', mode);
+    document.getElementById('dataModeStatus').innerHTML =
+        '<span style="color:var(--success)">✅ تم الحفظ — أعد تحميل الصفحة لتفعيل ' +
+        (mode === 'supabase' ? 'الوضع السحابي' : 'الوضع المحلي') + '</span>';
+    showToast(mode === 'supabase' ? 'تم تفعيل الوضع السحابي — أعد تحميل الصفحة' : 'تم تفعيل الوضع المحلي — أعد تحميل الصفحة');
+}
+
 function saveServer(){
     const url = document.getElementById('serverUrl').value.trim();
     if(!url){ showToast('أدخل رابط الخادم','error'); return; }
@@ -4315,6 +4348,8 @@ function saveServer(){
 function loadServerSettings(){
     const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
     document.getElementById('serverUrl').value = url;
+    const modeEl = document.getElementById('dataMode');
+    if (modeEl) modeEl.value = currentDataMode();
 }
 loadServerSettings();
 

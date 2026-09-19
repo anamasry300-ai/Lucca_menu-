@@ -154,6 +154,22 @@ function computeExpectedTotal(data: Record<string, unknown>, existing?: Record<s
   return subtotal - discountAmount + tax;
 }
 
+// P2-A5: الحساب الإلزامي للإجماليات على السيرفر — مصدر الحقيقة = الأصناف (price×quantity) فقط.
+// إجمالي/تحت-إجمالي/مبلغ الخصم القادم من العميل يُتجاهَل ويُعاد حسابه من items + قواعد الخصم/الضريبة.
+function serverOrderTotals(data: Record<string, unknown>, existing?: Record<string, unknown>):
+  { subtotal: number; discountAmount: number; total: number } {
+  let raw = data.items !== undefined ? data.items : (existing ? existing.items : '[]');
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { raw = []; } }
+  const arr = Array.isArray(raw) ? raw : [];
+  const subtotal = arr.reduce((s: number, it: any) =>
+    s + (Number(it && it.quantity) || 1) * (Number((it && (it.unitPrice ?? it.price)) || 0)), 0);
+  const discount = Number(data.discount !== undefined ? data.discount : (existing ? existing.discount : 0)) || 0;
+  const discountType = String(data.discountType !== undefined ? data.discountType : (existing ? existing.discountType : 'percent')) || 'percent';
+  const discountAmount = discountType === 'fixed' ? discount : subtotal * (discount / 100);
+  const tax = Number(data.tax !== undefined ? data.tax : (existing ? existing.tax : 0)) || 0;
+  return { subtotal, discountAmount, total: subtotal - discountAmount + tax };
+}
+
 function recordAuditLog(action: string, objectType: string, objectId: string | number, newValue?: unknown, userName = 'system') {
   try {
     const db = getDb();
@@ -280,6 +296,17 @@ router.post('/:store', (req: Request, res: Response) => {
       auditReject(req, 'payments', String(data.orderId ?? ''), 'محاولة إضافة دفعة عبر CRUD');
       res.status(409).json({ error: 'لا يمكن إضافة دفعات عبر CRUD — التحصيل حصري عبر /checkout' });
       return;
+    }
+
+    // P2-A5: إجمالي الطلب يُحسب على السيرفر من الأصناف فقط — يُتجاهَل total/subtotal/paidAmount القادم من العميل
+    if (store === 'orders') {
+      const t = serverOrderTotals(data);
+      data.subtotal = t.subtotal;
+      data.discountAmount = t.discountAmount;
+      data.total = t.total;
+      // حقول دفع تُفرض صفراً عند الإنشاء — لا دفعة مقدمة عبر CRUD
+      // (لا paidAmount — العمود غير موجود في الجدول؛ لا تُرسل أبداً)
+      data.totalPaid = 0; data.changeAmount = 0;
     }
 
     // C3-P0: استرداد نقدي مُتحقق منه فقط: سبب + قيمة موجبة ≤ صافي المدفوع + طلب مدفوع فعلاً
@@ -422,6 +449,13 @@ router.put('/:store/:id', (req: Request, res: Response) => {
     if (store === 'orders') {
       existingOrder = queryOne('SELECT * FROM orders WHERE id = ?', [id]);
       if (!existingOrder) { res.status(404).json({ error: 'Order not found' }); return; }
+      // P2-A5: حتى على التعديل، الإجماليات تُحسب على السيرفر من الأصناف فقط (مصدر الحقيقة)
+      // — يُتجاهَل subtotal/total القادم من العميل فيُستبدلان بالقيم المحسوبة (يحجب آخر ثغرة تعمية).
+      const forcedRef = Object.assign({}, existingOrder, data);
+      const updatedT = serverOrderTotals(forcedRef);
+      data.subtotal = updatedT.subtotal;
+      data.discountAmount = updatedT.discountAmount;
+      data.total = updatedT.total;
       // طلب مدفوع/مغلق/ملغى لا يُعدَّل ولا يُنقل (لا صمت — 409 صريح)
       if (isOrderPaidOrClosed(existingOrder)) {
         auditReject(req, 'orders', id, 'محاولة تعديل طلب مدفوع/مغلق');
