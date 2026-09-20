@@ -9,21 +9,27 @@
     return;
   }
 
-  // الوضع الافتراضي: البيانات محلية (IndexedDB + مزامنة سيرفر SQLite المحلي).
-  // لا نستبدل LuccaDB بـ Supabase إلا عند تفعيل صريح (luccaDataMode = supabase)،
-  // لأن أي استبدال قديم كان يُفشل حفظ الطلبات عند توفر الاتصال (مخطط جداول سحابية غير مطابق).
+  // الوضع الافتراضي الآن سحابي: كل الأجهزة واللوحات ترى نفس قاعدة البيانات.
+  // يمكن الرجوع للوضع المحلي صراحةً عبر luccaDataMode=local أثناء الصيانة فقط.
   try {
-    if ((localStorage.getItem('luccaDataMode') || 'local') !== 'supabase') {
+    if ((localStorage.getItem('luccaDataMode') || 'supabase') !== 'supabase') {
       return;
     }
   } catch (e) {
     return;
   }
 
-  const SUPABASE_URL = 'https://uudimvcdkaacqaxgajbk.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZGltdmNka2FhY3FheGdhamJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMzQ4MTYsImV4cCI6MjEwMjgxMDgxNn0.WrwCUlqWW2ib7D8T41DNzUbybo4FHnNQ1AIBTZr2ZlM';
+  const cloudConfig = window.LUCCA_CLOUD_CONFIG || {};
+  const SUPABASE_URL = cloudConfig.url || 'https://uudimvcdkaacqaxgajbk.supabase.co';
+  const SUPABASE_ANON_KEY = cloudConfig.anonKey || '';
 
   const _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Realtime is the live cross-device update path. It emits a stable browser
+  // event consumed by the POS and admin pages; it never writes data itself.
+  if (window.LuccaCloudLive && typeof window.LuccaCloudLive.start === 'function') {
+    window.LuccaCloudLive.start(_supabase);
+  }
 
   function toSnake(obj) {
     if (!obj || typeof obj !== 'object') return obj;
@@ -1151,13 +1157,13 @@
     BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem,
     // Sync methods
     enableSync: function(opts){
-      if(!window.SyncEngine) return;
-      // غلف عمليات db.put/add/delete لتدخل في queue المزامنة (كانت تُتخطى سابقاً → لا شيء يُزامَن)
-      window.SyncEngine.wrapDBOperations(_db, _supabase);
-      window.SyncEngine.startAutoSync(_supabase, _db, {
-        interval: (opts && opts.interval) || 30000,
-        onStatusChange: (opts && opts.onStatusChange) || null
-      });
+      // In cloud mode every write already goes directly to Supabase. Wrapping
+      // the adapter with the old offline queue would write the same mutation a
+      // second time and could create duplicate/conflicting records.
+      if (opts && typeof opts.onStatusChange === 'function') {
+        opts.onStatusChange({ mode: 'cloud', connected: navigator.onLine, live: !!window.LuccaCloudLive });
+      }
+      return { mode: 'cloud', stop: function(){}, trigger: function(){ return Promise.resolve(null); } };
     },
     getSyncStatus: function(){ return window.SyncEngine ? window.SyncEngine.getSyncStatus() : null; },
     triggerSync: function(){ return window.SyncEngine ? window.SyncEngine.triggerSync() : Promise.resolve(); },

@@ -10,6 +10,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="admin/database.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="cloud-config.js"></script>
+    <script src="cloud-live.js"></script>
     <script src="supabase-db.js"></script>
     <script src="knowledge/data.js"></script>
     <script src="knowledge/importer.js"></script>
@@ -4965,7 +4967,7 @@
 
             try {
                 // الوضع السحابي: الإلغاء/الاسترداد عبر دالة void_order الذرية فحسب (لا كتابة نقدية محلية، لا استرداد مزدوج).
-                if ((localStorage.getItem('luccaDataMode') || 'local') === 'supabase' && window.LuccaDB && typeof window.LuccaDB.Orders.void === 'function') {
+                if ((localStorage.getItem('luccaDataMode') || 'supabase') === 'supabase' && window.LuccaDB && typeof window.LuccaDB.Orders.void === 'function') {
                     try {
                         await window.LuccaDB.Orders.void(_voidOrderId, reason, note);
                         document.getElementById('voidOrderModal').classList.remove('show');
@@ -5449,6 +5451,11 @@
                 lastOk: null,
                 lastFailAt: 0,
                 async ping() {
+                    if ((localStorage.getItem('luccaDataMode') || 'supabase') === 'supabase') {
+                        this.lastOk = navigator.onLine;
+                        updateSyncUI();
+                        return;
+                    }
                     const serverUrl = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
                     try {
                         const ctrl = new AbortController();
@@ -5526,6 +5533,33 @@
             ServerHealth.start();
             setInterval(updateSyncUI, 5000);
             updateSyncUI();
+
+            // Live cloud changes refresh only the affected views; no page reload
+            // and no second write queue are needed.
+            let liveRefreshTimer = null;
+            window.addEventListener('lucca:cloud-status', function (event) {
+                const status = event.detail && event.detail.status;
+                ServerHealth.lastOk = status === 'connected' || (status === 'connecting' && navigator.onLine);
+                updateSyncUI();
+            });
+            window.addEventListener('lucca:cloud-change', function (event) {
+                clearTimeout(liveRefreshTimer);
+                liveRefreshTimer = setTimeout(function () {
+                    const table = event.detail && event.detail.table;
+                    if (table === 'orders' || table === 'order_status_history' || table === 'payments') {
+                        refreshOrdersTracker();
+                        updateKitchenBadge();
+                        if (typeof renderKitchenOrders === 'function') renderKitchenOrders();
+                    }
+                    if (table === 'orders' || table === 'tables_store') {
+                        if (typeof loadTables === 'function') loadTables();
+                        if (typeof loadTablesMainView === 'function') loadTablesMainView();
+                    }
+                    if (table === 'products' || table === 'categories') {
+                        if (typeof refreshMenuFromDB === 'function') refreshMenuFromDB();
+                    }
+                }, 180);
+            });
 
             if(window.LuccaDB.enableSync){
                 window.LuccaDB.enableSync(null, {

@@ -3788,7 +3788,16 @@ window.LuccaDB.flushOfflineQueue = function(){
 // ===== مزامنة ودّمم الـ offline queue عند التشغيل =====
 (function bootSync(){
     // إعادة محاولة العمليات المؤجلة (انقطاعات سابقة) فوراً وبشكل دوري عند عودة الشبكة.
-    const flushAll = () => { ServerAPI.flushOfflineQueue().catch(() => {}); };
+    const isCloudMode = () => {
+        try { return (localStorage.getItem('luccaDataMode') || 'supabase') === 'supabase'; }
+        catch (_) { return true; }
+    };
+    const flushAll = () => {
+        // Cloud mode writes directly to Supabase; replaying the local queue
+        // would send old mutations to localhost or duplicate cloud writes.
+        if (isCloudMode()) return;
+        ServerAPI.flushOfflineQueue().catch(() => {});
+    };
     setTimeout(flushAll, 1500);
     if (typeof window !== 'undefined' && window.addEventListener) {
         window.addEventListener('online', () => { setTimeout(flushAll, 1000); });

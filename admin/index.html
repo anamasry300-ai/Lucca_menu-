@@ -7,6 +7,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
     <script src="database.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../cloud-config.js"></script>
+    <script src="../cloud-live.js"></script>
     <script src="../supabase-db.js"></script>
     <script src="../knowledge/data.js"></script>
     <script src="../knowledge/importer.js"></script>
@@ -4334,7 +4336,7 @@ async function handleImport(event){
 }
 
 // ===== SERVER =====
-function currentDataMode(){ return localStorage.getItem('luccaDataMode') || 'local'; }
+function currentDataMode(){ return localStorage.getItem('luccaDataMode') || 'supabase'; }
 
 function saveDataMode(){
     const mode = document.getElementById('dataMode').value;
@@ -4359,7 +4361,7 @@ function saveServer(){
 }
 
 function loadServerSettings(){
-    const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+    const url = localStorage.getItem('luccaServerUrl') || 'https://cloud.supabase.co';
     document.getElementById('serverUrl').value = url;
     const modeEl = document.getElementById('dataMode');
     if (modeEl) modeEl.value = currentDataMode();
@@ -4471,6 +4473,24 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     // إذا وُجد رمز دعوة في الرابط → نعرض شاشة التفعيل ونتوقف (لا نفتح الجلسة المحفوظة).
     const inviteToken = new URLSearchParams(location.search).get('invite');
     if(inviteToken){ try { await initActivation(); } catch(e){ console.error(e); } return; }
+    // Supabase Realtime keeps the dashboard current when orders change on any device.
+    let liveDashboardTimer = null;
+    window.addEventListener('lucca:cloud-status', function(event){
+        const status = event.detail && event.detail.status;
+        const el = document.getElementById('serverStatus');
+        if (el && currentDataMode() === 'supabase') {
+            el.innerHTML = status === 'connected'
+                ? '<span style="color:var(--success)">✅ سحابي ولايف — متصل</span>'
+                : '<span style="color:var(--warning)">⏳ جاري الاتصال بالسحابة...</span>';
+        }
+    });
+    window.addEventListener('lucca:cloud-change', function(){
+        clearTimeout(liveDashboardTimer);
+        liveDashboardTimer = setTimeout(function(){
+            if (typeof refreshDashboard === 'function') refreshDashboard();
+            if (typeof loadAlertsBadge === 'function') loadAlertsBadge();
+        }, 250);
+    });
     // Enable sync engine in admin (نقطة تشغيل موحّدة: enableSync → wrapDBOperations + startAutoSync)
     if(window.LuccaDB && typeof window.LuccaDB.enableSync === 'function'){
         window.LuccaDB.enableSync(window.LuccaDB._supabaseClient || null, { interval: 60000 });
