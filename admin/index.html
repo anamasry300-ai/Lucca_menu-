@@ -284,6 +284,20 @@
             color: var(--text);
         }
 
+        .sidebar-backdrop {
+            display: none;
+        }
+
+        .sidebar-toggle:focus-visible,
+        .header-btn:focus-visible,
+        .sidebar-link:focus-visible,
+        .btn:focus-visible,
+        input:focus-visible,
+        select:focus-visible {
+            outline: 3px solid rgba(37, 99, 235, 0.35);
+            outline-offset: 2px;
+        }
+
         /* ===== Main Content ===== */
         .main-content {
             flex: 1;
@@ -482,6 +496,69 @@
         /* ===== Content Area ===== */
         .content-area {
             padding: 32px;
+        }
+
+        .dashboard-heading {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .dashboard-heading .eyebrow {
+            color: var(--primary);
+            font-size: 0.75rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            margin-bottom: 4px;
+        }
+
+        .dashboard-heading h1 {
+            color: var(--text);
+            font-size: clamp(1.45rem, 2vw, 2rem);
+            line-height: 1.25;
+            margin-bottom: 4px;
+        }
+
+        .dashboard-heading .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        .dashboard-meta {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .live-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 7px 11px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--surface);
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+
+        .live-status::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            box-shadow: 0 0 0 3px var(--success-surface);
+        }
+
+        .last-updated {
+            color: var(--text-muted);
+            font-size: 0.75rem;
         }
 
         .page {
@@ -1335,6 +1412,15 @@
                 transform: translateX(0);
             }
 
+            .sidebar-backdrop.visible {
+                display: block;
+                position: fixed;
+                inset: 0;
+                z-index: 999;
+                background: rgba(15, 23, 42, 0.48);
+                backdrop-filter: blur(2px);
+            }
+
             .sidebar-toggle {
                 display: flex;
             }
@@ -1350,6 +1436,16 @@
 
             .content-area {
                 padding: 16px;
+            }
+
+            .dashboard-heading {
+                display: block;
+                margin-bottom: 18px;
+            }
+
+            .dashboard-meta {
+                justify-content: flex-start;
+                margin-top: 12px;
             }
 
             .kpi-grid {
@@ -1672,7 +1768,8 @@
 <div class="app" id="app" style="display:none">
 
     <!-- Sidebar Toggle (mobile) -->
-    <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">☰</button>
+    <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" aria-label="فتح قائمة الإدارة" aria-expanded="false">☰</button>
+    <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeSidebar()" aria-hidden="true"></div>
 
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
@@ -1727,7 +1824,7 @@
         <header class="app-header">
             <div class="header-right">
                 <div class="header-search">
-                    <input type="text" id="globalSearch" placeholder="بحث عن منتج..." onkeyup="handleGlobalSearch(this.value)">
+                    <input type="search" id="globalSearch" placeholder="ابحث عن منتج أو اضغط Ctrl+K" aria-label="البحث عن منتج" onkeyup="handleGlobalSearch(this.value)">
                 </div>
                 <div class="date-filter">
                     <input type="date" id="dateFrom" onchange="onDateFilterChange()">
@@ -1763,6 +1860,18 @@
 
             <!-- ===== DASHBOARD ===== -->
             <div class="page active" id="page-dashboard">
+                <div class="dashboard-heading">
+                    <div>
+                        <div class="eyebrow">ملخص التشغيل</div>
+                        <h1>لوحة التحكم</h1>
+                        <div class="subtitle">تابع أداء المقهى والمبيعات والمخزون من مكان واحد.</div>
+                    </div>
+                    <div class="dashboard-meta">
+                        <span class="live-status">البيانات محدثة</span>
+                        <span class="last-updated" id="dashboardLastUpdated">آخر تحديث —</span>
+                        <button class="btn btn-primary btn-sm" onclick="refreshDashboard()" aria-label="تحديث بيانات لوحة التحكم">↻ تحديث</button>
+                    </div>
+                </div>
                 <div class="kpi-grid" id="kpiGrid">
                     <div class="kpi-card green">
                         <div class="kpi-header">
@@ -1872,7 +1981,7 @@
                         <div class="panel-body" id="tablesStatusPanel"><div class="loading"><div class="spinner"></div></div></div>
                     </div>
                     <div class="panel">
-                        <div class="panel-header"><div class="panel-title">💡 رؤى עסקية</div></div>
+                        <div class="panel-header"><div class="panel-title">💡 رؤى تشغيلية</div></div>
                         <div class="panel-body" id="insightsPanel"><div class="loading"><div class="spinner"></div></div></div>
                     </div>
                 </div>
@@ -2674,13 +2783,37 @@ function initTabs(){
                 'kb-page': ()=>{ refreshKBStats(); loadKBDocList(); },
             };
             if(loaders[page]) loaders[page]();
+            closeSidebar();
         });
     });
 }
 
 function toggleSidebar(){
-    document.getElementById('sidebar').classList.toggle('open');
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    const toggle = document.getElementById('sidebarToggle');
+    const open = sidebar.classList.toggle('open');
+    if(backdrop) backdrop.classList.toggle('visible', open);
+    if(toggle) toggle.setAttribute('aria-expanded', String(open));
 }
+
+function closeSidebar(){
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    const toggle = document.getElementById('sidebarToggle');
+    if(sidebar) sidebar.classList.remove('open');
+    if(backdrop) backdrop.classList.remove('visible');
+    if(toggle) toggle.setAttribute('aria-expanded', 'false');
+}
+
+document.addEventListener('keydown', function(event){
+    if((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k'){
+        event.preventDefault();
+        const search = document.getElementById('globalSearch');
+        if(search){ search.focus(); search.select(); }
+    }
+    if(event.key === 'Escape') closeSidebar();
+});
 
 // ===== DARK MODE =====
 function toggleDarkMode(){
@@ -2737,8 +2870,12 @@ async function refreshDashboard(){
         if(!window.AdminAnalytics) throw new Error('طبقة التحليلات غير محمّلة');
         const data = await window.AdminAnalytics.compute(window.LuccaDB, {from, to});
         renderDashboard(data);
+        const stamp = document.getElementById('dashboardLastUpdated');
+        if(stamp) stamp.textContent = 'آخر تحديث ' + new Date().toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'});
     } catch(e){
         document.getElementById('kpiGrid').innerHTML = '<div class="alert alert-danger">خطأ في تحميل البيانات: '+e.message+'</div>';
+        const stamp = document.getElementById('dashboardLastUpdated');
+        if(stamp) stamp.textContent = 'تعذر تحديث البيانات';
     }
 }
 
