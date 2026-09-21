@@ -13,6 +13,7 @@
     <script src="../knowledge/data.js"></script>
     <script src="../knowledge/importer.js"></script>
     <script src="admin-analytics.js"></script>
+    <script src="admin-enhancements.js"></script>
     <style>
         :root {
             --primary-dark: #1E3A8A;
@@ -559,6 +560,38 @@
         .last-updated {
             color: var(--text-muted);
             font-size: 0.75rem;
+        }
+
+        .market-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+        }
+
+        .market-input label {
+            display: block;
+            color: var(--text-secondary);
+            font-size: 0.78rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .market-input small {
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .market-input input {
+            width: 100%;
+        }
+
+        .insight-callout {
+            padding: 12px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--surface-hover);
+            color: var(--text-secondary);
+            margin-bottom: 10px;
         }
 
         .page {
@@ -1782,6 +1815,7 @@
                 <div class="sidebar-section-title">الرئيسية</div>
                 <a class="sidebar-link active" data-page="dashboard"><span class="icon">📊</span>لوحة التحكم</a>
                 <a class="sidebar-link" data-page="orders-page"><span class="icon">📋</span>الطلبات</a>
+                <a class="sidebar-link" data-page="order-insights-page"><span class="icon">🧮</span>تحليل الطلبات والتكلفة</a>
                 <a class="sidebar-link" data-page="tables-page"><span class="icon">🪑</span>الطاولات</a>
             </div>
             <div class="sidebar-section">
@@ -1992,6 +2026,22 @@
             <!-- ===== ORDERS ===== -->
             <div class="page" id="page-orders-page">
                 <div class="section-title">📋 إدارة الطلبات</div>
+                <div class="panel" style="margin-bottom:20px;border:1px solid var(--primary-light);background:var(--info-surface)">
+                    <div class="panel-header"><div class="panel-title">⚡ طلب سريع</div><span style="color:var(--text-muted);font-size:.8rem">ينشئ الطلب كـ «قيد الانتظار» لتكمل تحصيله من شاشة الطلبات</span></div>
+                    <div class="panel-body">
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                            <div style="flex:2;min-width:190px"><label for="quickOrderProduct">المنتج</label><select id="quickOrderProduct"></select></div>
+                            <div style="flex:0 0 90px"><label for="quickOrderQty">الكمية</label><input type="number" id="quickOrderQty" min="1" step="1" value="1"></div>
+                            <button class="btn btn-primary" onclick="addQuickOrderLine()">إضافة للصنف</button>
+                            <div style="flex:1;min-width:170px"><label for="quickOrderTable">الطاولة</label><select id="quickOrderTable"></select></div>
+                            <div style="flex:1;min-width:150px"><label for="quickOrderCustomer">اسم العميل</label><input type="text" id="quickOrderCustomer"></div>
+                            <div style="flex:1;min-width:140px"><label for="quickOrderPhone">الهاتف</label><input type="tel" id="quickOrderPhone"></div>
+                            <div style="flex:0 0 110px"><label for="quickOrderDiscount">خصم %</label><input type="number" id="quickOrderDiscount" min="0" max="100" step="0.5" oninput="AdminEnhancements.renderQuickOrderLines()"></div>
+                        </div>
+                        <div id="quickOrderLines" style="margin-top:14px"></div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;flex-wrap:wrap"><strong>الإجمالي: <span id="quickOrderTotal">0 ج.م</span></strong><button class="btn btn-success" onclick="submitQuickOrder()">✅ حفظ الطلب</button></div>
+                    </div>
+                </div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
                         <div style="flex:1;min-width:140px"><label>من تاريخ</label><input type="date" id="ordersDateFrom"></div>
@@ -2012,6 +2062,18 @@
                     <table class="data-table"><thead><tr><th>رقم</th><th>الطاولة</th><th>العميل</th><th>الإجمالي</th><th>الدفع</th><th>الحالة</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
                     <tbody id="ordersBody"></tbody></table>
                 </div></div>
+            </div>
+
+            <!-- ===== ORDER INSIGHTS & COSTING ===== -->
+            <div class="page" id="page-order-insights-page">
+                <div class="section-title">🧮 تحليل الطلبات والتكلفة</div>
+                <div class="alert alert-warning" style="margin-bottom:20px">الأسعار التالية مرجعية أولية للسوق المصري وقابلة للتعديل. التكلفة النهائية تعتمد على فواتير الموردين والوصفات الفعلية، لذلك تظهر النتائج التقديرية بوضوح.</div>
+                <div class="kpi-grid" id="oiKpis"></div>
+                <div class="grid-2" style="margin-bottom:20px">
+                    <div class="panel"><div class="panel-header"><div class="panel-title">🇪🇬 مرجع أسعار السوق المصري</div><button class="btn btn-primary btn-sm" onclick="saveMarketProfile()">حفظ الأسعار</button></div><div class="panel-body"><div id="marketBenchmarks" class="market-grid"></div></div></div>
+                    <div class="panel"><div class="panel-header"><div class="panel-title">📌 قراءة سريعة</div></div><div class="panel-body" id="oiSummary"><div class="loading"><div class="spinner"></div></div></div></div>
+                </div>
+                <div class="panel"><div class="panel-header"><div class="panel-title">📦 ربحية المنتجات والطلبات المكتملة</div><span style="color:var(--text-muted);font-size:.8rem">الوصفة الفعلية تتقدم على السعر المرجعي</span></div><div class="panel-body no-pad" id="oiProducts"><div class="loading"><div class="spinner"></div></div></div></div>
             </div>
 
             <!-- ===== TABLES ===== -->
@@ -2086,6 +2148,7 @@
             <!-- ===== EMPLOYEES ===== -->
             <div class="page" id="page-employees-page">
                 <div class="section-title">👥 إدارة الموظفين</div>
+                <div class="panel" style="margin-bottom:16px"><div class="panel-body"><div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center"><div style="flex:2;min-width:220px"><label for="employeeSearch">بحث سريع</label><input type="search" id="employeeSearch" placeholder="ابحث بالاسم أو البريد أو الوظيفة" oninput="filterEmployees(this.value)"></div><span style="color:var(--text-muted);font-size:.82rem">يمكن استخدام البحث أثناء إرسال الدعوات ومراجعة الحالات.</span></div></div></div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
                         <div style="flex:2;min-width:160px"><label>الاسم</label><input type="text" id="empName"></div>
@@ -2355,6 +2418,7 @@
             <!-- ===== ROLES ===== -->
             <div class="page" id="page-roles-page">
                 <div class="section-title">🔑 الأدوار والصلاحيات</div>
+                <div class="panel" style="margin-bottom:16px"><div class="panel-body"><label for="roleUserSearch">بحث المستخدمين</label><input type="search" id="roleUserSearch" placeholder="اسم المستخدم أو الدور" oninput="filterRoleUsers(this.value)"></div></div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
                         <div style="flex:1;min-width:120px"><label>اسم المستخدم</label><input type="text" id="roleUsername"></div>
@@ -2365,7 +2429,7 @@
                     </div>
                 </div></div>
                 <div class="panel" style="margin-bottom:20px"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>المستخدم</th><th>الاسم</th><th>الدور</th><th>إجراءات</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>المستخدم</th><th>الاسم</th><th>الدور</th><th>الحالة</th><th>إجراءات</th></tr></thead>
                     <tbody id="rolesBody"></tbody></table>
                 </div></div>
                 <div class="panel">
@@ -2764,7 +2828,8 @@ function initTabs(){
             if(target) target.classList.add('active');
             const loaders = {
                 'dashboard': ()=>refreshDashboard(),
-                'orders-page': ()=>loadOrders(),
+                'orders-page': ()=>{ loadOrders(); loadQuickOrderForm(); },
+                'order-insights-page': ()=>loadOrderInsights(),
                 'tables-page': ()=>loadTables(),
                 'categories-page': ()=>loadCategories(),
                 'products-page': ()=>{ loadProducts(); populateProductSelects(); },
@@ -2847,6 +2912,7 @@ function initDateFilter(){
 function onDateFilterChange(){
     document.querySelectorAll('.date-preset').forEach(b=>b.classList.remove('active'));
     refreshDashboard();
+    if(document.getElementById('page-order-insights-page')?.classList.contains('active')) loadOrderInsights();
 }
 
 // ===== GLOBAL SEARCH =====
@@ -4398,9 +4464,9 @@ async function loadRoleUsers(){
     try {
         const users = await window.LuccaDB.Users.getAll();
         const tbody = document.getElementById('rolesBody');
-        if(!users.length){ tbody.innerHTML='<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد مستخدمون</td></tr>'; return; }
+        if(!users.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">لا يوجد مستخدمون</td></tr>'; return; }
         const roleLabels = {cashier:'كاشير',manager:'مدير',admin:'مدير النظام',kitchen:'مطبخ'};
-        tbody.innerHTML = users.map(u=>'<tr><td>'+(u.username||'')+'</td><td>'+(u.displayName||u.username||'')+'</td><td><span class="badge badge-info">'+(roleLabels[u.role]||u.role||'—')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editUserRole(\''+u.id+'\')">✏️</button></td></tr>').join('');
+        tbody.innerHTML = users.map(u=>{ const active = u.active !== false && u.active !== 0; return '<tr><td>'+(u.username||'')+'</td><td>'+(u.displayName||u.username||'')+'</td><td><span class="badge badge-info">'+(roleLabels[u.role]||u.role||'—')+'</span></td><td><span class="badge '+(active?'badge-success':'badge-neutral')+'">'+(active?'نشط':'معطل')+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="editUserRole(\''+u.id+'\')">✏️ الدور</button> <button class="btn btn-ghost btn-sm" onclick="toggleRoleUser(\''+u.id+'\')">'+(active?'🔒 تعطيل':'🔓 تفعيل')+'</button> <button class="btn btn-ghost btn-sm" onclick="resetRolePassword(\''+u.id+'\')">🔑 كلمة المرور</button></td></tr>'; }).join('');
     } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
 
