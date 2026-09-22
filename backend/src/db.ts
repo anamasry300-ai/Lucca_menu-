@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DatabaseSync, StatementSync } from 'node:sqlite';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -9,18 +9,18 @@ const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'lucca
 
 type BindParams = unknown[] | Record<string, unknown> | null;
 
-// شريحة توافق مع واجهة sql.js فوق better-sqlite3 حتى يبقى بقية الكود دون تغيير:
+// شريحة توافق مع واجهة sql.js فوق SQLite المدمج في Node حتى يبقى بقية الكود دون تغيير:
 // bind/step/getAsObject/free تُنفَّذ مرة واحدة عند bind وتُعاد النتائج منها.
 class CompatStatement {
   private rows: Record<string, unknown>[] = [];
   private rowIndex = -1;
 
-  constructor(private readonly stmt: Database.Statement) {}
+  constructor(private readonly stmt: StatementSync) {}
 
   bind(params: BindParams = []) {
     this.rows = Array.isArray(params)
       ? ((params.length ? this.stmt.all(...(params as any[])) : this.stmt.all()) as Record<string, unknown>[])
-      : (this.stmt.all((params ?? {}) as Record<string, unknown>) as Record<string, unknown>[]);
+      : (this.stmt.all((params ?? {}) as any) as Record<string, unknown>[]);
     this.rowIndex = -1;
     return this;
   }
@@ -47,14 +47,14 @@ class CompatStatement {
 
 // واجهة Database مطابقة لما استُخدمت عليه sql.js: run(sql, params)/exec/prepare/close/backup
 class CompatDatabase {
-  readonly db: Database.Database;
+  readonly db: DatabaseSync;
 
   constructor(filePath: string) {
-    this.db = new Database(filePath, { timeout: 5000 });
-    try { this.db.pragma('journal_mode = WAL'); } catch { /* بيئة لا تدعم WAL (مشاركة شبكية) — وضع افتراضي */ }
-    this.db.pragma('synchronous = NORMAL');
-    this.db.pragma('foreign_keys = ON');
-    this.db.pragma('busy_timeout = 5000');
+    this.db = new DatabaseSync(filePath, { timeout: 5000 });
+    try { this.db.exec('PRAGMA journal_mode = WAL'); } catch { /* بيئة لا تدعم WAL — وضع افتراضي */ }
+    this.db.exec('PRAGMA synchronous = NORMAL');
+    this.db.exec('PRAGMA foreign_keys = ON');
+    this.db.exec('PRAGMA busy_timeout = 5000');
   }
 
   prepare(sql: string): CompatStatement {
@@ -63,12 +63,12 @@ class CompatDatabase {
 
   run(sql: string, params?: BindParams): { changes: number; lastInsertRowid: number } {
     if (Array.isArray(params) && params.length > 0) {
-      const info = this.db.prepare(sql).run(...params);
-      return { changes: info.changes, lastInsertRowid: Number(info.lastInsertRowid) };
+      const info = this.db.prepare(sql).run(...(params as any[]));
+      return { changes: Number(info.changes), lastInsertRowid: Number(info.lastInsertRowid) };
     }
     if (params && !Array.isArray(params)) {
-      const info = this.db.prepare(sql).run(params as Record<string, unknown>);
-      return { changes: info.changes, lastInsertRowid: Number(info.lastInsertRowid) };
+      const info = this.db.prepare(sql).run(params as any);
+      return { changes: Number(info.changes), lastInsertRowid: Number(info.lastInsertRowid) };
     }
     // بدون معاملات → exec يدعم عدة جمل في قطعة واحدة (المخطط الكامل في الهجرة)
     this.db.exec(sql);
@@ -80,11 +80,12 @@ class CompatDatabase {
   }
 
   close() {
-    if (this.db.open) this.db.close();
+    this.db.close();
   }
 
   backup(destination: string) {
-    return this.db.backup(destination);
+    const escaped = destination.replace(/'/g, "''");
+    this.db.exec(`VACUUM INTO '${escaped}'`);
   }
 }
 
@@ -115,7 +116,7 @@ export async function initDb(): Promise<SqlJsDatabase> {
   return _db;
 }
 
-// better-sqlite3 يكتب على الملف مباشرة — دالة فارغة للتوافق مع الاستدعاءات القديمة
+// SQLite المدمج يكتب على الملف مباشرة — دالة فارغة للتوافق مع الاستدعاءات القديمة
 export function saveDb() {
   return;
 }
@@ -138,7 +139,7 @@ export function queryOne(sql: string, params: unknown[] = []): Record<string, un
 // Helper: run INSERT/UPDATE/DELETE, return changes info
 export function execute(sql: string, params: unknown[] = []): { changes: number; lastInsertRowid: number } {
   const info = getDb().prepare(sql).run(...(params ?? []));
-  return { changes: info.changes, lastInsertRowid: Number(info.lastInsertRowid) };
+  return { changes: Number(info.changes), lastInsertRowid: Number(info.lastInsertRowid) };
 }
 
 // Custom tracked execution
