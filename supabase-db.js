@@ -1149,18 +1149,29 @@
     Taxes: { async getAll() { return _db.getAll('taxes'); } },
     AuditLogs, OrderStatusHistory: { async getAll() { return _db.getAll('order_status_history'); } },
     BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem,
-    // Sync methods
-    enableSync: function(opts){
-      if(!window.SyncEngine) return;
-      // غلف عمليات db.put/add/delete لتدخل في queue المزامنة (كانت تُتخطى سابقاً → لا شيء يُزامَن)
-      window.SyncEngine.wrapDBOperations(_db, _supabase);
-      window.SyncEngine.startAutoSync(_supabase, _db, {
-        interval: (opts && opts.interval) || 30000,
-        onStatusChange: (opts && opts.onStatusChange) || null
-      });
+    // ===== COMPAT SYNC API (الوضع السحابي) =====
+    // القرار المركزي: هذا المحول لا يُحمَّل إلا في الوضع السحابي (luccaDataMode === 'supabase').
+    // _db هنا يكتب مباشرة إلى Supabase (PostgREST/RPC) — التخزين السحابي هو المصدر الحقيقي
+    // ولا يوجد طابور مزامنة محلي (قبل الإصلاح كان enableSync يغلف _db عبر SyncEngine
+    // wrapDBOperations + startAutoSync فيسبب Double-sync: كل عملية تُنجز مباشرة ثم تُعاد
+    // كتابتها عبر lucca_sync_queue بأعمدة _synced/_device_id/_synced_at غير الموجودة في
+    // المخطط السحابي → فشل دائم لبنود الطابور). الدوال الثلاثة أدناه no-op بأمان لأن
+    // _db يحتاجها فقط للتوافق مع الاستدعاءات العامة (index.html / admin/index.html /
+    // system-health.js) دون أي تمكين إضافي. الوضع المحلي (admin/database.js + ServerEngine)
+    // غير المتأثر: enableSync الخاص به يبقى كما هو بلا أي تعديل.
+    enableSync: function(){
+      // no-op مقصود في الوضع السحابي — الكتابة مباشرة إلى Supabase (انظر الشرح أعلاه).
+      return { stop: function(){}, trigger: function(){ return Promise.resolve(null); } };
     },
-    getSyncStatus: function(){ return window.SyncEngine ? window.SyncEngine.getSyncStatus() : null; },
-    triggerSync: function(){ return window.SyncEngine ? window.SyncEngine.triggerSync() : Promise.resolve(); },
+    getSyncStatus: function(){
+      return {
+        pending: 0, syncing: 0, failed: 0, done: 0, total: 0, queue: 0,
+        lastSync: null, deviceId: 'supabase-direct', backend: 'supabase',
+        isOnline: (typeof navigator !== 'undefined') ? !!navigator.onLine : true,
+        message: 'الوضع السحابي: الكتابة مباشرة إلى Supabase — لا يوجد طابور مزامنة محلي'
+      };
+    },
+    triggerSync: function(){ return Promise.resolve(null); },
     _supabaseClient: _supabase
   };
 

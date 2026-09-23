@@ -1640,6 +1640,9 @@
         </div>
         <button class="btn btn-primary" onclick="doLogin()">تسجيل الدخول</button>
         <div id="loginError" style="color:var(--danger);font-size:0.85rem;margin-top:12px;text-align:center"></div>
+        <div style="margin-top:14px;text-align:center">
+            <a href="#" id="resetAdminLink" style="color:#94a3b8;font-size:.8rem;text-decoration:none" onclick="resetDefaultAdmin();return false">نسيت كلمة المرور؟ إعادة تعيين الأدمن الافتراضي</a>
+        </div>
     </div>
 </div>
 
@@ -2563,6 +2566,23 @@ async function doLogin(){
         }
         enterApp(u);
     } catch(e){ document.getElementById('loginError').textContent = 'خطأ في تسجيل الدخول'; }
+}
+
+async function resetDefaultAdmin(){
+    if(!window.confirm('سيُعاد تعيين حساب الأدمن المحلي إلى admin / 123456 مع فرض تغيير كلمة المرور عند الدخول. بياناتك الأخرى لن تتأثر. هل تريد المتابعة؟')) return;
+    const errEl = document.getElementById('loginError');
+    errEl.style.color = 'var(--danger)';
+    errEl.textContent = 'جارٍ إعادة التعيين...';
+    try {
+        const r = await window.LuccaDB.Users.resetDefaultAdmin();
+        document.getElementById('loginUser').value = r.username;
+        document.getElementById('loginPass').value = '';
+        errEl.style.color = '#22c55e';
+        errEl.textContent = '✅ تمت إعادة التعيين — سجّل الدخول بـ ' + r.username + ' / ' + r.password + ' ثم غيّر كلمة المرور';
+    } catch(e){
+        errEl.style.color = 'var(--danger)';
+        errEl.textContent = 'خطأ في إعادة التعيين: ' + ((e && e.message) || 'تعذرت العملية');
+    }
 }
 
 function enterApp(u){

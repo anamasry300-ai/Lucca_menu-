@@ -89,6 +89,15 @@ export function logDecision(input: DecisionInput): number {
   } catch { return 0; }
 }
 
+export function decisionByEventId(eventId: string): Record<string, unknown> | undefined {
+  const row = queryOne('SELECT id, action, requestText, requestJson, decision, reason, actorRole, actorName, amount, eventId, createdAt FROM batman_decisions WHERE eventId = ?', [eventId]);
+  return row || undefined;
+}
+
+export function updateDecisionResult(id: number, decision: string, reason: string): void {
+  execute('UPDATE batman_decisions SET decision = ?, reason = ? WHERE id = ?', [decision, reason, id]);
+}
+
 export function queryDecisions(limit = 100, action?: string): Record<string, unknown>[] {
   if (action) {
     return queryAll('SELECT id, action, requestText, requestJson, decision, reason, actorRole, actorName, amount, eventId, createdAt FROM batman_decisions WHERE action = ? ORDER BY id DESC LIMIT ?', [action, limit]);

@@ -16,6 +16,14 @@ export function expensesSummary(from: string, to: string): { total: number; coun
   return { total: Number(row.total) || 0, count: Number(row.count) || 0 };
 }
 
+export function cashExpensesTotal(from: string, to: string): number {
+  const row = queryOne(
+    "SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE paymentMethod = 'cash' AND date(date) >= ? AND date(date) <= ?",
+    [from, to],
+  );
+  return Number(row?.total || 0);
+}
+
 export function expensesByCategory(from: string, to: string): Record<string, unknown>[] {
   return queryAll(
     "SELECT category as name, COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM expenses WHERE date(date) >= ? AND date(date) <= ? GROUP BY category ORDER BY total DESC",
@@ -35,6 +43,23 @@ export function recentExpenses(from: string, to: string, limit = 100): Record<st
     "SELECT id, amount, description, category, paymentMethod, createdBy, date, createdAt FROM expenses WHERE date(date) >= ? AND date(date) <= ? ORDER BY date DESC LIMIT ?",
     [from, to, limit],
   );
+}
+
+export function expensesPage(from: string, to: string, category: string | undefined, page: number, pageSize: number): Record<string, unknown>[] {
+  const clauses = ['date(date) >= ?', 'date(date) <= ?'];
+  const params: unknown[] = [from, to];
+  if (category) { clauses.push('category = ?'); params.push(category); }
+  return queryAll(
+    `SELECT id, amount, description, category, paymentMethod, createdBy, date, createdAt FROM expenses WHERE ${clauses.join(' AND ')} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`,
+    [...params, pageSize, (page - 1) * pageSize],
+  );
+}
+
+export function expensesPageCount(from: string, to: string, category: string | undefined): number {
+  const clauses = ['date(date) >= ?', 'date(date) <= ?'];
+  const params: unknown[] = [from, to];
+  if (category) { clauses.push('category = ?'); params.push(category); }
+  return Number((queryOne(`SELECT COUNT(*) as c FROM expenses WHERE ${clauses.join(' AND ')}`, params))?.c || 0);
 }
 
 export function addExpense(input: ExpenseInput): number {

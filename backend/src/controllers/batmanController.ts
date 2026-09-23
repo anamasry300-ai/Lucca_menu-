@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { getMatrix, updateMatrixRow, decide, recordDecision, listDecisions, decisionsStats } from '../services/permissionService.js';
+import { approve, listActions as listDecisionActions } from '../services/decisionService.js';
 import { AuthRequest } from '../auth.js';
 import logger from '../logger.js';
 
@@ -40,6 +41,42 @@ export function updateMatrix(req: Request, res: Response): void {
   } catch (e: unknown) {
     logger.error('batman_matrix_update_error', { error: (e as Error).message });
     res.status(500).json({ error: (e as Error).message });
+  }
+}
+
+// سجل الأدوات والصلاحيات لطبقة القرار — متاح لأي هوية مصادقة
+export function listActions(req: Request, res: Response): void {
+  try {
+    const actions = listDecisionActions();
+    res.json({ actions, count: actions.length });
+  } catch (e: unknown) {
+    logger.error('batman_actions_error', { error: (e as Error).message });
+    res.status(500).json({ error: (e as Error).message });
+  }
+}
+
+// تنفيذ إجراء عبر طبقة القرار: RBAC (Layer 1) ثم مصفوفة باتمان (Layer 2)، مع تسجيل idempotent
+export function execute(req: Request, res: Response): void {
+  try {
+    const { action, params, eventId, requestText, explicitConfirm } = req.body || {};
+    if (!action || String(action).trim() === '') { res.status(400).json({ error: 'action مطلوب' }); return; }
+    const actor = actorNameFor(req);
+    const result = approve(
+      String(action),
+      actor,
+      params && typeof params === 'object' && !Array.isArray(params) ? params : {},
+      {
+        eventId: eventId ? String(eventId) : undefined,
+        requestText: requestText ? String(requestText) : undefined,
+        explicitConfirm: !!explicitConfirm,
+      },
+    );
+    res.json(result);
+  } catch (e: unknown) {
+    const err = e as { status?: unknown; message?: string };
+    const status = typeof err.status === 'number' && err.status >= 400 && err.status < 600 ? err.status : 500;
+    logger.error('batman_execute_error', { error: (e as Error).message });
+    res.status(status).json({ error: (e as Error).message });
   }
 }
 

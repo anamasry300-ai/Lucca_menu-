@@ -11,7 +11,7 @@ const db = {
   Orders: {
     async getAll() {
       return [
-        { id: 1, syncId: 's1', date: TODAY, total: 1000, paymentMethod: 'cash', paymentStatus: 'paid', status: 'closed', discount: 50, createdBy: 'user1', items: [{ productId: 1, nameAr: 'قهوة', quantity: 2, total: 400 }, { productId: 2, nameAr: 'كيك', quantity: 1, total: 600 }] },
+        { id: 1, syncId: 's1', date: TODAY, total: 1000, subtotal: 1400, discountAmount: 400, discount: 50, paymentMethod: 'cash', paymentStatus: 'paid', status: 'closed', createdBy: 'user1', items: [{ productId: 1, nameAr: 'قهوة', quantity: 2, total: 400 }, { productId: 2, nameAr: 'كيك', quantity: 1, total: 600 }] },
         { id: 2, syncId: 's2', date: TODAY, total: 500, paymentMethod: 'card', paymentStatus: 'paid', status: 'closed', createdBy: 'user1', items: [{ productId: 1, nameAr: 'قهوة', quantity: 1, total: 200 }, { productId: 3, nameAr: 'عصير', quantity: 1, total: 300 }] },
         { id: 3, syncId: 's3', date: '2024-01-01', total: 300, paymentStatus: 'paid', status: 'closed', createdBy: 'user2', items: [] }
       ];
@@ -47,8 +47,8 @@ function eq(name, actual, expected, tol) {
   console.log('\nKPIs:');
   eq('صافي المبيعات', r.kpis.sales.value, 1400);
   eq('عدد الطلبات', r.kpis.orders.value, 2);
-  eq('متوسط الطلب', r.kpis.avgOrder.value, 700);
-  eq('الخصومات', r.kpis.discounts.value, 50);
+  eq('متوسط الطلب', r.kpis.avgOrder.value, 750);
+  eq('الخصومات', r.kpis.discounts.value, 400);
   eq('المرتجعات', r.kpis.refunds.value, 100);
 
   console.log('\nمبيعات اليوم:');

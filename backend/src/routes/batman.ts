@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import { authRequired, requirePasswordChanged, requireRole } from '../auth.js';
-import { matrix, updateMatrix, decisions, stats, checkDecision, record, publicMatrix } from '../controllers/batmanController.js';
+import { matrix, updateMatrix, decisions, stats, checkDecision, record, publicMatrix, listActions, execute } from '../controllers/batmanController.js';
 
 const router = Router();
 
 // نقطة القرار والتسجيل: متاحة لأي هوية مصادقة (يستخدمها المحرك والواجهة)
 router.post('/check', authRequired as any, requirePasswordChanged as any, checkDecision as any);
 router.post('/record', authRequired as any, requirePasswordChanged as any, record as any);
+
+// طبقة القرار: سجل الأدوات + تنفيذ إجراء عبر قرار باتمان (idempotent بالـ eventId)
+router.get('/actions', authRequired as any, requirePasswordChanged as any, listActions as any);
+router.post('/execute', authRequired as any, requirePasswordChanged as any, execute as any);
 
 // مصفوفة مصغّرة لمواكبة القواعد محلياً على الأجهزة (مصادقة فقط — ليست إدارة)
 router.get('/matrix', authRequired as any, requirePasswordChanged as any, publicMatrix as any);

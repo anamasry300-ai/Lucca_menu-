@@ -1,4 +1,4 @@
-import { queryAll } from '../db.js';
+import { execute, insert, queryAll, queryOne } from '../db.js';
 
 export interface EmployeePerformanceRow {
   name: string;
@@ -46,4 +46,34 @@ export function attendanceFor(from: string, to: string): Record<string, unknown>
   } catch {
     return [];
   }
+}
+
+// ===== كتابة الحضور (Tier 2 — عبر نفس الريبو المستخدم بالتقارير) =====
+export function employeeById(id: number): Record<string, unknown> | undefined {
+  return queryOne('SELECT id, name, role, active FROM employees WHERE id = ?', [id]);
+}
+
+export function attendanceById(id: number): Record<string, unknown> | undefined {
+  return queryOne(
+    'SELECT id, employeeId, date, checkIn, checkOut, hoursWorked, lateMinutes, bonus, deduction, notes FROM attendance WHERE id = ?',
+    [id],
+  );
+}
+
+export function attendanceForEmployeeOn(employeeId: number, date: string): Record<string, unknown> | undefined {
+  return queryOne('SELECT id, employeeId, date, checkIn, checkOut, hoursWorked FROM attendance WHERE employeeId = ? AND date = ?', [employeeId, date]);
+}
+
+export function addAttendanceRow(employeeId: number, date: string, checkIn: string): number {
+  return insert(
+    `INSERT INTO attendance (employeeId, date, checkIn, hoursWorked, updatedAt) VALUES (?, ?, ?, 0, datetime('now'))`,
+    [employeeId, date, checkIn],
+  );
+}
+
+export function setAttendanceCheckOut(id: number, checkOut: string, hoursWorked: number): void {
+  execute(
+    "UPDATE attendance SET checkOut = ?, hoursWorked = ?, updatedAt = datetime('now') WHERE id = ?",
+    [checkOut, hoursWorked, id],
+  );
 }

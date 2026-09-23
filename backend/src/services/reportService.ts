@@ -1,12 +1,13 @@
 import { queryOne } from '../db.js';
 import {
-  paidOrdersSummary, cancelledCount, salesByDay, salesByCategory, topProducts,
-  paymentMethods, cogsFor, salesGroupedByPeriod,
+  paidOrdersSummary, paidOrdersSubtotal, cancelledCount, salesByDay, salesByCategory, topProducts,
+  paymentMethods, salesGroupedByPeriod, cashPaymentsTotal, cashRefundTotal, paidOrderItemsBetween,
 } from '../repositories/ordersRepo.js';
-import { expensesSummary, expensesByCategory, expensesByEmployee, recentExpenses } from '../repositories/expensesRepo.js';
+import { expensesSummary, expensesByCategory, expensesByEmployee, recentExpenses, cashExpensesTotal } from '../repositories/expensesRepo.js';
 import { allInventory, inventoryValue, activeAlerts, stockMovementsWithNames } from '../repositories/inventoryRepo.js';
 import { allSuppliers, supplierPurchaseTotals, recentPurchases } from '../repositories/supplierRepo.js';
 import { allEmployees, employeePerformance, attendanceFor } from '../repositories/employeeRepo.js';
+import { getProductUnitCost } from './inventoryService.js';
 
 export function prevDateRange(from: string, to: string): { from: string; to: string } {
   const d1 = new Date(from);
@@ -51,13 +52,6 @@ export interface SalesReport {
   payments: Record<string, unknown>[];
 }
 
-function anyProductCost(): boolean {
-  try {
-    const row = queryOne("SELECT COALESCE(SUM(COALESCE(cost, 0)), 0) as c FROM products");
-    return Number(row?.c || 0) > 0;
-  } catch { return false; }
-}
-
 export function getSalesReport(from: string, to: string, group = 'day', includeProfit = false): SalesReport {
   const pf = prevDateRange(from, to);
   const cur = paidOrdersSummary(from, to) || { count: 0, revenue: 0, avgOrder: 0, discounts: 0 };
@@ -70,16 +64,17 @@ export function getSalesReport(from: string, to: string, group = 'day', includeP
   const orders = Number(cur.count) || 0;
   const avgOrder = Number(cur.avgOrder) || 0;
   const discounts = Number(cur.discounts) || 0;
-  const netSales = revenue - discounts - refunds;
+  const netSales = revenue - refunds;
   const prevNetSales = (Number(prev.revenue) || 0) - prevRefunds;
   const prevRevenue = Number(prev.revenue) || 0;
   const prevOrders = Number(prev.count) || 0;
   const prevAvg = Number(prev.avgOrder) || 0;
 
-  const cogs = cogsFor(from, to);
-  const hasCostData = cogs > 0 || anyProductCost();
-  const grossProfit = hasCostData ? netSales - cogs : null;
-  const grossMargin = hasCostData && netSales > 0 ? Number(((grossProfit as number) / netSales * 100).toFixed(1)) : null;
+  const cogsMetric = getCOGS(from, to);
+  const cogs = cogsMetric.value;
+  const hasCostData = cogsMetric.completeness === 'complete';
+  const grossProfit = hasCostData && cogs != null ? netSales - cogs : null;
+  const grossMargin = hasCostData && netSales > 0 && grossProfit != null ? Number((((grossProfit as number) / netSales) * 100).toFixed(1)) : null;
 
   return {
     range: { from, to, previous: pf },
@@ -196,4 +191,191 @@ export function getSuppliersReport(from: string, to: string): SuppliersReport {
 
 export function todayCompact(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+export type Completeness = 'complete' | 'partial' | 'unavailable';
+
+export interface MetricResult {
+  value: number | null;
+  currency: 'SYP';
+  period: { from: string; to: string };
+  source: string;
+  completeness: Completeness;
+  warnings: string[];
+}
+
+function metric(period: { from: string; to: string }, value: number | null, source: string, completeness: Completeness, warnings: string[] = []): MetricResult {
+  return { value, currency: 'SYP', period, source, completeness, warnings };
+}
+
+function dailyShift(date: string): Record<string, unknown> | undefined {
+  return queryOne('SELECT * FROM daily_shifts WHERE date = ?', [date]);
+}
+
+export function getNetSales(from: string, to: string): MetricResult {
+  const paid = paidOrdersSummary(from, to) || { count: 0, revenue: 0, avgOrder: 0, discounts: 0 };
+  const revenue = Number(paid.revenue) || 0;
+  const refunds = refundTotal(from, to);
+  return metric({ from, to }, revenue - refunds, 'Σ orders.total (paid) − Σ refunds.amount', 'complete');
+}
+
+export function getGrossSales(from: string, to: string): MetricResult {
+  return metric({ from, to }, paidOrdersSubtotal(from, to), 'Σ orders.subtotal (paid)', 'complete');
+}
+
+export function getRefunds(from: string, to: string): MetricResult {
+  return metric({ from, to }, refundTotal(from, to), 'Σ refunds.amount', 'complete');
+}
+
+export function getCancelledCount(from: string, to: string): MetricResult {
+  return metric({ from, to }, cancelledCount(from, to), 'COUNT(orders.status = cancelled)', 'complete');
+}
+
+export function getAOV(from: string, to: string): MetricResult {
+  const paid = paidOrdersSummary(from, to) || { count: 0, revenue: 0, avgOrder: 0, discounts: 0 };
+  const revenue = Number(paid.revenue) || 0;
+  const count = Number(paid.count) || 0;
+  if (count === 0) return metric({ from, to }, null, 'Σ orders.total (paid) / COUNT(paid)', 'unavailable', ['لا طلبات مدفوعة ضمن الفترة']);
+  return metric({ from, to }, revenue / count, 'Σ orders.total (paid) / COUNT(paid)', 'complete');
+}
+
+export function getDiscounts(from: string, to: string): MetricResult {
+  const paid = paidOrdersSummary(from, to) || { count: 0, revenue: 0, avgOrder: 0, discounts: 0 };
+  return metric({ from, to }, Number(paid.discounts) || 0, 'Σ orders.discountAmount (paid)', 'complete');
+}
+
+export function getOrdersCount(from: string, to: string): MetricResult {
+  const paid = paidOrdersSummary(from, to) || { count: 0, revenue: 0, avgOrder: 0, discounts: 0 };
+  return metric({ from, to }, Number(paid.count) || 0, 'COUNT(orders.paymentStatus = paid)', 'complete');
+}
+
+export function getCOGS(from: string, to: string): MetricResult {
+  const rows = paidOrderItemsBetween(from, to);
+  const warnings: string[] = [];
+  let total = 0;
+  let resolved = 0;
+  for (const row of rows) {
+    const unit = getProductUnitCost(Number(row.productId));
+    if (unit.cost == null) {
+      warnings.push(`لا تكلفة متاحة للمنتج #${row.productId} (${row.productName || ''})`);
+      continue;
+    }
+    total += unit.cost * (Number(row.quantity) || 0);
+    resolved += 1;
+  }
+  const completeness: Completeness = rows.length === 0 ? 'complete' : resolved === rows.length ? 'complete' : resolved === 0 ? 'unavailable' : 'partial';
+  return metric({ from, to }, completeness === 'complete' ? total : null, 'Σ(quantity × unitCost): recipe→inventory.costPrice، وإلا products.cost', completeness, warnings);
+}
+
+export function getGrossProfit(from: string, to: string): MetricResult {
+  const net = getNetSales(from, to);
+  const cogs = getCOGS(from, to);
+  if (net.value == null || cogs.value == null) {
+    return metric({ from, to }, null, 'NetSales − COGS', 'unavailable', cogs.warnings.length ? cogs.warnings : (net.value == null ? ['Net Sales غير متاحة'] : ['COGS غير مكتملة']));
+  }
+  return metric({ from, to }, net.value - cogs.value, 'NetSales − COGS', 'complete');
+}
+
+export function getOperatingExpenses(from: string, to: string): MetricResult {
+  const s = expensesSummary(from, to);
+  return metric({ from, to }, s.total, 'Σ expenses.amount', 'complete');
+}
+
+export function getOperatingProfit(from: string, to: string): MetricResult {
+  const gp = getGrossProfit(from, to);
+  const opEx = getOperatingExpenses(from, to);
+  if (gp.value == null) {
+    return metric({ from, to }, null, 'GrossProfit − Σ expenses.amount', 'unavailable', gp.warnings);
+  }
+  return metric({ from, to }, gp.value - (opEx.value || 0), 'GrossProfit − Σ expenses.amount', 'complete');
+}
+
+export function getCashExpected(from: string, to: string): MetricResult {
+  const shift = dailyShift(from);
+  const opening = Number(shift?.openingBalance || 0);
+  const cashSales = cashPaymentsTotal(from, to);
+  const refunds = cashRefundTotal(from, to);
+  const expenses = cashExpensesTotal(from, to);
+  const warnings = shift ? [] : ['لا سجل daily_shifts للفترة — رصيد الافتتاح صفر'];
+  return metric({ from, to }, opening + cashSales - refunds - expenses, 'openingBalance + cash payments − cash refunds − cash expenses', 'complete', warnings);
+}
+
+export function getCashReport(from: string, to: string): { expected: number; actual: number | null; difference: number | null; currency: 'SYP' } {
+  const expected = getCashExpected(from, to).value || 0;
+  const shift = dailyShift(to);
+  const actual = shift?.actualCash == null ? null : Number(shift.actualCash);
+  const difference = actual == null ? null : actual - expected;
+  return { expected, actual, difference, currency: 'SYP' };
+}
+
+export interface FinancialReport {
+  from: string;
+  to: string;
+  grossSales: number;
+  discounts: number;
+  refunds: number;
+  netSales: number;
+  ordersCount: number;
+  aov: number | null;
+  cancelledCount: number;
+  cogs: number | null;
+  grossProfit: number | null;
+  expenses: number;
+  operatingProfit: number | null;
+  paymentMethodTotals: Record<string, number>;
+  cash: { expected: number; actual: number | null; difference: number | null };
+  currency: 'SYP';
+  taxEnabled: boolean;
+  completeness: Record<string, Completeness>;
+}
+
+export function getFinancialReport(from: string, to: string): FinancialReport {
+  const paid = paidOrdersSummary(from, to) || { count: 0, revenue: 0, discounts: 0 };
+  const net = getNetSales(from, to);
+  const gross = getGrossSales(from, to);
+  const refunds = getRefunds(from, to);
+  const cogs = getCOGS(from, to);
+  const gp = getGrossProfit(from, to);
+  const opEx = getOperatingExpenses(from, to);
+  const opProfit = getOperatingProfit(from, to);
+  const aov = getAOV(from, to);
+  const cancelled = getCancelledCount(from, to);
+  const cash = getCashReport(from, to);
+  const paymentMethodTotals: Record<string, number> = {};
+  for (const row of paymentMethods(from, to)) {
+    paymentMethodTotals[String(row.method || 'unknown')] = Number(row.total) || 0;
+  }
+  return {
+    from,
+    to,
+    grossSales: gross.value || 0,
+    discounts: Number(paid.discounts) || 0,
+    refunds: refunds.value || 0,
+    netSales: net.value || 0,
+    ordersCount: Number(paid.count) || 0,
+    aov: aov.value,
+    cancelledCount: cancelled.value || 0,
+    cogs: cogs.value,
+    grossProfit: gp.value,
+    expenses: opEx.value || 0,
+    operatingProfit: opProfit.value,
+    paymentMethodTotals,
+    cash,
+    currency: 'SYP',
+    taxEnabled: false,
+    completeness: {
+      netSales: net.completeness,
+      discounts: getDiscounts(from, to).completeness,
+      refunds: refunds.completeness,
+      orders: getOrdersCount(from, to).completeness,
+      aov: aov.completeness,
+      cancelledCount: cancelled.completeness,
+      cogs: cogs.completeness,
+      grossProfit: gp.completeness,
+      expenses: opEx.completeness,
+      operatingProfit: opProfit.completeness,
+      cash: 'complete' as Completeness,
+      dates: from && to ? 'complete' as Completeness : 'unavailable' as Completeness,
+    },
+  };
 }

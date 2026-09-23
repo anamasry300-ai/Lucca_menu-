@@ -1,4 +1,4 @@
-import { queryAll } from '../db.js';
+import { execute, insert, queryAll, queryOne } from '../db.js';
 
 export interface SupplierRow {
   id: number;
@@ -55,4 +55,62 @@ export function recentPurchases(from: string, to: string, limit = 100): Record<s
       [from, to, limit],
     );
   }
+}
+
+export function purchasesBetween(from: string, to: string, limit = 200): Record<string, unknown>[] {
+  return queryAll(
+    "SELECT id, name, item, quantity, costPrice, total, supplier, notes, date, createdBy, createdAt FROM purchases WHERE date(date) >= ? AND date(date) <= ? ORDER BY date DESC, id DESC LIMIT ?",
+    [from, to, limit],
+  );
+}
+
+export function purchasesPage(from: string, to: string, page: number, pageSize: number): Record<string, unknown>[] {
+  return queryAll(
+    "SELECT id, name, item, quantity, costPrice, total, supplier, notes, date, createdBy, createdAt FROM purchases WHERE date(date) >= ? AND date(date) <= ? ORDER BY date DESC, id DESC LIMIT ? OFFSET ?",
+    [from, to, pageSize, (page - 1) * pageSize],
+  );
+}
+
+export function purchasesPageCount(from: string, to: string): number {
+  return Number((queryOne("SELECT COUNT(*) as c FROM purchases WHERE date(date) >= ? AND date(date) <= ?", [from, to]))?.c || 0);
+}
+
+export function purchaseById(id: number): Record<string, unknown> | undefined {
+  return queryOne("SELECT id, name, item, quantity, costPrice, total, supplier, notes, date, createdBy, createdAt FROM purchases WHERE id = ?", [id]);
+}
+
+export function purchaseTotals(from: string, to: string): { total: number; count: number } {
+  const row = queryOne(
+    "SELECT COALESCE(SUM(total), 0) as total, COUNT(*) as count FROM purchases WHERE date(date) >= ? AND date(date) <= ?",
+    [from, to],
+  ) || { total: 0, count: 0 };
+  return { total: Number(row.total) || 0, count: Number(row.count) || 0 };
+}
+
+// ===== كتابة المشتريات (Tier 2 — عبر نفس الخدمة/الريبو المستخدمة بالقراءة) =====
+export interface PurchaseWriteInput {
+  name?: string;
+  item?: string;
+  quantity?: number;
+  costPrice?: number;
+  total?: number;
+  supplier?: string;
+  notes?: string;
+  date?: string;
+  createdBy?: string;
+}
+
+export function addPurchaseRow(input: PurchaseWriteInput): number {
+  return insert(
+    `INSERT INTO purchases (name, item, quantity, costPrice, total, supplier, notes, date, createdAt, createdBy, syncId, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, NULL, datetime('now'))`,
+    [
+      input.name || '', input.item || '', input.quantity ?? 1, input.costPrice ?? 0,
+      input.total ?? 0, input.supplier || '', input.notes || '', input.date || new Date().toISOString().slice(0, 10),
+      input.createdBy || 'system',
+    ],
+  );
+}
+
+export function deletePurchaseRow(id: number): { changes: number } {
+  return execute('DELETE FROM purchases WHERE id = ?', [id]);
 }

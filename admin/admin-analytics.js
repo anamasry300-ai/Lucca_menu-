@@ -21,6 +21,13 @@
     const t = num(o.total !== undefined && o.total !== null ? o.total : o.totalAmount);
     return t;
   }
+  // مقدار الخصم الاسمي (SYP) = discountAmount إن وُجد، وإلا subtotal − total (المبلغ الفعلي للخصم).
+  // تحذير: حقل discount في الطلب نسبة مئوية (%). يُمنع جمعه كأهمية نقدية (عقد الحسابات §D2).
+  function discountAmountOf(o) {
+    if (o.discountAmount !== undefined && o.discountAmount !== null) return num(o.discountAmount);
+    if (o.subtotal !== undefined && o.subtotal !== null) return Math.max(0, num(o.subtotal) - num(o.total));
+    return 0;
+  }
   // ألوان/أسماء مستقرة لأنواع التنبيه
   function pct(part, total) { return total > 0 ? (part / total) * 100 : 0; }
 
@@ -80,8 +87,8 @@
     const gross = sum(completed, orderTotal);
     const refundsDeduction = refundsTotal;
     const net = gross - refundsDeduction;
-    const discounts = sum(rangeOrders, o => o.discount);
-    const avgOrder = completed.length ? Math.round(net / completed.length) : 0;
+    const discounts = sum(completed, o => discountAmountOf(o));
+    const avgOrder = completed.length ? Math.round(gross / completed.length) : 0;
 
     // الفترة السابقة لنفس الطول
     const span = Math.max(1, Math.round((new Date(to) - new Date(from)) / 86400000) + 1);
@@ -94,7 +101,7 @@
     const prevRefunds = sum(refunds.filter(r => { const d = day(r.date || r.createdAt || r.updatedAt); return d >= pf && d <= pt; }), r => r.amount);
     const prevNet = prevGross - prevRefunds;
     const prevCount = prevCompleted.length;
-    const prevAvg = prevCount ? Math.round(prevNet / prevCount) : 0;
+    const prevAvg = prevCount ? Math.round(prevGross / prevCount) : 0;
 
     const change = (cur, prev) => prev > 0 ? ((cur - prev) / prev) * 100 : (cur > 0 ? 100 : 0);
     const kpis = {
@@ -178,7 +185,7 @@
     });
 
     // ===== الخصومات / المرتجعات =====
-    const discountedOrders = rangeOrders.filter(o => num(o.discount) > 0);
+    const discountedOrders = rangeOrders.filter(o => discountAmountOf(o) > 0);
     const voided = rangeOrders.filter(o => o.status === 'cancelled');
     const voidTotal = sum(voided, orderTotal);
 

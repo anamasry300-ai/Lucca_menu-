@@ -1,6 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { queryAll, queryOne } from '../db.js';
 import { authRequired, requirePermission } from '../auth.js';
+import { paidOrdersSummary } from '../repositories/ordersRepo.js';
+import {
+  getNetSales, getRefunds, getAOV, getCOGS, getGrossProfit, getCancelledCount, getDiscounts, getOrdersCount,
+} from '../services/reportService.js';
+import { getProductUnitCost } from '../services/inventoryService.js';
 
 const router = Router();
 
@@ -26,47 +31,40 @@ router.get('/dashboard/kpis', (req: Request, res: Response) => {
     const { from, to } = dateRange(req);
     const pf = prevDateRange(from, to);
 
-    const cur = queryOne(
-      "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder, COALESCE(SUM(discountAmount), 0) as discounts FROM orders WHERE date(date) >= ? AND date(date) <= ? AND paymentStatus = 'paid'",
-      [from, to]
-    ) || { count: 0, revenue: 0, avgOrder: 0, discounts: 0 };
+    const cur = paidOrdersSummary(from, to) || { count: 0, revenue: 0, avgOrder: 0, discounts: 0 };
+    const prev = paidOrdersSummary(pf.from, pf.to) || { count: 0, revenue: 0, avgOrder: 0, discounts: 0 };
 
-    const prev = queryOne(
-      "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder FROM orders WHERE date(date) >= ? AND date(date) <= ? AND paymentStatus = 'paid'",
-      [pf.from, pf.to]
-    ) || { count: 0, revenue: 0, avgOrder: 0 };
+    const net = getNetSales(from, to);
+    const prevNet = getNetSales(pf.from, pf.to);
+    const refunds = getRefunds(from, to);
+    const prevRefunds = getRefunds(pf.from, pf.to);
+    const aov = getAOV(from, to);
+    const discounts = getDiscounts(from, to);
+    const orders = getOrdersCount(from, to);
+    const cancelled = getCancelledCount(from, to);
+    const cogs = getCOGS(from, to);
+    const grossProfit = getGrossProfit(from, to);
 
-    const refundAmt = (queryOne("SELECT COALESCE(SUM(amount), 0) as total FROM refunds WHERE createdAt >= ? AND createdAt <= ? || 'T23:59:59'", [from, to]) || {}).total || 0;
-    const prevRefundAmt = (queryOne("SELECT COALESCE(SUM(amount), 0) as total FROM refunds WHERE createdAt >= ? AND createdAt <= ? || 'T23:59:59'", [pf.from, pf.to]) || {}).total || 0;
+    const hasCostData = cogs.completeness === 'complete';
+    const netSales = net.value || 0;
+    const prevNetSales = prevNet.value || 0;
+    const avgOrderValue = aov.value == null ? 0 : aov.value;
+    const prevAvgValue = Number(prev.avgOrder) || 0;
+    const discountsValue = discounts.value || 0;
 
-    const netSales = (cur.revenue as number) - (cur.discounts as number) - (refundAmt as number);
-    const prevNetSales = (prev.revenue as number) - (prevRefundAmt as number);
-
-    const cancelled = (queryOne("SELECT COUNT(*) as c FROM orders WHERE date(date) >= ? AND date(date) <= ? AND status = 'cancelled'", [from, to]) || {}).c || 0;
-
-    // COGS
-    const cogsRow = queryOne(
-      "SELECT COALESCE(SUM(oi.quantity * COALESCE(p.cost, 0)), 0) as cogs FROM order_items oi JOIN orders o ON oi.orderId = o.id LEFT JOIN products p ON oi.productId = p.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.paymentStatus = 'paid'",
-      [from, to]
-    );
-    const cogs = (cogsRow?.cogs as number) || 0;
-    const hasCostData = cogs > 0;
-    const grossProfit = hasCostData ? netSales - cogs : null;
-    const grossMargin = hasCostData && netSales > 0 ? ((grossProfit as number) / netSales * 100) : null;
-
-    function pct(cur: number, prev: number) {
-      if (prev === 0) return cur > 0 ? 100 : 0;
-      return ((cur - prev) / prev * 100);
+    function pct(current: number, previous: number) {
+      if (previous === 0) return current > 0 ? 100 : 0;
+      return Number((((current - previous) / previous) * 100).toFixed(1));
     }
 
     res.json({
       sales: { value: netSales, prev: prevNetSales, change: pct(netSales, prevNetSales) },
-      orders: { value: cur.count, prev: prev.count, change: pct(cur.count as number, prev.count as number) },
-      avgOrder: { value: cur.avgOrder, prev: prev.avgOrder, change: pct(cur.avgOrder as number, prev.avgOrder as number) },
-      discounts: { value: cur.discounts, change: pct(cur.discounts as number, 0) },
-      refunds: { value: refundAmt, prev: prevRefundAmt, change: pct(refundAmt as number, prevRefundAmt as number) },
-      cancelled: { value: cancelled },
-      grossProfit: hasCostData ? { value: grossProfit, margin: grossMargin } : null,
+      orders: { value: orders.value, prev: Number(prev.count) || 0, change: pct(orders.value || 0, Number(prev.count) || 0) },
+      avgOrder: { value: avgOrderValue, prev: prevAvgValue, change: pct(avgOrderValue, prevAvgValue) },
+      discounts: { value: discountsValue, change: pct(discountsValue, 0) },
+      refunds: { value: refunds.value || 0, prev: prevRefunds.value || 0, change: pct(refunds.value || 0, prevRefunds.value || 0) },
+      cancelled: { value: cancelled.value },
+      grossProfit: grossProfit.value != null && hasCostData ? { value: grossProfit.value, margin: netSales > 0 ? ((grossProfit.value as number) / netSales * 100) : null } : null,
       hasCostData
     });
   } catch (e: unknown) { res.status(500).json({ error: (e as Error).message }); }
@@ -109,8 +107,11 @@ router.get('/dashboard/top-products', (req: Request, res: Response) => {
     res.json(rows.map(r => {
       const rev = (r.revenue as number) || 0;
       const qty = (r.quantity as number) || 0;
-      const cost = ((r.costPrice as number) || 0) * qty;
-      return { ...r, cost, profit: rev - cost, margin: rev > 0 ? ((rev - cost) / rev * 100) : 0 };
+      const unit = r.productId != null ? getProductUnitCost(Number(r.productId)) : { cost: null };
+      const cost = unit.cost != null ? unit.cost * qty : null;
+      const profit = cost != null ? rev - cost : null;
+      const margin = profit != null && rev > 0 ? ((profit / rev) * 100) : 0;
+      return { ...r, cost, profit, margin };
     }));
   } catch (e: unknown) { res.status(500).json({ error: (e as Error).message }); }
 });

@@ -13,6 +13,7 @@ import invitationRoutes from './routes/invitations.js';
 import reportRoutes from './routes/reports.js';
 import batmanRoutes from './routes/batman.js';
 import adminRoutes from './routes/admin.js';
+import controlCenterRoutes from './routes/controlCenter.js';
 import tableLocksRoutes from './routes/tableLocks.js';
 import { authRequired, requirePermission, requirePasswordChanged, resolveIdentity, requireRole, AuthRequest, SESSION_COOKIE, ADMIN_ONLY_STORES, roleHas, getDeviceKeys } from './auth.js';
 import logger, { httpLoggerMiddleware } from './logger.js';
@@ -241,6 +242,7 @@ app.use('/api', analyticsRoutes);
 app.use('/api', reportRoutes);
 app.use('/api/batman', batmanRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/cc', controlCenterRoutes);
 
 // ===== H1: LLM Proxy (CORS-free — يضيف البطاقة السرية aquí) =====
 // POST /api/proxy-llm  (أو alias /api/openai)

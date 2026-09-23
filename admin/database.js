@@ -991,6 +991,33 @@ const Users = {
                 createdAt: new Date().toISOString()
             });
         }
+    },
+
+    async resetDefaultAdmin() {
+        const users = await db.getAll('users');
+        const existing = users.find(u => String(u.username || '').trim().toLowerCase() === 'admin');
+        const salt = crypto.randomUUID();
+        const hashed = await this.pbkdf2Hash('123456', salt);
+        const base = {
+            username: 'admin',
+            name: 'مدير النظام',
+            password: hashed ? 'pbkdf2:' + salt + ':' + hashed : '123456',
+            role: 'admin',
+            active: true,
+            mustChangePassword: 1,
+            updatedAt: new Date().toISOString()
+        };
+        if (existing) {
+            await db.put('users', Object.assign({}, existing, base));
+        } else {
+            const maxId = users.reduce((m, u) => Math.max(m, Number(u.id) || 0), 0);
+            await db.add('users', Object.assign({ id: maxId + 1, createdAt: new Date().toISOString() }, base));
+        }
+        localStorage.removeItem('currentUser');
+        sessionStorage.removeItem('posAdminAuthed');
+        ServerAPI.setToken(null);
+        try { ServerAPI.add('users', { username: 'admin', name: 'مدير النظام', role: 'admin' }).catch(() => {}); } catch(e) {}
+        return { ok: true, username: 'admin', password: '123456', mustChangePassword: true };
     }
 };
 

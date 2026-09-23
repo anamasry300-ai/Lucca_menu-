@@ -201,8 +201,11 @@ BEGIN
             v_shortfall := v_shortfall || v_name || ' (المتاح ' || v_available || ' — المطلوب ' || v_wanted || ')، ';
             CONTINUE;
           END IF;
+          -- ملاحظة (2026-09): عمود updated_at غير موجود في جدول inventory بالمخطط الحي (v1) —
+          -- التطبيق يحدّث last_updated فقط (انظر Inventory adapter في supabase-db.js)؛
+          -- أزيلت عبارة updated_at = COALESCE(...) التي كانت ستسبب 42703 عند أي بيع 1:1.
           UPDATE public.inventory SET quantity = v_available - v_wanted,
-            last_updated = NOW(), updated_at = COALESCE(updated_at, NOW())
+            last_updated = NOW()
             WHERE id = inv.id;
           v_notes := 'طلب #' || p_order_id || ' :: ' || v_name;
         ELSE

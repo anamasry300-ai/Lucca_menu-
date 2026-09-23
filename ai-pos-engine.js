@@ -1040,7 +1040,10 @@ class AIPosEngine {
             // P1: التحصيل حصري عبر /checkout على السيرفر (مصدر الحقيقة) —
             // إعادة المحاولة idempotent (الدفعة بنفس paymentSyncId لا تُسجَّل مرتين)،
             // وفشل الاتصال/الرفض يُبقي الطلب مفتوحاً بلا أي دفع محلي أو إغلاق محلي.
-            const closed = await window.LuccaDB.Orders.checkoutToServer(order.id, { paymentMethod });
+            // P2B: paymentSyncId مُشتق ثابت (من order.id + الطريقة) — أي إعادة محاولة
+            // بعد timeout لنفس الطلب/الطريقة تستخدم نفس المعرّف فلا يُسجَّل الدفع مرتين
+            // ولا تظهر رسالة "الطلب مغلق" الكاذبة (409).
+            const closed = await window.LuccaDB.Orders.checkoutToServer(order.id, { paymentMethod, paymentSyncId: 'pay-' + order.id + '-' + String(paymentMethod || 'cash') });
             if (!closed) {
                 return { success: false, message: '❌ تعذر الاتصال بالسيرفر — الطلب ' + order.id + ' بقي مفتوحاً ولم يُسجَّل أي دفع. أعد المحاولة.' };
             }
@@ -1107,7 +1110,9 @@ class AIPosEngine {
 
             // P1: التحصيل حصري عبر /checkout على السيرفر (مصدر الحقيقة) —
             // لا Orders.update بدفع محلي، لا إغلاق محلي، لا دفع مزيف عند فشل الاتصال.
-            const closed = await window.LuccaDB.Orders.checkoutToServer(order.id, { paymentMethod: method });
+            // P2B: paymentSyncId ثابت مُشتق (order.id + الطريقة) — نفس المعرّف عند إعادة المحاولة
+            // بعد timeout، بدل أن يولّد RPC معرّفاً عشوائياً جديداً كل مرة.
+            const closed = await window.LuccaDB.Orders.checkoutToServer(order.id, { paymentMethod: method, paymentSyncId: 'pay-' + order.id + '-' + String(method || 'cash') });
             if (!closed) {
                 return { success: false, message: '❌ تعذر الاتصال بالسيرفر — الطلب ' + order.id + ' بقي مفتوحاً ولم يُسجَّل أي دفع. أعد المحاولة.' };
             }
@@ -1224,13 +1229,13 @@ class AIPosEngine {
             return { success: false, message: '❌ مجموع الدفعات (' + sum + ') لا يطابق إجمالي الطلب (' + total + ' ل.س) — الطلب بقي مفتوحاً. أعد الكتابة.\nمثال: "ادفع 200 كاش والباقي فيزا".' };
         }
 
-        // P1: كل جزء يحصل على paymentSyncId مستقر (idempotent عند إعادة المحاولة)
-        const payments = parts.map(p => ({
+        // P2B: معرّفات مشتقة ثابتة (split-{orderId}-{method}-{index}) مبنية عند الاستدعاء
+        // (نفس Architecture القائمة). إعادة تشغيل نفس أمر التقسيط على نفس الطلب تولّد
+        // نفس المعرّفات → idempotent على السيرفر، بلا randomUUID جديد عند retry.
+        const payments = parts.map((p, idx) => ({
             method: p.method,
             amount: p.amount,
-            paymentSyncId: (window.crypto && crypto.randomUUID)
-                ? crypto.randomUUID()
-                : ('split-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10))
+            paymentSyncId: 'split-' + sp.orderId + '-' + String(p.method || 'cash') + '-' + (idx + 1)
         }));
 
         const lock = await this._acquireTableLock(sp.tableNum);

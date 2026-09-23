@@ -5213,13 +5213,12 @@
             const order = orders.find(o => o.id === currentOrderId);
             if (!order) return;
 
-            // P1: كل جزء يحصل على paymentSyncId مستقر — أي إعادة محاولة لنفس الملف
-            // (أو مزامنة لاحقة) يستبعدها السيرفر (idempotent) فلا يتكرر أي دفع ولا يُغلق الطلب مرتين.
-            payments.forEach(p => {
+            // P2B: معرّفات مشتقة ثابتة (split-{orderId}-{method}-{index}) — نفس الصفوف
+            // (طريقة + ترتيب + طلب) تعطي نفس المعرّف عند إعادة فتح المودال/إعادة المحاولة،
+            // فيستبعدها السيرفر idempotently ولا يتكرر أي دفع (بدل randomUUID لكل محاولة).
+            payments.forEach((p, idx) => {
                 if (!p.paymentSyncId) {
-                    p.paymentSyncId = (window.crypto && crypto.randomUUID)
-                        ? crypto.randomUUID()
-                        : ('split-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
+                    p.paymentSyncId = 'split-' + currentOrderId + '-' + String(p.method || 'cash') + '-' + (idx + 1);
                 }
             });
 
@@ -5346,6 +5345,7 @@
         // enqueue order update to server queue (مصدر واحد لتجنّب تجاهل الطلبات)
         function _enqueueOrderSync() {
             if (!currentOrderId) return;
+            if ((localStorage.getItem('luccaDataMode') || 'local') === 'supabase') return;
             try {
                 const items = buildOrderPayload();
                 const formData = collectCustomerForm();

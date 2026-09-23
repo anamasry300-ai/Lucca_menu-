@@ -1,0 +1,1389 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>مركز التحكم الموحّد — Lucca</title>
+<style>
+:root{
+  --bg:#f4f6fa; --card:#ffffff; --ink:#1e2430; --mut:#7a8494; --line:#e6eaf1;
+  --acc:#0b7a75; --acc2:#0e9f98; --red:#c0392b; --org:#e67e22; --grn:#27ae60; --blu:#2471a3;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html,body{height:100%;}
+body{font-family:'Segoe UI',Tahoma,'Noto Kufi Arabic',Arial,sans-serif; background:var(--bg); color:var(--ink); font-size:14px;}
+.hidden{display:none !important;}
+button{font-family:inherit; cursor:pointer; border:none; border-radius:8px; padding:8px 14px; font-size:13px; background:var(--acc); color:#fff; transition:.15s;}
+button:hover{background:var(--acc2);}
+button.sec{background:#eef1f6; color:var(--ink);}
+button.sec:hover{background:#dfe6ef;}
+button:disabled{opacity:.45; cursor:not-allowed;}
+button.danger{background:#fceaea; color:var(--red);}
+select,input{font-family:inherit; font-size:13px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink);}
+input:focus,select:focus{outline:2px solid var(--acc2);}
+a{color:var(--acc);}
+.layout{display:flex; min-height:100vh;}
+nav{width:230px; background:#1b2230; color:#cbd3e0; padding:16px 10px; position:sticky; top:0; height:100vh; overflow:auto; flex-shrink:0;}
+.brand{color:#fff; font-size:16px; font-weight:700; padding:6px 10px 18px; display:flex; align-items:center; gap:8px;}
+.navi{display:block; width:100%; text-align:right; padding:9px 12px; margin:2px 0; border-radius:8px; color:#cbd3e0; background:transparent; font-size:13.5px;}
+.navi:hover{background:#273348; color:#fff;}
+.navi.on{background:var(--acc); color:#fff;}
+main{flex:1; min-width:0; padding:18px 22px 40px;}
+.tbar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:16px;}
+.tbar .sp{flex:1;}
+.head h1{font-size:20px;}
+.head .sub{color:var(--mut); font-size:12.5px; margin-top:2px;}
+.chip{display:inline-block; padding:2px 9px; border-radius:999px; font-size:11.5px; background:#eef1f6; color:var(--ink);}
+.chip.admin{background:#e6f4ef; color:var(--acc);}
+.grid{display:grid; gap:12px;}
+.gkpi{grid-template-columns:repeat(auto-fill,minmax(168px,1fr)); margin-bottom:18px;}
+.g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr));}
+.card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px;}
+.card h3{font-size:13.5px; color:var(--mut); font-weight:600; margin-bottom:8px;}
+.card .big{font-size:22px; font-weight:700;}
+.card .sml{font-size:11.5px; color:var(--mut); margin-top:3px;}
+.kpi .big.ok{color:var(--acc);} .kpi .big.bad{color:var(--red);} .kpi .big.warn{color:var(--org);}
+.tbl{width:100%; border-collapse:collapse; font-size:12.5px; background:#fff;}
+.tbl th{background:#f0f3f8; text-align:right; padding:8px 10px; font-weight:600; color:#4a5568; white-space:nowrap; border-bottom:1px solid var(--line);}
+.tbl td{padding:7px 10px; border-bottom:1px solid var(--line);}
+.tbl tr:hover td{background:#f7fafc;}
+.num{text-align:left; white-space:nowrap;}
+.b{font-weight:700;} .mut{color:var(--mut);}
+.ok{color:var(--grn);} .bad{color:var(--red);} .warn{color:var(--org);}
+.pagebar{display:flex; align-items:center; gap:10px; margin-top:10px;}
+.pageinfo{color:var(--mut); font-size:12px;}
+.filters{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0 12px;}
+.filters label{font-size:12px; color:var(--mut);}
+.sumrow{display:flex; flex-wrap:wrap; gap:10px; margin-bottom:12px;}
+.sumrow .s{background:#fff; border:1px solid var(--line); border-radius:10px; padding:8px 14px; font-size:12.5px;}
+.sumrow .s b{display:block; font-size:16px;}
+.msg{padding:14px 16px; border-radius:10px; margin:10px 0;}
+.msg.err{background:#fdecea; color:#a93226; border:1px solid #f5c6c0;}
+.msg.warn{background:#fef5e7; color:#b9770e; border:1px solid #f5d6a7;}
+.msg.info{background:#eaf4fd; color:#1a5276; border:1px solid #bfd9ec;}
+#toast{position:fixed; bottom:18px; left:18px; z-index:90; display:flex; flex-direction:column; gap:8px;}
+#toast .t{background:#1b2230; color:#fff; padding:10px 16px; border-radius:10px; font-size:13px; box-shadow:0 6px 18px rgba(0,0,0,.18); animation:tin .2s;}
+#toast .t.err{background:#a93226;} #toast .t.ok{background:#1e8449;}
+@keyframes tin{from{transform:translateY(8px); opacity:0;} to{transform:none; opacity:1;}}
+.modal-bg{position:fixed; inset:0; background:rgba(15,20,28,.45); z-index:80; display:flex; align-items:flex-start; justify-content:center; padding:40px 16px; overflow:auto;}
+.modal{background:#fff; border-radius:14px; max-width:720px; width:100%; padding:18px 20px; position:relative;}
+.modal.x {display:none;}
+.modal .cap{font-size:16px; font-weight:700; margin-bottom:4px;}
+.modal .cls{position:absolute; top:12px; left:12px; background:#eef1f6; color:var(--ink);}
+.form-row{margin:10px 0;}
+.form-row label{display:block; font-size:12.5px; color:var(--mut); margin-bottom:4px;}
+.form-row input,.form-row select{width:100%;}
+.login-wrap{min-height:100vh; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#123047,#0b7a75);}
+.login-card{background:#fff; border-radius:16px; padding:30px 34px; width:360px; box-shadow:0 18px 50px rgba(0,0,0,.25);}
+.login-card h1{font-size:19px; margin-bottom:4px;}
+.login-card .p{color:var(--mut); font-size:12.5px; margin-bottom:18px;}
+.lv{display:flex; gap:6px; flex-wrap:wrap; margin-top:14px;}
+.stat{display:inline-flex; align-items:center; gap:6px;}
+.dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
+.errbox{font-size:12px; color:var(--red); margin-top:8px; min-height:16px;}
+small.hint{font-size:11.5px; color:var(--mut);}
+@media(max-width:900px){ .layout{flex-direction:column;} nav{width:100%; height:auto; position:static;} .navi{display:inline-block; width:auto;} }
+</style>
+<script src="admin-api.js"></script>
+</head>
+<body>
+
+<div id="loginView" class="login-wrap">
+  <div class="login-card">
+    <h1>مركز التحكم الموحّد</h1>
+    <div class="p">سجّل الدخول بحساب مشرف (أو محاسب بصلاحية تقارير). الأرباح تظهر للمدير فقط.</div>
+    <div class="form-row"><label>اسم المستخدم</label><input id="liUser" autocomplete="username"></div>
+    <div class="form-row"><label>كلمة المرور</label><input id="liPass" type="password" autocomplete="current-password"></div>
+    <div class="errbox" id="liErr"></div>
+    <button id="liBtn" style="width:100%; padding:11px;">دخول</button>
+    <div class="lv">
+      <small class="hint">نسيت كلمة المرور؟ استخدم «إعادة تعيين الأدمن الافتراضي» في <a href="index.html" target="_blank">صفحة الإدارة القديمة</a>.</small>
+    </div>
+  </div>
+</div>
+
+<div id="app" class="layout hidden">
+  <nav>
+    <div class="brand">◎ مركز التحكم — Lucca</div>
+    <div id="navLinks"></div>
+  </nav>
+  <main>
+    <div class="tbar head">
+      <div>
+        <h1 id="secTitle">لوحة المؤشرات</h1>
+        <div class="sub" id="secSub"></div>
+      </div>
+      <div class="sp"></div>
+      <label class="chip" id="scopeChip"></label>
+      <select id="periodSel" title="الفترة">
+        <option value="today">اليوم</option>
+        <option value="yesterday">أمس</option>
+        <option value="week">آخر 7 أيام</option>
+        <option value="month" selected>هذا الشهر</option>
+        <option value="custom">مخصص</option>
+      </select>
+      <input type="date" id="fromIn" class="hidden">
+      <input type="date" id="toIn" class="hidden">
+      <button class="sec" id="refreshBtn">تحديث</button>
+      <button class="danger" id="logoutBtn">خروج</button>
+    </div>
+    <div id="content"></div>
+  </main>
+</div>
+
+<div id="detailModal" class="modal-bg modal x">
+  <div class="modal">
+    <button class="cls" id="modalClose">✕</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+'use strict';
+var TOKEN = (typeof sessionStorage !== 'undefined') ? (sessionStorage.getItem('luccaToken') || '') : '';
+var state = {
+  section: 'dashboard',
+  scope: 'reports-only',
+  period: 'month',
+  from: '', to: '',
+  data: {
+    dashboard: null, dashboardT: 0,
+    orders: { page:1, size:50, status:'', paymentStatus:'', orderType:'', q:'' },
+    products: { page:1, size:50, q:'' },
+    stock: { page:1, size:50, q:'', status:'' },
+    movements: { page:1, size:50, productId:'' },
+    purchases: { page:1, size:50, category:'' },
+    expenses: { page:1, size:50, category:'' },
+    tables: {}, cash: {}, employees: {}, suppliers: {},
+    reports: { tab:'sales', group:'day' }
+  }
+};
+
+var sections = [
+  { id:'dashboard', label:'لوحة المؤشرات' },
+  { id:'orders', label:'الطلبات' },
+  { id:'tables', label:'الطاولات' },
+  { id:'categories', label:'الأقسام' },
+  { id:'products', label:'المنتجات' },
+  { id:'payment-methods', label:'طرق الدفع' },
+  { id:'stock', label:'المخزون' },
+  { id:'movements', label:'حركات المخزون' },
+  { id:'purchases', label:'المشتريات' },
+  { id:'expenses', label:'المصروفات' },
+  { id:'employees', label:'الموظفون' },
+  { id:'suppliers', label:'الموردون' },
+  { id:'cash', label:'النقدية اليومية' },
+  { id:'reports', label:'التقارير' },
+  { id:'knowledge', label:'قاعدة المعرفة' },
+  { id:'system', label:'النظام والصحة' }
+];
+
+var navLinks = document.getElementById('navLinks');
+sections.forEach(function(s){
+  var b=document.createElement('button'); b.className='navi'; b.textContent=s.label; b.dataset.id=s.id;
+  b.addEventListener('click', function(){ go(s.id); });
+  navLinks.appendChild(b);
+});
+
+function $(id){ return document.getElementById(id); }
+function go(id){ state.section=id; setActive(id); render(); }
+function setActive(id){
+  Array.prototype.forEach.call(navLinks.querySelectorAll('.navi'), function(b){ b.classList.toggle('on', b.dataset.id===id); });
+  var s = sections.filter(function(x){return x.id===id;})[0];
+  $('secTitle').textContent = s.label;
+}
+
+function toast(msg, kind){ var t=document.createElement('div'); t.className='t '+(kind||''); t.textContent=msg; $('toast').appendChild(t); setTimeout(function(){ t.remove(); }, 4200); }
+function fmt(n){ if(n===null||n===undefined||n==='' || isNaN(n)) return '—'; return Number(n).toLocaleString('en-US'); }
+function money(n){ return Number(n)===0 ? '0 ج.س' : fmt(n)+' ج.س'; }
+function pct(n){ if(n===null||n===undefined||isNaN(n)) return '—'; return Number(n).toFixed(1)+'٪'; }
+function esc(s){ if(s===null||s===undefined) return '—'; return String(s); }
+function rangeParams(){
+  if(state.period==='custom') return 'from='+encodeURIComponent(state.from)+'&to='+encodeURIComponent(state.to);
+  return 'period='+state.period;
+}
+function qs(extra){
+  var parts=[];
+  if(extra){
+    Object.keys(extra).forEach(function(k){ if(extra[k]!=='' && extra[k]!=null) parts.push(k+'='+encodeURIComponent(extra[k])); });
+  }
+  var r=parts.join('&');
+  return (parts.length? '&':'')+r;
+}
+
+function api(path, opt){
+  if (window.AdminApi && typeof AdminApi.request === 'function') {
+    return AdminApi.request(path, opt);
+  }
+  var headers={ 'Authorization':'Bearer '+TOKEN, 'Content-Type':'application/json' };
+  var cfg=Object.assign({ headers:headers }, opt||{});
+  return fetch(path, cfg).then(function(res){
+    var ct=res.headers.get('content-type')||'';
+    return (ct.indexOf('json')>-1 ? res.json() : res.text()).then(function(body){
+      return { ok:res.ok, status:res.status, j:body };
+    });
+  }).catch(function(){ return { ok:false, status:0, j:{error:'تعذّر الاتصال بالخادم'}, net:true }; });
+}
+
+function card(cls, title, html){
+  var d=document.createElement('div'); d.className='card kpi'+(cls?(' '+cls):'');
+  var h=document.createElement('h3'); h.textContent=title; d.appendChild(h);
+  var div=document.createElement('div'); div.innerHTML=html; d.appendChild(div);
+  return d;
+}
+
+function tableFor(desc, rows, onClick){
+  var t=document.createElement('table'); t.className='tbl';
+  var th=document.createElement('tr');
+  desc.forEach(function(c){ var cth=document.createElement('th'); cth.textContent=c.h; th.appendChild(cth); });
+  t.appendChild(th);
+  var body=document.createElement('tbody');
+  (rows||[]).forEach(function(r){
+    var tr=document.createElement('tr');
+    if(onClick){ tr.style.cursor='pointer'; tr.addEventListener('click', function(){ onClick(r); }); }
+    desc.forEach(function(c){
+      var td=document.createElement('td');
+      var v = c.k.indexOf('.')>-1 ? (r[c.k.split('.')[0]]||{})[c.k.split('.')[1]] : r[c.k];
+      if(c.num) td.classList.add('num');
+      if(c.fmt){
+        var res=c.fmt(v, r);
+        td.textContent=res.text;
+        if(res.cls) res.cls.split(' ').forEach(function(x){ td.classList.add(x); });
+      } else td.textContent=esc(v);
+      if(c.b) td.classList.add('b');
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+  t.appendChild(body);
+  return t;
+}
+
+function pageBar(key, pr){
+  var bar=document.createElement('div'); bar.className='pagebar';
+  var info=document.createElement('span'); info.className='pageinfo';
+  var pages=Math.max(1, Math.ceil((pr.total||0)/(pr.pageSize||50)));
+  info.textContent='صفحة '+(pr.page||1)+' من '+pages+' • إجمالي '+fmt(pr.total);
+  var prev=document.createElement('button'); prev.className='sec'; prev.textContent='السابق';
+  prev.disabled=(pr.page||1)<=1;
+  prev.addEventListener('click', function(){ state.data[key].page--; render(); });
+  var next=document.createElement('button'); next.className='sec'; next.textContent='التالي';
+  next.disabled=!pr.hasMore;
+  next.addEventListener('click', function(){ state.data[key].page++; render(); });
+  bar.appendChild(prev); bar.appendChild(info); bar.appendChild(next);
+  return bar;
+}
+
+function filterBar(items, onGo){
+  var f=document.createElement('div'); f.className='filters';
+  var goBtn=document.createElement('button'); goBtn.textContent='بحث'; goBtn.type='button';
+  goBtn.addEventListener('click', function(){ onGo(); });
+  items.forEach(function(it){
+    if(it.type==='sel'){
+      var sel=document.createElement('select'); sel.id=it.id; sel.className=it.cls||'';
+      it.opts.forEach(function(o){ var op=document.createElement('option'); op.value=o.v; op.textContent=o.l; sel.appendChild(op); });
+      if(it.init!=null) sel.value=it.init;
+      f.appendChild(sel);
+    } else {
+      var inp=document.createElement('input');
+      if(it.type==='num') { inp.type='number'; inp.setAttribute('placeholder', it.placeholder||''); }
+      else if(it.type==='date') { inp.type='date'; }
+      else { inp.type='text'; inp.setAttribute('placeholder', it.placeholder||'بحث…'); }
+      inp.id=it.id; inp.value=it.init||'';
+      f.appendChild(inp);
+    }
+  });
+  f.appendChild(goBtn);
+  return f;
+}
+
+function msgBox(kind, text){
+  var m=document.createElement('div'); m.className='msg '+kind; m.textContent=text;
+  return m;
+}
+
+function withErr(r, fn){
+  if(r.status===401){ sessionStorage.removeItem('luccaToken'); TOKEN=''; $('app').classList.add('hidden'); $('loginView').classList.remove('hidden'); toast('انتهت الجلسة، سجّل الدخول مجددًا', 'err'); return false; }
+  if(r.status===403){ $('content').appendChild(msgBox('err', r.j && r.j.error ? r.j.error : 'ليست لديك صلاحية الوصول إلى هذه الوحدة.')); return false; }
+  if(r.status===0){ $('content').appendChild(msgBox('err', r.j && r.j.error ? r.j.error : 'تعذّر الاتصال بالخادم.')); return false; }
+  return fn();
+}
+
+(function(){
+  var per=$('periodSel'), fin=$('fromIn'), tin=$('toIn');
+  function upd(){
+    var c=per.value==='custom';
+    fin.classList.toggle('hidden', !c);
+    tin.classList.toggle('hidden', !c);
+    if(!c){ state.from=''; state.to=''; }
+    else { state.from=fin.value||state.from; state.to=tin.value||state.to; }
+  }
+  per.addEventListener('change', function(){ state.period=per.value; upd(); render(); });
+  fin.addEventListener('change', function(){ state.from=fin.value; render(); });
+  tin.addEventListener('change', function(){ state.to=tin.value; render(); });
+  $('refreshBtn').addEventListener('click', render);
+  $('logoutBtn').addEventListener('click', function(){ sessionStorage.removeItem('luccaToken'); location.reload(); });
+  upd();
+})();
+
+function render(){
+  var c=$('content'); c.textContent='';
+  $('secSub').textContent = state.period==='custom' ? ('من '+esc(state.from)+' إلى '+esc(state.to)) : periodLabel();
+  var key=state.section;
+  try{
+    if(key==='dashboard') renderDashboard(c);
+    else if(key==='orders') renderOrders(c);
+    else if(key==='tables') renderTables(c);
+    else if(key==='categories') renderCategories(c);
+    else if(key==='products') renderProducts(c);
+    else if(key==='payment-methods') renderPayments(c);
+    else if(key==='stock') renderStock(c);
+    else if(key==='movements') renderMovements(c);
+    else if(key==='purchases') renderPurchases(c);
+    else if(key==='expenses') renderExpenses(c);
+    else if(key==='employees') renderEmployees(c);
+    else if(key==='suppliers') renderSuppliers(c);
+    else if(key==='cash') renderCash(c);
+    else if(key==='reports') renderReports(c);
+    else if(key==='knowledge') renderKnowledge(c);
+    else if(key==='system') renderSystem(c);
+  }catch(e){ c.appendChild(msgBox('err', 'خطأ أثناء العرض: '+e.message)); }
+}
+function periodLabel(){
+  var m={ today:'اليوم', yesterday:'أمس', week:'آخر 7 أيام', month:'هذا الشهر', custom:'مخصص' };
+  return m[state.period]||state.period;
+}
+
+function profitRow(key){
+  var pl=state.data.dashboard && state.data.dashboard.profitAndLoss;
+  if(!pl) return [];
+  function comp(k){ return pl.completeness && pl.completeness[k]==='complete'; }
+  var show = pl.grossProfit!=null;
+  return show ? [
+    card('', 'إجمالي الربح', '<div class="big ok">'+money(pl.grossProfit)+'</div><div class="sml">الهامش: '+pct(show && pl.netSales ? (pl.grossProfit/pl.netSales*100) : '')+' من صافي المبيعات</div>'),
+    card('', 'تكلفة البضاعة (COGS)', '<div class="big">'+money(pl.cogs)+'</div><div class="sml">'+ (comp('cogs')?'بيانات مكتملة':'بيانات غير مكتملة') +'</div>'),
+    card('', 'الربح التشغيلي', '<div class="big ok">'+money(pl.operatingProfit)+'</div><div class="sml">يُخصم المصروفات</div>'),
+    card('', 'المصروفات التشغيلية', '<div class="big warn">'+money(pl.operatingExpenses)+'</div><div class="sml">كاملة وفق الإفصاح المالي</div>')
+  ] : [card('', 'الأرباح (مدير فقط)', '<div class="big mut">—</div><div class="sml">حسابك يملك صلاحية التقارير لكن ليست صلاحية رؤية الأرباح.</div>')];
+}
+
+function renderDashboard(c){
+  showLoading('dashboard');
+  api('/api/cc/dashboard?'+rangeParams()).then(function(r){
+    c.textContent='';
+    if(!withErr(r, function(){ return true; })) return;
+    var d=r.j; state.data.dashboard=d; state.data.dashboardT=Date.now();
+    var g=document.createElement('div'); g.className='grid gkpi'; c.appendChild(g);
+    g.appendChild(card('', 'صافي المبيعات', '<div class="big">'+money(d.sales.netSales)+'</div><div class="sml">'+fmt(d.sales.ordersCount)+' طلبًا مدفوعًا</div>'));
+    g.appendChild(card('', 'إجمالي المبيعات', '<div class="big">'+money(d.sales.grossSales)+'</div><div class="sml">متوسط الطلب: '+money(d.sales.aov)+'</div>'));
+    g.appendChild(card('', 'الخصومات', '<div class="big">'+money(d.sales.discounts)+'</div>'));
+    g.appendChild(card('', 'المرتجعات/الاسترجاع', '<div class="big warn">'+money(d.sales.refunds)+'</div>'));
+    g.appendChild(card('', 'الطلبات الملغاة', '<div class="big '+(d.sales.cancelledCount?'bad':'')+'">'+fmt(d.sales.cancelledCount)+'</div>'));
+    g.appendChild(card('', 'المصروفات', '<div class="big warn">'+money(d.expenses.total)+'</div><div class="sml">'+fmt(d.expenses.count)+' مصروفًا • نقدي: '+money(d.expenses.cash)+'</div>'));
+    g.appendChild(card('', 'المشتريات', '<div class="big">'+money(d.purchases.total)+'</div><div class="sml">'+fmt(d.purchases.count)+' عملية</div>'));
+    g.appendChild(card('', 'قيمة المخزون', '<div class="big">'+money(d.inventory.totalValue)+'</div><div class="sml">منخفض: '+fmt(d.inventory.lowStock)+' • نافد: '+fmt(d.inventory.outOfStock)+'</div>'));
+    g.appendChild(card('', 'النقدية المتوقعة', '<div class="big">'+money(d.cash.expected)+'</div><div class="sml">'+ (d.cash.difference===0?'مطابقة':(d.cash.difference>0?'زيادة → تحتاج جرد':'عجز → يحتاج مراجعة')) +'</div>'));
+    g.appendChild(card('', 'النقدية الفعلية', '<div class="big">'+money(d.cash.actual)+'</div><div class="sml">الفرق: '+money(d.cash.difference)+'</div>'));
+
+    var pl=document.createElement('div'); pl.className='grid gkpi';
+    profitRow().forEach(function(x){ pl.appendChild(x); });
+    if(d.profitAndLoss && d.profitAndLoss.grossProfit!=null) pl.appendChild(card('', 'الإفصاح المالي', '<div class="sml">'+ (d.financial ? ('القيمة: '+money(d.financial.value)+' • '+esc(d.financial.period)) : 'غير متاح') +'</div>'));
+    c.appendChild(pl);
+
+    var g2=document.createElement('div'); g2.className='grid g2';
+    var pc1=document.createElement('div');
+    pc1.className='card'; var h1=document.createElement('h3'); h1.textContent='المصروفات حسب الفئة'; pc1.appendChild(h1);
+    var cats=d.expenses.byCategory||[];
+    pc1.appendChild(tableFor([
+      {h:'الفئة', k:'name'},
+      {h:'المبلغ', k:'total', num:true, fmt:function(v){ return { text: money(v) }; }},
+      {h:'عدد', k:'count', num:true}
+    ], cats));
+    if(!cats.length) pc1.appendChild(msgBox('info','لا مصروفات في الفترة.'));
+    g2.appendChild(pc1);
+    c.appendChild(g2);
+  });
+}
+
+function renderOrders(c){
+  var o=state.data.orders;
+  var f=filterBar([
+    { type:'text', id:'oq', placeholder:'رقم/عميل/كاشير', init:o.q },
+    { type:'sel', id:'ost', init:o.status, opts:[{v:'',l:'كل الحالات'},{v:'completed',l:'مكتمل'},{v:'pending',l:'معلق'},{v:'cancelled',l:'ملغي'}] },
+    { type:'sel', id:'ops', init:o.paymentStatus, opts:[{v:'',l:'كل حالات الدفع'},{v:'paid',l:'مدفوع'},{v:'unpaid',l:'غير مدفوع'},{v:'refunded',l:'مسترد'}] },
+    { type:'sel', id:'oot', init:o.orderType, opts:[{v:'',l:'كل الأنواع'},{v:'dine-in',l:'في المحل'},{v:'takeaway',l:'سفري'},{v:'delivery',l:'توصيل'}] }
+  ], function(){
+    o.q=$('oq').value; o.status=$('ost').value; o.paymentStatus=$('ops').value; o.orderType=$('oot').value; o.page=1; render();
+  });
+  c.appendChild(f);
+  api('/api/cc/orders?'+rangeParams()+qs({page:o.page,pageSize:o.size,status:o.status,paymentStatus:o.paymentStatus,orderType:o.orderType,q:o.q})).then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var pr=r.j;
+    var od={ completed:'مكتمل', pending:'معلق', cancelled:'ملغي' };
+    var pd={ paid:'مدفوع', unpaid:'غير مدفوع', refunded:'مسترد' };
+    var ot={ 'dine-in':'في المحل', takeaway:'سفري', delivery:'توصيل' };
+    var tbl=tableFor([
+      {h:'#', k:'id', num:true},
+      {h:'رقم الفاتورة', k:'orderNumber'},
+      {h:'التاريخ', k:'date'},
+      {h:'النوع', k:'orderType', fmt:function(v){ return { text: ot[v]||esc(v), cls:'mut' }; }},
+      {h:'الحالة', k:'status', fmt:function(v){ var cls = v==='cancelled' ? 'bad' : (v==='completed' ? 'ok' : 'warn'); return { text: od[v]||esc(v), cls: cls }; }},
+      {h:'الدفع', k:'paymentStatus', fmt:function(v){ var cls = v==='paid' ? 'ok' : (v==='refunded' ? 'mut' : 'warn'); return { text: pd[v]||esc(v), cls: cls }; }},
+      {h:'الإجمالي', k:'total', num:true, b:true, fmt:function(v){ return { text: money(v) }; }},
+      {h:'الخصم', k:'discountAmount', num:true, fmt:function(v){ return { text: money(v) }; }},
+      {h:'بواسطة', k:'createdBy'}
+    ], pr.rows, function(row){ openOrder(row.id); });
+    c.appendChild(tbl);
+    if(!pr.total) c.appendChild(msgBox('info','لا طلبات مطابقة.'));
+    c.appendChild(pageBar('orders', pr));
+  });
+}
+
+function openOrder(id){
+  api('/api/cc/orders/'+id).then(function(r){
+    if(r.status===401){ renderOrders(null); sessionStorage.removeItem('luccaToken'); TOKEN=''; $('app').classList.add('hidden'); $('loginView').classList.remove('hidden'); toast('انتهت الجلسة', 'err'); return; }
+    if(r.status===404){ toast('الطلب غير موجود', 'err'); return; }
+    if(!r.ok){ toast((r.j && r.j.error)||'خطأ', 'err'); return; }
+    var o=r.j;
+    var b=document.createElement('div');
+    var cap=document.createElement('div'); cap.className='cap'; cap.textContent='طلب رقم '+esc(o.orderNumber); b.appendChild(cap);
+    var sub=document.createElement('div'); sub.className='sub'; sub.textContent='التاريخ: '+esc(o.date)+' • الحالة: '+esc(o.status)+' • الدفع: '+esc(o.paymentStatus)+' • العنوان: '+esc(o.customerName||o.tableId||'—'); b.appendChild(sub);
+    var h2=document.createElement('h3'); h2.textContent='الإجماليات'; b.appendChild(h2);
+    var s=document.createElement('div'); s.className='sumrow';
+    [['الإجمالي', money(o.total)], ['الضريبة', money(o.tax)], ['الخصم', money(o.discountAmount)], ['المدفوع', money(o.totalPaid)], ['المتبقي', money(o.changeAmount>0? -o.changeAmount : Math.max(0,o.total-o.totalPaid))]].forEach(function(x){ var d=document.createElement('div'); d.className='s'; d.innerHTML='<span>'+x[0]+'</span><b>'+x[1]+'</b>'; s.appendChild(d); });
+    b.appendChild(s);
+    var h3=document.createElement('h3'); h3.textContent='الأصناف'; b.appendChild(h3);
+    b.appendChild(tableFor([
+      {h:'الصنف', k:'name'},
+      {h:'الكمية', k:'quantity', num:true},
+      {h:'السعر', k:'unitPrice', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'الإجمالي', k:'total', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'الحالة', k:'status'}
+    ], o.items));
+    var h4=document.createElement('h3'); h4.textContent='المدفوعات'; b.appendChild(h4);
+    b.appendChild(tableFor([
+      {h:'الطريقة', k:'method'},
+      {h:'المبلغ', k:'amount', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'الحالة', k:'status'},
+      {h:'التاريخ', k:'createdAt'}
+    ], o.payments));
+    var h5=document.createElement('h3'); h5.textContent='الاسترجاعات'; b.appendChild(h5);
+    b.appendChild(tableFor([
+      {h:'النوع', k:'type'},
+      {h:'الطريقة', k:'refundMethod'},
+      {h:'المبلغ', k:'amount', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'السبب', k:'reason'},
+      {h:'التاريخ', k:'createdAt'}
+    ], o.refunds));
+    $('modalBody').textContent=''; $('modalBody').appendChild(b);
+    $('detailModal').classList.remove('x');
+  });
+}
+$('modalClose').addEventListener('click', function(){ $('detailModal').classList.add('x'); });
+$('detailModal').addEventListener('click', function(e){ if(e.target===this) this.classList.add('x'); });
+
+function renderTables(c){
+  api('/api/cc/tables').then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var d=r.j;
+    var tb=document.createElement('div'); tb.className='filters';
+    tb.appendChild(ho('إضافة طاولة', function(){ openTableModal(null); }));
+    c.appendChild(tb);
+    var srow=document.createElement('div'); srow.className='sumrow';
+    (d.summary||[]).forEach(function(x){ var s=document.createElement('div'); s.className='s'; s.innerHTML='<span>'+esc(x.status)+'</span><b>'+fmt(x.count)+'</b>'; srow.appendChild(s); });
+    c.appendChild(srow);
+    var st={ open:'مفتوحة', occupied:'مشغولة', closed:'مغلقة', free:'متاحة', reserved:'محجوزة', unavailable:'غير متاحة', busy:'مشغولة', available:'متاحة', cleaning:'تنظيف' };
+    var col=function(v){ return (v==='open'||v==='occupied'||v==='busy') ? 'bad' : (v==='free'||v==='available'||v==='cleaning') ? 'ok' : 'warn'; };
+    c.appendChild(tableFor([
+      {h:'الرقم', k:'number', num:true, b:true},
+      {h:'المنطقة', k:'zone'},
+      {h:'السعة', k:'capacity', num:true},
+      {h:'الحالة', k:'status', fmt:function(v){ return { text: st[v]||esc(v), cls: col(v) }; }},
+      {h:'الطلب الحالي', k:'currentOrder', num:true}
+    ], d.rows, function(row){ openTableModal(row); }));
+    if(!d.rows || !d.rows.length) c.appendChild(msgBox('info','لا طاولات.'));
+  });
+}
+
+function renderProducts(c){
+  var p=state.data.products;
+  var f=filterBar([
+    { type:'text', id:'pq', placeholder:'بحث بالاسم…', init:p.q }
+  ], function(){ p.q=$('pq').value; p.page=1; render(); });
+  c.appendChild(f);
+  var tb=document.createElement('div'); tb.className='filters';
+  tb.appendChild(ho('إضافة منتج', function(){ openProductModal(null); }));
+  c.appendChild(tb);
+  api('/api/cc/products?'+qs({page:p.page,pageSize:p.size,q:p.q})).then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var pr=r.j;
+    c.appendChild(tableFor([
+      {h:'الاسم', k:'name', b:true},
+      {h:'العربي', k:'name_ar'},
+      {h:'الصنف', k:'categoryName'},
+      {h:'السعر', k:'price', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'التكلفة', k:'cost', num:true, fmt:function(v){ return {text:Number(v)!=null?money(v):'—'}; }},
+      {h:'متاح', k:'available', fmt:function(v){ return { text: Number(v)===1 ? 'نعم' : 'لا', cls: Number(v)===1 ? 'ok' : 'mut' }; }}
+    ], pr.rows, function(row){ openProductModal(row); }));
+    if(!pr.total) c.appendChild(msgBox('info','لا منتجات مطابقة.'));
+    c.appendChild(pageBar('products', pr));
+  });
+}
+
+function renderStock(c){
+  var s=state.data.stock;
+  api('/api/cc/stock?'+qs({page:s.page,pageSize:s.size,q:s.q,status:s.status})).then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var val='';
+    var f=filterBar([
+      { type:'text', id:'sq', placeholder:'بحث باسم الصنف…', init:s.q },
+      { type:'sel', id:'sst', init:s.status, opts:[{v:'',l:'كل الحالات'},{v:'ok',l:'جيد'},{v:'low',l:'منخفض'},{v:'out',l:'نافد'}] }
+    ], function(){ s.q=$('sq').value; s.status=$('sst').value; s.page=1; render(); });
+    c.appendChild(f);
+    var tb=document.createElement('div'); tb.className='filters';
+    tb.appendChild(ho('إضافة صنف مخزون', function(){ openStockModal(null); }));
+    c.appendChild(tb);
+    var valc=document.createElement('div'); valc.className='card'; valc.innerHTML='<h3>إجمالي قيمة المخزون</h3><div class="big">'+money(r.j.totalValue)+'</div>'; c.appendChild(valc);
+    var stm={ ok:'جيد', low:'منخفض', out:'نافد' };
+    var clm={ ok:'ok', low:'warn', out:'bad' };
+    var tbl=tableFor([
+      {h:'الصنف', k:'name', b:true},
+      {h:'الكمية', k:'quantity', num:true},
+      {h:'الوحدة', k:'unit'},
+      {h:'التكلفة', k:'costPrice', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'الحالة', k:'status', fmt:function(v){ return { text: stm[v]||esc(v), cls: clm[v]||'' }; }}
+    ], r.j.page.rows, function(row){ openStockModal(row); });
+    c.appendChild(tbl);
+    if(!r.j.page.total) c.appendChild(msgBox('info','لا أصناف مطابقة.'));
+    c.appendChild(pageBar('stock', r.j.page));
+  });
+}
+
+function renderMovements(c){
+  var m=state.data.movements;
+  api('/api/cc/movements?'+rangeParams()+qs({page:m.page,pageSize:m.size,productId:m.productId})).then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var pr=r.j;
+    var tm={ in:'وارد', out:'منصرف', adjust:'تعديل', sale:'مبيعات', waste:'هالك', purchase:'شراء', restock:'إعادة تزويد' };
+    var clm={ in:'ok', out:'bad', adjust:'warn', purchase:'blu' };
+    c.appendChild(tableFor([
+      {h:'التاريخ', k:'createdAt'},
+      {h:'الصنف', k:'productName'},
+      {h:'النوع', k:'type', fmt:function(v){ return { text: tm[v]||esc(v), cls: clm[v]||'' }; }},
+      {h:'الكمية', k:'quantity', num:true},
+      {h:'ملاحظات', k:'notes'}
+    ], pr.rows));
+    if(!pr.total) c.appendChild(msgBox('info','لا حركات في الفترة.'));
+    c.appendChild(pageBar('movements', pr));
+  });
+}
+
+function renderPurchases(c){
+  var p=state.data.purchases;
+  api('/api/cc/purchases?'+rangeParams()+qs({page:p.page,pageSize:p.size})).then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var s=document.createElement('div'); s.className='sumrow';
+    var a=document.createElement('div'); a.className='s'; a.innerHTML='<span>إجمالي</span><b>'+money(r.j.summary.total)+'</b>';
+    var b=document.createElement('div'); b.className='s'; b.innerHTML='<span>عدد العمليات</span><b>'+fmt(r.j.summary.count)+'</b>';
+    s.appendChild(a); s.appendChild(b); c.appendChild(s);
+    var tb=document.createElement('div'); tb.className='filters';
+    tb.appendChild(ho('إضافة عملية شراء', function(){ openPurchaseModal(null); }));
+    c.appendChild(tb);
+    c.appendChild(tableFor([
+      {h:'التاريخ', k:'date'},
+      {h:'الصنف', k:'name'},
+      {h:'المورد', k:'supplier'},
+      {h:'الكمية', k:'quantity', num:true},
+      {h:'سعر الوحدة', k:'costPrice', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'الإجمالي', k:'total', num:true, b:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'بواسطة', k:'createdBy'}
+    ], r.j.page.rows, function(row){ openPurchaseModal(row); }));
+    if(!r.j.page.total) c.appendChild(msgBox('info','لا مشتريات في الفترة.'));
+    c.appendChild(pageBar('purchases', r.j.page));
+  });
+}
+
+function renderExpenses(c){
+  var e=state.data.expenses;
+  api('/api/cc/expenses?'+rangeParams()+qs({page:e.page,pageSize:e.size,category:e.category})).then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var s=document.createElement('div'); s.className='sumrow';
+    var a=document.createElement('div'); a.className='s'; a.innerHTML='<span>إجمالي</span><b>'+money(r.j.summary.total)+'</b>';
+    var b=document.createElement('div'); b.className='s'; b.innerHTML='<span>عدد</span><b>'+fmt(r.j.summary.count)+'</b>';
+    var csh=document.createElement('div'); csh.className='s'; csh.innerHTML='<span>من النقدية</span><b>'+money(r.j.summary.cash)+'</b>';
+    s.appendChild(a); s.appendChild(b); s.appendChild(csh); c.appendChild(s);
+    var tb=document.createElement('div'); tb.className='filters';
+    tb.appendChild(ho('إضافة مصروف', function(){ openExpenseModal(); }));
+    c.appendChild(tb);
+    var pm={ cash:'نقدي', bank:'بنك', credit:'آجل', online:'إلكتروني', card:'بطاقة' };
+    var tbl=tableFor([
+      {h:'التاريخ', k:'date'},
+      {h:'الوصف', k:'description', b:true},
+      {h:'الفئة', k:'category'},
+      {h:'الطريقة', k:'paymentMethod', fmt:function(v){ return { text: pm[v]||esc(v) }; }},
+      {h:'المبلغ', k:'amount', num:true, b:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'بواسطة', k:'createdBy'}
+    ], r.j.page.rows, function(row){
+      if(!confirm('حذف هذه المصلوفة (#'+(row.id||'')+')؟')) return;
+      writeApi('DELETE','/api/cc/expenses/'+row.id, null, 'تم الحذف');
+    });
+    c.appendChild(tbl);
+    if(!r.j.page.total) c.appendChild(msgBox('info','لا مصروفات في الفترة.'));
+    c.appendChild(pageBar('expenses', r.j.page));
+  });
+}
+
+function renderEmployees(c){
+  api('/api/cc/employees').then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var rows=r.j.rows||[];
+    var tb=document.createElement('div'); tb.className='filters';
+    var sel=document.createElement('select');
+    rows.forEach(function(x){ var op=document.createElement('option'); op.value=x.id; op.textContent=x.name; sel.appendChild(op); });
+    sel.style.maxWidth='220px';
+    tb.appendChild(sel);
+    tb.appendChild(ho('تسجيل حضور', function(){
+      if(!sel.value){ toast('لا موظفين لتسجيل حضورهم','err'); return; }
+      writeApi('POST','/api/cc/attendance/check-in', { employeeId:Number(sel.value), date:localToday() }, 'تم تسجيل الحضور');
+    }));
+    tb.appendChild(ho('تسجيل انصراف', function(){
+      if(!sel.value){ toast('لا موظفين','err'); return; }
+      writeApi('POST','/api/cc/attendance/check-out', { employeeId:Number(sel.value), date:localToday() }, 'تم تسجيل الانصراف');
+    }));
+    c.appendChild(tb);
+    var rl={ admin:'مدير', manager:'مدير/محاسب', cashier:'كاشير', kitchen:'مطبخ', waiter:'سيرفيس', owner:'مالك' };
+    c.appendChild(tableFor([
+      {h:'الاسم', k:'name', b:true},
+      {h:'الدور', k:'role', fmt:function(v){ return { text: rl[v]||esc(v) }; }},
+      {h:'الهاتف', k:'phone'},
+      {h:'الراتب', k:'salary', num:true, fmt:function(v){ return {text: Number(v)!=null ? money(v) : '—'}; }},
+      {h:'تاريخ التعيين', k:'hireDate'},
+      {h:'نشط', k:'active', fmt:function(v){ return { text: Number(v)===1 ? 'نعم' : 'لا', cls: Number(v)===1 ? 'ok' : 'bad' }; }}
+    ], rows));
+    if(!rows.length) c.appendChild(msgBox('info','لا موظفين.'));
+  });
+}
+
+function renderSuppliers(c){
+  api('/api/cc/suppliers').then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var rows=r.j.rows||[];
+    c.appendChild(tableFor([
+      {h:'الاسم', k:'name', b:true},
+      {h:'الهاتف', k:'phone'},
+      {h:'جهة الاتصال', k:'contact'},
+      {h:'آخر تحديث', k:'updatedAt'}
+    ], rows));
+    if(!rows.length) c.appendChild(msgBox('info','لا موردين.'));
+  });
+}
+
+function renderCash(c){
+  api('/api/cc/cash/daily?'+rangeParams()).then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var rows=r.j.rows||[];
+    var tb=document.createElement('div'); tb.className='filters';
+    tb.appendChild(ho('فتح وردية اليوم', function(){ openShiftModal(false); }));
+    tb.appendChild(ho('إقفال وردية اليوم', function(){ openShiftModal(true); }));
+    c.appendChild(tb);
+    var stm={ open:'مفتوح', closed:'مغلق' };
+    c.appendChild(tableFor([
+      {h:'التاريخ', k:'date', b:true},
+      {h:'الحالة', k:'status', fmt:function(v){ return { text: stm[v]||esc(v), cls: (v==='open'?'warn':'ok') }; }},
+      {h:'الافتتاحية', k:'openingBalance', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'المتوقعة', k:'expectedCash', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'الفعلية', k:'actualCash', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'الفرق', k:'difference', num:true, fmt:function(v){ var n=Number(v)||0; return { text: money(v), cls: (n===0?'ok':(n>0?'warn':'bad')) }; }},
+      {h:'مبيعات نقدي', k:'cashSales', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'بطاقة', k:'cardSales', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'إجمالي', k:'totalSales', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'مصروفات', k:'totalExpenses', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'طلبات', k:'orderCount', num:true},
+      {h:'ملاحظات', k:'notes'}
+    ], rows));
+    if(!rows.length) c.appendChild(msgBox('info','لا شيفتات في الفترة.'));
+  });
+}
+
+function renderReports(c){
+  var r=state.data.reports;
+  var tabs=document.createElement('div'); tabs.className='filters';
+  [['sales','المبيعات'],['expenses','المصروفات'],['inventory','المخزون'],['employees','الموظفون'],['suppliers','الموردون']].forEach(function(t){
+    var b=document.createElement('button'); b.className='sec'+(r.tab===t[0]?' on':'');
+    if(r.tab===t[0]) b.style.background='var(--acc)'; b.style.color = r.tab===t[0] ? '#fff' : '';
+    b.textContent=t[1];
+    b.addEventListener('click', function(){ r.tab=t[0]; render(); });
+    tabs.appendChild(b);
+  });
+  if(r.tab==='sales'){
+    var gsel=document.createElement('select');
+    [['day','يومي'],['week','أسبوعي'],['month','شهري']].forEach(function(x){ var o=document.createElement('option'); o.value=x[0]; o.textContent=x[1]; if(x[0]===r.group) o.selected=true; gsel.appendChild(o); });
+    gsel.addEventListener('change', function(){ r.group=gsel.value; render(); });
+    tabs.appendChild(gsel);
+  }
+  c.appendChild(tabs);
+  if(r.tab==='sales') reportSales(c, r.group);
+  else if(r.tab==='expenses') reportExpenses(c);
+  else if(r.tab==='inventory') reportInventory(c);
+  else if(r.tab==='employees') reportEmployees(c);
+  else reportSuppliers(c);
+}
+
+function reportSales(c, group){
+  api('/api/cc/reports/sales?'+rangeParams()+qs({group:group})).then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var d=r.j;
+    function chg(v){ return v==null||isNaN(v) ? '—' : (Number(v)>0 ? '▲ '+pct(v) : (Number(v)<0 ? '▼ '+pct(Math.abs(v)) : v+' ٪')); }
+    var g=document.createElement('div'); g.className='grid gkpi'; c.appendChild(g);
+    g.appendChild(card('', 'الإيرادات', '<div class="big">'+money(d.revenue)+'</div><div class="sml">'+chg(d.change && d.change.revenue)+' عن الفترة السابقة</div>'));
+    g.appendChild(card('', 'صافي المبيعات', '<div class="big">'+money(d.netSales)+'</div>'));
+    g.appendChild(card('', 'عدد الطلبات', '<div class="big">'+fmt(d.orders)+'</div><div class="sml">'+chg(d.change && d.change.orders)+'</div>'));
+    g.appendChild(card('', 'متوسط الطلب', '<div class="big">'+money(d.avgOrder)+'</div>'));
+    g.appendChild(card('', 'الخصومات', '<div class="big">'+money(d.discounts)+'</div>'));
+    g.appendChild(card('', 'الاسترجاع', '<div class="big warn">'+money(d.refunds)+'</div>'));
+    g.appendChild(card('', 'الملغاة', '<div class="big '+(d.cancelled?'bad':'')+'">'+fmt(d.cancelled)+'</div>'));
+    if(d.hasCostData){
+      g.appendChild(card('', 'تكلفة البضاعة (COGS)', '<div class="big">'+money(d.cogs)+'</div>'));
+      g.appendChild(card('', 'إجمالي الربح', '<div class="big ok">'+money(d.grossProfit)+'</div><div class="sml">بهامش '+pct(d.grossMargin)+'</div>'));
+    } else {
+      g.appendChild(card('', 'الأرباح (مدير فقط)', '<div class="big mut">—</div><div class="sml">بيانات التكلفة غير كاملة أو صلاحية لرؤية الأرباح غير متاحة.</div>'));
+    }
+    var rows = (d.byPeriod && d.byPeriod.length) ? d.byPeriod : d.byDay;
+    if(rows && rows.length){
+      var d2=document.createElement('div'); d2.className='card'; var h3=document.createElement('h3'); h3.textContent='المبيعات حسب الفترة'; d2.appendChild(h3);
+      d2.appendChild(tableFor([
+        {h:'الفترة', k:'period'},
+        {h:'العائد', k:'revenue', num:true, fmt:function(v){ return {text:money(v)}; }},
+        {h:'الطلبات', k:'orders', num:true},
+        {h:'المتوسط', k:'avg', num:true, fmt:function(v){ return {text: Number(v)!=null?money(v):'—'}; }}
+      ], rows));
+      c.appendChild(d2);
+    }
+    if(d.byCategory && d.byCategory.length){
+      var d3=document.createElement('div'); d3.className='card'; var h4=document.createElement('h3'); h4.textContent='حسب الفئة'; d3.appendChild(h4);
+      d3.appendChild(tableFor([
+        {h:'الفئة', k:'name'},
+        {h:'العائد', k:'total', num:true, fmt:function(v){ return {text:money(v)}; }},
+        {h:'الطلبات', k:'count', num:true}
+      ], d.byCategory));
+      c.appendChild(d3);
+    }
+    if(d.payments && d.payments.length){
+      var d4=document.createElement('div'); d4.className='card'; var h5=document.createElement('h3'); h5.textContent='وسائل الدفع'; d4.appendChild(h5);
+      d4.appendChild(tableFor([
+        {h:'الوسيلة', k:'method'},
+        {h:'المبلغ', k:'total', num:true, fmt:function(v){ return {text:money(v)}; }},
+        {h:'عدد', k:'count', num:true}
+      ], d.payments));
+      c.appendChild(d4);
+    }
+  });
+}
+
+function reportExpenses(c){
+  api('/api/cc/reports/expenses?'+rangeParams()).then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var d=r.j;
+    var g=document.createElement('div'); g.className='grid gkpi'; c.appendChild(g);
+    g.appendChild(card('', 'إجمالي المصروفات', '<div class="big warn">'+money(d.total)+'</div><div class="sml">'+ (d.change.total!=null ? pct(d.change.total)+' عن الفترة السابقة' : '') +'</div>'));
+    g.appendChild(card('', 'عدد العمليات', '<div class="big">'+fmt(d.count)+'</div>'));
+    var a=document.createElement('div'); a.className='card'; var h=document.createElement('h3'); h.textContent='حسب الفئة'; a.appendChild(h);
+    a.appendChild(tableFor([{h:'الفئة',k:'name'},{h:'المبلغ',k:'total',num:true,fmt:function(v){return {text:money(v)};}},{h:'عدد',k:'count',num:true}], d.byCategory));
+    var b=document.createElement('div'); b.className='card'; var h2=document.createElement('h3'); h2.textContent='حسب الموظف'; b.appendChild(h2);
+    b.appendChild(tableFor([{h:'الموظف',k:'name'},{h:'المبلغ',k:'total',num:true,fmt:function(v){return {text:money(v)};}},{h:'عدد',k:'count',num:true}], d.byEmployee));
+    var gr=document.createElement('div'); gr.className='grid g2'; gr.appendChild(a); gr.appendChild(b); c.appendChild(gr);
+    if(d.recent && d.recent.length){
+      var rc=document.createElement('div'); rc.className='card'; var h3=document.createElement('h3'); h3.textContent='الأخيرة'; rc.appendChild(h3);
+      rc.appendChild(tableFor([{h:'التاريخ',k:'date'},{h:'الوصف',k:'description'},{h:'الفئة',k:'category'},{h:'المبلغ',k:'amount',num:true,fmt:function(v){return {text:money(v)};}}], d.recent));
+      c.appendChild(rc);
+    }
+  });
+}
+
+function reportInventory(c){
+  api('/api/cc/reports/inventory').then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var d=r.j;
+    var g=document.createElement('div'); g.className='grid gkpi'; c.appendChild(g);
+    g.appendChild(card('', 'قيمة المخزون', '<div class="big">'+money(d.totalValue)+'</div>'));
+    g.appendChild(card('', 'أصناف', '<div class="big">'+fmt(d.totalItems)+'</div>'));
+    g.appendChild(card('', 'منخفض', '<div class="big warn">'+fmt(d.lowStock)+'</div>'));
+    g.appendChild(card('', 'نافد', '<div class="big bad">'+fmt(d.outOfStock)+'</div>'));
+    var stm={ ok:'جيد', low:'منخفض', out:'نافد' };
+    var clm={ ok:'ok', low:'warn', out:'bad' };
+    var it=document.createElement('div'); it.className='card'; var h=document.createElement('h3'); h.textContent='الأصناف'; it.appendChild(h);
+    it.appendChild(tableFor([
+      {h:'الصنف', k:'name'},
+      {h:'الكمية', k:'quantity', num:true},
+      {h:'الحد الأدنى', k:'threshold', num:true},
+      {h:'الحالة', k:'status', fmt:function(v){ return { text: stm[v]||esc(v), cls: clm[v]||'' }; }}
+    ], d.items));
+    c.appendChild(it);
+    if(d.alerts && d.alerts.length){
+      var al=document.createElement('div'); al.className='card'; var h2=document.createElement('h3'); h2.textContent='تنبيهات'; al.appendChild(h2);
+      al.appendChild(tableFor([{h:'الصنف',k:'name'},{h:'النوع',k:'type'},{h:'الكفاية التقريبية',k:'estimatedDays',num:true}], d.alerts));
+      c.appendChild(al);
+    }
+  });
+}
+
+function reportEmployees(c){
+  api('/api/cc/reports/employees?'+rangeParams()).then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var d=r.j;
+    var g=document.createElement('div'); g.className='grid gkpi'; c.appendChild(g);
+    g.appendChild(card('', 'إجمالي الطلبات', '<div class="big">'+fmt(d.totals.orders)+'</div>'));
+    g.appendChild(card('', 'إجمالي المبيعات', '<div class="big">'+money(d.totals.sales)+'</div>'));
+    var p=document.createElement('div'); p.className='card'; var h=document.createElement('h3'); h.textContent='الأداء'; p.appendChild(h);
+    p.appendChild(tableFor([
+      {h:'الكاشير', k:'name'},
+      {h:'الطلبات', k:'orders', num:true},
+      {h:'المبيعات', k:'sales', num:true, fmt:function(v){ return {text:money(v)}; }},
+      {h:'متوسط الطلب', k:'avgOrder', num:true, fmt:function(v){ return {text: Number(v)!=null?money(v):'—'}; }}
+    ], d.performance));
+    c.appendChild(p);
+    if(d.attendance && d.attendance.length){
+      var at=document.createElement('div'); at.className='card'; var h2=document.createElement('h3'); h2.textContent='الحضور'; at.appendChild(h2);
+      at.appendChild(tableFor([{h:'الموظف',k:'employeeName'},{h:'التاريخ',k:'date'},{h:'الحالة',k:'status'}], d.attendance));
+      c.appendChild(at);
+    }
+    if(!d.performance || !d.performance.length) c.appendChild(msgBox('info','لا مبيعات مسجلة في الفترة.'));
+  });
+}
+
+function reportSuppliers(c){
+  api('/api/cc/reports/suppliers?'+rangeParams()).then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var d=r.j;
+    var s=document.createElement('div'); s.className='card'; var h=document.createElement('h3'); h.textContent='الموردون'; s.appendChild(h);
+    s.appendChild(tableFor([{h:'الاسم',k:'name'},{h:'الهاتف',k:'phone'},{h:'جهة الاتصال',k:'contact'}], d.suppliers));
+    c.appendChild(s);
+    if(d.recent && d.recent.length){
+      var rc=document.createElement('div'); rc.className='card'; var h2=document.createElement('h3'); h2.textContent='آخر المشتريات'; rc.appendChild(h2);
+      rc.appendChild(tableFor([
+        {h:'التاريخ',k:'date'},{h:'الصنف',k:'name'},{h:'الكمية',k:'quantity',num:true},
+        {h:'الإجمالي',k:'total',num:true,fmt:function(v){return {text:money(v)};}},{h:'المورد',k:'supplier'}
+      ], d.recent));
+      c.appendChild(rc);
+    }
+    if(d.totals && d.totals.length){
+      var tt=document.createElement('div'); tt.className='card'; var h3=document.createElement('h3'); h3.textContent='حسب المورد'; tt.appendChild(h3);
+      tt.appendChild(tableFor([{h:'المورد',k:'name'},{h:'الإجمالي',k:'total',num:true,fmt:function(v){return {text:Number(v)!=null?money(v):'—'};}},{h:'عدد',k:'count',num:true}], d.totals));
+      c.appendChild(tt);
+    }
+  });
+}
+
+// ============ أدوات الكتابة (Tier 1 + Tier 2) — نفس دوال الخدمات الموحّدة ============
+function ho(label, fn, cls){
+  var b=document.createElement('button'); b.type='button'; b.textContent=label;
+  if(cls) b.className=cls;
+  b.addEventListener('click', fn);
+  return b;
+}
+function inpu(type, val, ph){
+  var i=document.createElement('input'); i.type=type||'text';
+  if(val!=null && val!=='' && val!=='—') i.value=val;
+  if(ph) i.placeholder=ph;
+  return i;
+}
+function sely(opts, val){
+  var s=document.createElement('select');
+  (opts||[]).forEach(function(o){ var op=document.createElement('option'); op.value=o.v; op.textContent=o.l; s.appendChild(op); });
+  if(val!=null) s.value=val;
+  return s;
+}
+function brow(lbl, input){
+  var r=document.createElement('div'); r.className='form-row';
+  var l=document.createElement('label'); l.textContent=lbl; r.appendChild(l); r.appendChild(input);
+  return r;
+}
+function activateModal(node){
+  var bg=document.createElement('div'); bg.className='modal-bg';
+  var m=document.createElement('div'); m.className='modal';
+  var cl=document.createElement('button'); cl.className='cls'; cl.textContent='✕';
+  cl.addEventListener('click', function(){ bg.remove(); });
+  m.appendChild(cl); m.appendChild(node);
+  bg.appendChild(m); document.body.appendChild(bg);
+  bg.addEventListener('click', function(e){ if(e.target===bg) bg.remove(); });
+  return bg;
+}
+function modCap(text){
+  var cap=document.createElement('div'); cap.className='cap'; cap.textContent=text; return cap;
+}
+function modBtns(btns){
+  var d=document.createElement('div'); d.style.marginTop='12px'; d.style.display='flex'; d.style.gap='8px'; d.style.flexWrap='wrap';
+  btns.forEach(function(b){ d.appendChild(b); });
+  return d;
+}
+function localToday(){ var d=new Date(); var p=function(n){ return (n<10?'0':'')+n; }; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+function sessionExpired(){ sessionStorage.removeItem('luccaToken'); TOKEN=''; $('app').classList.add('hidden'); $('loginView').classList.remove('hidden'); toast('انتهت الجلسة، سجّل الدخول مجددًا','err'); }
+function writeApi(method, path, body, okMsg, after){
+  api(path, { method:method, body: JSON.stringify(body||{}) }).then(function(r){
+    if(r.status===401){ sessionExpired(); return; }
+    if(!r.ok){ toast((r.j && r.j.error)||'فشلت العملية','err'); return; }
+    toast(okMsg||'تم الحفظ','ok');
+    if(after) after(r.j);
+  });
+}
+
+// ============ الأقسام (Tier 1) ============
+function openCatModal(row){
+  var ex=row||{};
+  var node=document.createElement('div');
+  node.appendChild(modCap(ex.id?'تعديل قسم #'+ex.id:'إضافة قسم'));
+  var n1=inpu('text', ex.name); var f1=brow('الاسم', n1);
+  var n2=inpu('text', ex.name_en); var f2=brow('الاسم الأجنبي', n2);
+  var n3=inpu('number', ex.sortOrder); var f3=brow('الترتيب', n3);
+  var n4=sely([{v:'1',l:'نشط'},{v:'0',l:'معطّل'}], ex.active!=null?String(ex.active):'1'); var f4=brow('الحالة', n4);
+  node.appendChild(f1); node.appendChild(f2); node.appendChild(f3); node.appendChild(f4);
+  var save=ho('حفظ', function(){
+    var body={ name:(n1.value||'').trim(), name_en:(n2.value||'').trim(), sortOrder:Number(n3.value)||0, active:Number(n4.value)||0 };
+    if(!body.name){ toast('الاسم مطلوب','err'); return; }
+    if(ex.id) writeApi('PUT','/api/cc/categories/'+ex.id, body, 'تم تحديث القسم');
+    else writeApi('POST','/api/cc/categories', body, 'تمت إضافة القسم');
+    bg.remove();
+  });
+  var btns=[save];
+  if(ex.id) btns.push(ho('حذف', function(){
+    if(!confirm('حذف هذا القسم؟')) return;
+    writeApi('DELETE','/api/cc/categories/'+ex.id, null, 'تم حذف القسم');
+    bg.remove();
+  }, 'danger'));
+  node.appendChild(modBtns(btns));
+  var bg=activateModal(node);
+}
+
+function renderCategories(c){
+  var t=document.createElement('div'); t.className='filters';
+  t.appendChild(ho('إضافة قسم', function(){ openCatModal(null); }));
+  c.appendChild(t);
+  api('/api/cc/categories').then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var rows=r.j.rows||[];
+    c.appendChild(tableFor([
+      {h:'الاسم', k:'name', b:true},
+      {h:'الأجنبي', k:'name_en'},
+      {h:'الترتيب', k:'sortOrder', num:true},
+      {h:'نشط', k:'active', fmt:function(v){ return { text: Number(v)===1?'نعم':'لا', cls: Number(v)===1?'ok':'mut' }; }}
+    ], rows, function(row){ openCatModal(row); }));
+    if(!rows.length) c.appendChild(msgBox('info','لا أقسام.'));
+  });
+}
+
+// ============ طرق الدفع (Tier 1) ============
+function openPayModal(row){
+  var ex=row||{};
+  var node=document.createElement('div');
+  node.appendChild(modCap(ex.id?'تعديل طريقة دفع #'+ex.id:'إضافة طريقة دفع'));
+  var n1=inpu('text', ex.name); var f1=brow('الاسم', n1);
+  var n2=sely([{v:'cash',l:'نقدي'},{v:'card',l:'بطاقة'},{v:'wallet',l:'محفظة'},{v:'bank',l:'تحويل بنكي'},{v:'other',l:'أخرى'}], ex.type||'other'); var f2=brow('النوع', n2);
+  var n3=sely([{v:'1',l:'نشط'},{v:'0',l:'معطّل'}], ex.active!=null?String(ex.active):'1'); var f3=brow('الحالة', n3);
+  node.appendChild(f1); node.appendChild(f2); node.appendChild(f3);
+  var bg=activateModal(node);
+  node.appendChild(modBtns([ho('حفظ', function(){
+    var body={ name:(n1.value||'').trim(), type:n2.value, active:Number(n3.value)||0 };
+    if(!body.name){ toast('الاسم مطلوب','err'); return; }
+    if(ex.id) writeApi('PUT','/api/cc/payment-methods/'+ex.id, body, 'تم تحديث طريقة الدفع');
+    else writeApi('POST','/api/cc/payment-methods', body, 'تمت إضافة طريقة الدفع');
+    bg.remove();
+  }), ex.id ? ho('حذف', function(){
+    if(!confirm('حذف هذه الطريقة؟')) return;
+    writeApi('DELETE','/api/cc/payment-methods/'+ex.id, null, 'تم الحذف');
+    bg.remove();
+  }, 'danger') : null].filter(Boolean)));
+}
+
+function renderPayments(c){
+  var t=document.createElement('div'); t.className='filters';
+  t.appendChild(ho('إضافة طريقة دفع', function(){ openPayModal(null); }));
+  c.appendChild(t);
+  api('/api/cc/payment-methods').then(function(r){
+    if(!withErr(r, function(){ return true; })) return;
+    var rows=r.j.rows||[];
+    var tm={ cash:'نقدي', card:'بطاقة', wallet:'محفظة', bank:'تحويل بنكي', other:'أخرى' };
+    c.appendChild(tableFor([
+      {h:'الاسم', k:'name', b:true},
+      {h:'النوع', k:'type', fmt:function(v){ return { text: tm[v]||esc(v) }; }},
+      {h:'نشط', k:'active', fmt:function(v){ return { text: Number(v)===1?'نعم':'لا', cls: Number(v)===1?'ok':'mut' }; }}
+    ], rows, function(row){ openPayModal(row); }));
+    if(!rows.length) c.appendChild(msgBox('info','لا طرق دفع.'));
+  });
+}
+
+// ============ الطاولات (Tier 1) — إضافة/تعديل/حذف ============
+function openTableModal(row){
+  var ex=row||{};
+  var node=document.createElement('div');
+  node.appendChild(modCap(ex.id?'تعديل طاولة #'+ex.number:'إضافة طاولة'));
+  var n1=inpu('number', ex.number); var f1=brow('رقم الطاولة', n1);
+  var n2=sely([{v:'available',l:'متاحة'},{v:'occupied',l:'مشغولة'},{v:'reserved',l:'محجوزة'},{v:'cleaning',l:'تنظيف'},{v:'closed',l:'مغلقة'}], ex.status||'available'); var f2=brow('الحالة', n2);
+  var n3=inpu('number', ex.capacity); var f3=brow('السعة', n3);
+  var n4=inpu('text', ex.zone); var f4=brow('المنطقة', n4);
+  node.appendChild(f1); node.appendChild(f2); node.appendChild(f3); node.appendChild(f4);
+  var bg=activateModal(node);
+  node.appendChild(modBtns([ho('حفظ', function(){
+    var body={ number:Number(n1.value), status:n2.value, capacity:Number(n3.value)||4, zone:(n4.value||'صالة').trim() };
+    if(!body.number){ toast('رقم الطاولة مطلوب','err'); return; }
+    if(ex.id) writeApi('PUT','/api/cc/tables/'+ex.id, body, 'تم تحديث الطاولة');
+    else writeApi('POST','/api/cc/tables', body, 'تمت إضافة الطاولة');
+    bg.remove();
+  }), ex.id ? ho('حذف', function(){
+    if(!confirm('حذف هذه الطاولة؟')) return;
+    writeApi('DELETE','/api/cc/tables/'+ex.id, null, 'تم الحذف');
+    bg.remove();
+  }, 'danger') : null].filter(Boolean)));
+}
+
+// ============ المنتجات + الوصفات (Tier 1) ============
+function recipeRows(box, recipes){
+  box.textContent='';
+  function addRow(r){
+    r=r||{};
+    var d=document.createElement('div'); d.style.display='flex'; d.style.gap='6px'; d.style.marginBottom='6px'; d.style.alignItems='center';
+    var name=inpu('text', r.ingredient || r.name); name.placeholder='المكوّن';
+    var qty=inpu('number', r.quantity); qty.placeholder='الكمية';
+    var unit=inpu('text', r.unit); unit.placeholder='الوحدة';
+    var rm=ho('✕', function(){ d.remove(); }, 'sec');
+    d.appendChild(name); d.appendChild(qty); d.appendChild(unit); d.appendChild(rm);
+    box.appendChild(d);
+  }
+  (recipes||[]).forEach(function(r){ addRow(r); });
+  var add=ho('+ مكوّن', function(){ addRow(); }, 'sec');
+  box.appendChild(add);
+  function collect(){
+    var out=[];
+    var rows=box.querySelectorAll(':scope > div');
+    Array.prototype.forEach.call(rows, function(d){
+      var ins=d.querySelectorAll('input'); if(ins.length<2) return;
+      var ing=(ins[0].value||'').trim();
+      if(ing) out.push({ ingredient: ing, quantity: Number(ins[1].value)||0, unit: (ins[2]?ins[2].value:'') });
+    });
+    return out;
+  }
+  return { collect: collect };
+}
+
+function openProductModal(row){
+  var ex=row||{};
+  api('/api/cc/categories').then(function(rc){
+    var cats=(rc.ok && rc.j && rc.j.rows)||[];
+    var node=document.createElement('div');
+    node.appendChild(modCap(ex.id?'تعديل منتج #'+ex.id:'إضافة منتج'));
+    var n1=inpu('text', ex.name); var f1=brow('الاسم', n1);
+    var n2=sely(cats.map(function(x){ return { v:String(x.id), l:x.name+((x.name_en)?(' | '+x.name_en):'') }; }), ex.categoryId!=null?String(ex.categoryId):''); var f2=brow('القسم', n2);
+    var n3=inpu('number', ex.price); var f3=brow('السعر', n3);
+    var n4=inpu('number', ex.cost); var f4=brow('التكلفة', n4);
+    var n5=sely([{v:'standard',l:'منتج'},{v:'modifier',l:'إضافة'},{v:'combo',l:'كومبو'}], ex.productType||'standard'); var f5=brow('النوع', n5);
+    node.appendChild(f1); node.appendChild(f2); node.appendChild(f3); node.appendChild(f4); node.appendChild(f5);
+    var box=document.createElement('div');
+    if(ex.id){
+      var rh=document.createElement('div'); rh.className='form-row'; var rl=document.createElement('label'); rl.textContent='الوصفة (في المخزون)'; rh.appendChild(rl); rh.appendChild(box);
+      node.appendChild(rh);
+      var rec=recipeRows(box, []);
+      api('/api/cc/products/'+ex.id+'/recipes').then(function(rr){
+        if(rr.ok && rr.j && rr.j.rows) recipeRows(box, rr.j.rows);
+      });
+      var bg=activateModal(node);
+      node.appendChild(modBtns([ho('حفظ', function(){
+        var body={ name:(n1.value||'').trim(), categoryId:Number(n2.value)||null, price:Number(n3.value)||0, cost:Number(n4.value)||0, productType:n5.value };
+        if(!body.name){ toast('الاسم مطلوب','err'); return; }
+        writeApi('PUT','/api/cc/products/'+ex.id, body, 'تم تحديث المنتج', function(){
+          var rx=rec.collect();
+          if(rx.length) writeApi('PUT','/api/cc/products/'+ex.id+'/recipes', { recipes: rx }, 'تم تحديث الوصفة');
+        });
+        bg.remove();
+      }), ho('حذف', function(){
+        if(!confirm('حذف هذا المنتج؟')) return;
+        writeApi('DELETE','/api/cc/products/'+ex.id, null, 'تم الحذف');
+        bg.remove();
+      }, 'danger')]));
+    } else {
+      var bg2=activateModal(node);
+      node.appendChild(modBtns([ho('حفظ', function(){
+        var body={ name:(n1.value||'').trim(), categoryId:Number(n2.value)||null, price:Number(n3.value)||0, cost:Number(n4.value)||0, productType:n5.value };
+        if(!body.name){ toast('الاسم مطلوب','err'); return; }
+        writeApi('POST','/api/cc/products', body, 'تمت إضافة المنتج');
+        bg2.remove();
+      })]));
+    }
+  });
+}
+
+// ============ المخزون (Tier 2) — إنشاء/تعديل/تسوية/تالف ============
+function openStockModal(row){
+  var ex=row||{};
+  var node=document.createElement('div');
+  node.appendChild(modCap(ex.id?'تعديل صنف مخزون':'إضافة صنف مخزون'));
+  var s1=inpu('text', ex.name||ex.productName); var f1=brow('الاسم', s1);
+  var s2=inpu('text', ex.unit); var f2=brow('الوحدة', s2);
+  var s3=inpu('number', ex.minStock); var f3=brow('الحد الأدنى', s3);
+  var s4=inpu('number', ex.costPrice); var f4=brow('سعر التكلفة', s4);
+  node.appendChild(f1); node.appendChild(f2); node.appendChild(f3); node.appendChild(f4);
+  var bg=activateModal(node);
+  var btns=[];
+  if(ex.id){
+    var a1=inpu('number', null); a1.placeholder='التسوية ±';
+    var a2=inpu('text', null); a2.placeholder='سبب';
+    var adjRow=document.createElement('div'); adjRow.className='form-row';
+    adjRow.appendChild(brow('تسوية كمية', a1)); adjRow.appendChild(brow('سبب التسوية', a2));
+    node.appendChild(adjRow);
+    var w1=inpu('number', null); w1.placeholder='الكمية';
+    var w2=inpu('text', null); w2.placeholder='سبب التلف';
+    var wRow=document.createElement('div'); wRow.className='form-row';
+    wRow.appendChild(brow('كمية التالف', w1)); wRow.appendChild(brow('سبب التلف', w2));
+    node.appendChild(wRow);
+    node.appendChild(modBtns([
+      ho('حفظ بيانات الصنف', function(){
+        writeApi('PUT','/api/cc/stock/'+ex.id, { name:s1.value, unit:s2.value, minStock:Number(s3.value)||0, costPrice:Number(s4.value)||0 }, 'تم التحديث');
+        bg.remove();
+      }),
+      ho('تسوية الكمية', function(){
+        var d=Number(a1.value); if(!d){ toast('أدخل فرق التسوية','err'); return; }
+        writeApi('POST','/api/cc/stock/'+ex.id+'/adjust', { delta:d, notes:a2.value }, 'تمت التسوية');
+      }),
+      ho('تسجيل تالف', function(){
+        var q=Number(w1.value); if(!q){ toast('أدخل كمية التالف','err'); return; }
+        writeApi('POST','/api/cc/stock/waste', { productId:ex.id, quantity:q, reason:w2.value }, 'تم تسجيل التالف');
+      }),
+      ho('حذف', function(){
+        if(!confirm('حذف هذا الصنف (رصيده صفر)؟')) return;
+        writeApi('DELETE','/api/cc/stock/'+ex.id, null, 'تم الحذف');
+        bg.remove();
+      }, 'danger')
+    ]));
+  } else {
+    node.appendChild(modBtns([ho('حفظ', function(){
+      var body={ name:(s1.value||'').trim(), unit:(s2.value||'').trim(), minStock:Number(s3.value)||0, costPrice:Number(s4.value)||0 };
+      if(!body.name){ toast('الاسم مطلوب','err'); return; }
+      writeApi('POST','/api/cc/stock', body, 'تمت إضافة الصنف');
+      bg.remove();
+    })]));
+  }
+}
+
+// ============ المشتريات (Tier 2) ============
+function openPurchaseModal(row){
+  var ex=row||{};
+  var node=document.createElement('div');
+  node.appendChild(modCap(ex.id?'عملية شراء #'+ex.id:'إضافة عملية شراء'));
+  var p1=inpu('text', ex.name); var f1=brow('الصنف', p1);
+  var p2=inpu('number', ex.quantity); var f2=brow('الكمية', p2);
+  var p3=inpu('number', ex.costPrice); var f3=brow('سعر التكلفة', p3);
+  var p4=inpu('date', ex.date); var f4=brow('التاريخ', p4);
+  var p5=inpu('text', ex.supplier); var f5=brow('المورد', p5);
+  node.appendChild(f1); node.appendChild(f2); node.appendChild(f3); node.appendChild(f4); node.appendChild(f5);
+  var bg=activateModal(node);
+  var btns=[];
+  if(!ex.id) btns.push(ho('حفظ', function(){
+    var q=Number(p2.value)||0, cp=Number(p3.value)||0;
+    var body={ name:(p1.value||'').trim(), quantity:q, costPrice:cp, total:q*cp, supplier:(p5.value||'').trim(), date:(p4.value||localToday()) };
+    if(!body.name){ toast('الصنف مطلوب','err'); return; }
+    writeApi('POST','/api/cc/purchases', body, 'تمت إضافة المشتريات');
+    bg.remove();
+  }));
+  if(ex.id) btns.push(ho('حذف', function(){
+    if(!confirm('حذف عملية الشراء هذه؟')) return;
+    writeApi('DELETE','/api/cc/purchases/'+ex.id, null, 'تم الحذف');
+    bg.remove();
+  }, 'danger'));
+  node.appendChild(modBtns(btns));
+}
+
+// ============ المصروفات (Tier 2) ============
+function openExpenseModal(){
+  var node=document.createElement('div');
+  node.appendChild(modCap('إضافة مصروف'));
+  var e1=inpu('number', null); e1.value=''; var f1=brow('المبلغ', e1);
+  var e2=inpu('text', null); var f2=brow('الوصف', e2);
+  var e3=inpu('text', null); e3.value='أخرى'; var f3=brow('الفئة', e3);
+  var e4=sely([{v:'cash',l:'نقدي'},{v:'card',l:'بطاقة'},{v:'bank',l:'بنك'}], 'cash'); var f4=brow('وسيلة الدفع', e4);
+  node.appendChild(f1); node.appendChild(f2); node.appendChild(f3); node.appendChild(f4);
+  var bg=activateModal(node);
+  node.appendChild(modBtns([ho('حفظ', function(){
+    var amount=Number(e1.value);
+    if(!amount || amount<=0){ toast('أدخل مبلغًا صحيحًا','err'); return; }
+    writeApi('POST','/api/cc/expenses', { amount:amount, description:(e2.value||'').trim(), category:(e3.value||'أخرى').trim(), paymentMethod:e4.value }, 'تمت إضافة المصروف');
+    bg.remove();
+  })]));
+}
+
+// ============ الحضور والانصراف (Tier 2) + الورديات (Tier 2) ============
+function openShiftModal(closeMode){
+  var node=document.createElement('div');
+  node.appendChild(modCap(closeMode ? 'إقفال وردية اليوم' : 'فتح وردية اليوم'));
+  if(closeMode){
+    var c1=inpu('number', null); c1.placeholder='رصيد الخزنة الفعلي'; node.appendChild(brow('الرصيد الفعلي', c1));
+    var c2=inpu('text', null); c2.placeholder='ملاحظات'; node.appendChild(brow('ملاحظات', c2));
+    var bg=activateModal(node);
+    node.appendChild(modBtns([ho('إقفال', function(){
+      var a=Number(c1.value); if(isNaN(a)){ toast('أدخل الرصيد الفعلي','err'); return; }
+      writeApi('POST','/api/cc/shifts/close', { date:localToday(), actualCash:a, notes:(c2.value||'').trim() }, 'تم إقفال الوردية');
+      bg.remove();
+    })]));
+  } else {
+    var o1=inpu('number', '0'); node.appendChild(brow('رصيد الافتتاح', o1));
+    var bg2=activateModal(node);
+    node.appendChild(modBtns([ho('فتح', function(){
+      var ob=Number(o1.value); if(isNaN(ob)||ob<0){ toast('أدخل رصيد افتتاح صحيحًا','err'); return; }
+      writeApi('POST','/api/cc/shifts/open', { date:localToday(), openingBalance:ob }, 'تم فتح الوردية');
+      bg2.remove();
+    })]));
+  }
+}
+
+// ============ قسم قاعدة المعرفة (محلي — local-stage فقط) ============
+var KB_KEY='luccaKbList';
+function kbLoad(){ try{ return JSON.parse(localStorage.getItem(KB_KEY)||'[]'); }catch(e){ return []; } }
+function kbSave(L){ localStorage.setItem(KB_KEY, JSON.stringify(L)); }
+
+function renderKnowledge(c){
+  var f=document.createElement('div'); f.className='filters';
+  var t1=inpu('text', null, 'عنوان'); f.appendChild(t1);
+  var t2=inpu('text', null, 'محتوى/خطوة'); f.appendChild(t2);
+  f.appendChild(ho('إضافة', function(){
+    var title=(t1.value||'').trim(), body=(t2.value||'').trim();
+    if(!title){ toast('اكتب عنوانًا','err'); return; }
+    var L=kbLoad(); L.push({ title:title, body:body, at:Date.now() }); kbSave(L); render();
+  }));
+  c.appendChild(f);
+  c.appendChild(msgBox('info','قاعدة المعرفة محلية على هذا المتصفح فقط (localStorage) — لا تُرفع للخادم ولا تتأثر بالصلاحيات.'));
+  var L=kbLoad();
+  if(!L.length){ c.appendChild(msgBox('info','لا مدخلات بعد.')); return; }
+  c.appendChild(tableFor([
+    {h:'العنوان', k:'title', b:true},
+    {h:'المحتوى', k:'body'}
+  ], L, function(row){
+    var node=document.createElement('div');
+    node.appendChild(modCap(row.title));
+    var bd=document.createElement('div'); bd.className='sub'; bd.textContent=row.body||'—'; node.appendChild(bd);
+    var bg=activateModal(node);
+    node.appendChild(modBtns([ho('حذف', function(){
+      var L2=kbLoad(); kbSave(L2.filter(function(x){ return x.at!==row.at; })); bg.remove(); render();
+    }, 'danger')]));
+  }));
+}
+
+function renderSystem(c){
+  Promise.all([api('/api/cc'), api('/api/cc/system/health'), api('/api/cc/batman')]).then(function(rs){
+    var blocked=false;
+    rs.forEach(function(r){ if(r.status===401){ blocked=true; } });
+    if(blocked){ c.appendChild(msgBox('err','انتهت الجلسة.')); return; }
+    var meta=rs[0].j, health=rs[1].j, bat=rs[2].j;
+    var g=document.createElement('div'); g.className='grid gkpi'; c.appendChild(g);
+    g.appendChild(card('', 'حالة الخدمة', '<div class="big '+(health&&health.status==='ok'?'ok':'bad')+'">'+(health?esc(health.status):'—')+'</div><div class="sml">قاعدة البيانات: '+esc(health&&health.db)+'</div>'));
+    g.appendChild(card('', 'وقت التشغيل', '<div class="big">'+ (health&&health.uptimeSec!=null ? fmt(Math.floor(health.uptimeSec/60))+' دقيقة' : '—') +'</div>'));
+    g.appendChild(card('', 'الصيغة', '<div class="big">v'+esc(meta.version)+'</div><div class="sml">'+ (meta.readonly?'وضع قراءة فقط':'') +'</div>'));
+    g.appendChild(card('', 'النطاق', '<div class="big">'+ (meta.scope==='admin'?'مدير':'تقارير فقط') +'</div><div class="sml">'+ (meta.scope==='admin' ? 'يمكنك رؤية الأرباح' : 'الأرباح محجوبة') +'</div>'));
+    var batCard=document.createElement('div'); batCard.className='card';
+    batCard.innerHTML='<h3>واجهة باتمان (الذكاء الاصطناعي)</h3><div class="sml">'+esc(bat.note)+'</div>';
+    var lnk=document.createElement('div'); lnk.className='lv';
+    var b1=document.createElement('a'); b1.className='chip'; b1.href='batman.html'; b1.target='_blank'; b1.textContent='فتح واجهة باتمان';
+    lnk.appendChild(b1); batCard.appendChild(lnk);
+    c.appendChild(batCard);
+    var ep=document.createElement('div'); ep.className='card'; var h=document.createElement('h3'); h.textContent='الوحدات المتاحة'; ep.appendChild(h);
+    var ul=document.createElement('ul');
+    (meta.endpoints||[]).forEach(function(e){ var li=document.createElement('li'); li.textContent='/api/cc'+e; ul.appendChild(li); });
+    ep.appendChild(ul); c.appendChild(ep);
+  });
+}
+
+function showLoading(sec){
+  var l=document.createElement('div'); l.className='msg info'; l.textContent='جارٍ التحميل…';
+  return l;
+}
+
+function login(u, p){
+  return api('/api/auth/login', { method:'POST', body: JSON.stringify({ username:u, password:p }) });
+}
+
+(function(){
+  var btn=$('liBtn'), err=$('liErr');
+  function attempt(u, p){
+    btn.disabled=true; err.textContent='';
+    login(u, p).then(function(r){
+      btn.disabled=false;
+      if(!r.ok){ err.textContent = (r.j && r.j.error) || 'بيانات الدخول غير صحيحة'; return; }
+      TOKEN=r.j.token;
+      sessionStorage.setItem('luccaToken', TOKEN);
+      if(r.j.mustChangePassword){
+        err.textContent='';
+        openChangePass(u, p);
+        return;
+      }
+      afterLogin(r.j.user);
+    }).catch(function(){ btn.disabled=false; err.textContent='تعذّر الاتصال بالخادم'; });
+  }
+  btn.addEventListener('click', function(){
+    var u=$('liUser').value.trim(), p=$('liPass').value;
+    if(!u || !p){ err.textContent='أدخل اسم المستخدم وكلمة المرور'; return; }
+    attempt(u, p);
+  });
+  $('liPass').addEventListener('keydown', function(e){ if(e.key==='Enter') btn.click(); });
+  $('liUser').addEventListener('keydown', function(e){ if(e.key==='Enter') $('liPass').focus(); });
+
+  function openChangePass(u, p){
+    var bg=document.createElement('div'); bg.className='modal-bg';
+    var m=document.createElement('div'); m.className='modal';
+    var cap=document.createElement('div'); cap.className='cap'; cap.textContent='يجب تغيير كلمة المرور';
+    var sub=document.createElement('div'); sub.className='sub'; sub.textContent='هذا الحساب مؤقّت (غالبًا «admin / 123456»). اختر كلمة مرور جديدة قبل المتابعة.';
+    var r1=document.createElement('div'); r1.className='form-row'; r1.innerHTML='<label>كلمة المرور الحالية</label>';
+    var cur=document.createElement('input'); cur.type='password'; cur.value=p; r1.appendChild(cur);
+    var r2=document.createElement('div'); r2.className='form-row'; r2.innerHTML='<label>كلمة المرور الجديدة (6 أحرف على الأقل)</label>';
+    var nw=document.createElement('input'); nw.type='password'; r2.appendChild(nw);
+    var err=document.createElement('div'); err.className='errbox'; err.style.minHeight='0';
+    var ok=document.createElement('button'); ok.textContent='حفظ والمتابعة'; ok.style.width='100%';
+    var cancel=document.createElement('button'); cancel.className='sec'; cancel.textContent='إلغاء'; cancel.style.width='100%'; cancel.style.marginTop='6px';
+    ok.addEventListener('click', function(){
+      var np=nw.value;
+      if(!np || np.length<6){ err.textContent='كلمة المرور الجديدة أقل من 6 أحرف'; return; }
+      ok.disabled=true;
+      api('/api/auth/password', { method:'PUT', body: JSON.stringify({ currentPassword: cur.value || p, newPassword: np }) }).then(function(rr){
+        if(rr.status===401){ bg.remove(); err.textContent=''; $('liErr').textContent='انتهت الجلسة، أعد الدخول.'; return; }
+        if(!rr.ok){ ok.disabled=false; err.textContent=(rr.j && rr.j.error)||'تعذّر التغيير'; return; }
+        toast('تم تغيير كلمة المرور', 'ok');
+        bg.remove();
+        login(u, np).then(function(lr){
+          if(lr.ok){ TOKEN=lr.j.token; sessionStorage.setItem('luccaToken', TOKEN); afterLogin(lr.j.user); }
+          else { err.textContent=(lr.j && lr.j.error)||'أعد الدخول يدويًا'; }
+        });
+      });
+    });
+    cancel.addEventListener('click', function(){ sessionStorage.removeItem('luccaToken'); TOKEN=''; bg.remove(); });
+    m.appendChild(cap); m.appendChild(sub); m.appendChild(r1); m.appendChild(r2); m.appendChild(err); m.appendChild(ok); m.appendChild(cancel);
+    bg.appendChild(m); document.body.appendChild(bg);
+  }
+
+  function afterLogin(user){
+    $('loginView').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    api('/api/cc').then(function(r){
+      if(r.ok && r.j) state.scope = r.j.scope||'reports-only';
+      $('scopeChip').textContent = state.scope==='admin' ? 'مدير — كل الصلاحيات' : 'تقارير فقط — الأرباح محجوبة';
+      $('scopeChip').className = 'chip ' + (state.scope==='admin' ? 'admin' : '');
+      render();
+    });
+  }
+
+  if(TOKEN){
+    api('/api/cc').then(function(r){
+      if(r.status===401){ sessionStorage.removeItem('luccaToken'); TOKEN=''; $('loginView').classList.remove('hidden'); $('app').classList.add('hidden'); return; }
+      if(r.ok && r.j) state.scope = r.j.scope||'reports-only';
+      $('scopeChip').textContent = state.scope==='admin' ? 'مدير — كل الصلاحيات' : 'تقارير فقط — الأرباح محجوبة';
+      $('scopeChip').className = 'chip ' + (state.scope==='admin' ? 'admin' : '');
+      $('loginView').classList.add('hidden');
+      $('app').classList.remove('hidden');
+      render();
+    });
+  } else {
+    $('loginView').classList.remove('hidden');
+  }
+})();
+
+})();
+</script>
+</body>
+</html>
