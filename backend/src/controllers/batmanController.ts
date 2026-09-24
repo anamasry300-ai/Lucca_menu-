@@ -103,14 +103,14 @@ export function stats(req: Request, res: Response): void {
 }
 
 // نقطة قرار للواجهة/المحرك: هل يُنفَّذ الإجراء أم يحاجج؟ (حسب المصفوفة فقط — لا تسجيل تلقائي هنا)
-// الدور يُشتق من الهوية الحقيقية لجلسات المستخدمين (يُتجاهل ما يُمرَّر في الـ body)؛
-// أجهزة الـ device (مفتاح API) تُعلن دورها المحلي لأن الهوية لا تحمل دوراً.
+// الدور يُشتق دائماً من الهوية الفعلية (جلسة مستخدم أو مفتاح جهاز) — يُتجاهَل ما يُمرَّر في الـ body
+// بالكامل (لا دور من العميل): السيرفر هو حدود الإنفاذ حتى لطبقة القرار الاستشارية.
 export function checkDecision(req: Request, res: Response): void {
   try {
-    const { action, role, amount } = req.body || {};
+    const { action, amount } = req.body || {};
     if (!action) { res.status(400).json({ error: 'action مطلوب' }); return; }
     const id = (req as AuthRequest).identity;
-    const effectiveRole = id && id.kind === 'user' ? (id.role || 'cashier') : String(role || 'cashier');
+    const effectiveRole = id ? (id.role || 'cashier') : 'cashier';
     const d = decide(effectiveRole, String(action), Number(amount) || 0);
     res.json({ ...d, executorRole: effectiveRole });
   } catch (e: unknown) {

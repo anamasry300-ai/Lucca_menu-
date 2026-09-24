@@ -751,6 +751,20 @@ app.post('/api/orders/:id/void', authRequired, requirePermission('refunds.void')
 //   - CONFLICT (لا تُكتب) في كل حالة غموض أو تعارض دون نسخة أحدث موثوقة
 
 const AMBIGUITY_MS = 5000; // التواريخ ضمن هذه النافذة غير موثوقة → CONFLICT
+
+// ===== Phase 5A (SYNC-1): RBAC للمزامنة — لا يكفي `sync`، كل مخزن مالي/إداري يتطلب صلاحية كتابته.
+// مطابقة الخريطة في crud.ts (STORE_WRITE_PERM) ومخازن الإدارة (WRITE_ADMIN_STORES):
+//   purchases←purchases.write، expenses←expenses.write، product_recipes←products.write،
+//   waste_log←inventory.write، suppliers←admin فقط (صلاحية إدارة الموردين إدارية حصراً).
+// السيرفر هو حدود الإنفاذ — الأدوار المحدودة (device/cashier/kitchen) بلا هذه الصلاحيات:
+// تُتجاوز أشياؤهم (skip) بدل كتابتها، مع تسجيل السبب في conflictDetail (رفض واضح قابل للاختبار).
+const SYNC_WRITE_PERM: Record<string, string> = {
+  purchases: 'purchases.write',
+  expenses: 'expenses.write',
+  product_recipes: 'products.write',
+  waste_log: 'inventory.write',
+};
+const SYNC_ADMIN_ONLY = new Set(['suppliers']);
 // مقارنة "نفس البيانات" من منظور السجل القادم فقط: نصحّب فقط الأعمدة التي يرسلها العميل،
 // ونقارن قيمها مع ما هو مخزّن عند السيرفر (السيرفر قد يمتلك أعمدة default إضافية).
 function sameData(existing: Record<string, unknown>, incoming: Record<string, unknown>): boolean {
@@ -844,6 +858,23 @@ app.post('/api/sync', authRequired, requirePermission('sync'), (req, res) => {
         log.skipped += (items as unknown[]).length;
         log.conflictDetail.push({ store, skipped: items.length, reason: 'مخزن إداري — يلزم صلاحية إدارية' });
         continue;
+      }
+
+      // Phase 5A (SYNC-1): RBAC لكل مخزن مالي/إداري كتابة — لا يكفي امتلاك `sync`.
+      // الأدوار المحدودة (cashier/kitchen/device) دون صلاحية كتابة المخزن تُستثنى أشياؤها
+      // (skip موثّق بلا حذف/استبدال) — مثلها في ذلك مثل crud.ts writeDenied.
+      if (!isAdminish && identity) {
+        if (SYNC_ADMIN_ONLY.has(store)) {
+          log.skipped += (items as unknown[]).length;
+          log.conflictDetail.push({ store, skipped: items.length, reason: 'مخزن إداري — يلزم صلاحية admin (إدارة الموردين)' });
+          continue;
+        }
+        const needPerm = SYNC_WRITE_PERM[store];
+        if (needPerm && !roleHas(identity.role, needPerm)) {
+          log.skipped += (items as unknown[]).length;
+          log.conflictDetail.push({ store, skipped: items.length, reason: 'صلاحية غير كافية لكتابة المخزن — يلزم ' + needPerm });
+          continue;
+        }
       }
 
       for (const item of items) {

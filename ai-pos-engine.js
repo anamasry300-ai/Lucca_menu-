@@ -1623,7 +1623,9 @@ class AIPosEngine {
 
     async toolAddExpense(params) {
         const text = params._rawText || '';
-        const r = await window.saveExpenseFromText(text);
+        // Phase 5A: نمرر قرار المحرك المحسوم (شاملاً التأكيد الصريح) — الحارس الموحّد داخل
+        // saveExpenseFromText يطبّق نفس طبقة القرار على نقاط الدردشة المباشرة ولا يُعاود حسابه هنا.
+        const r = await window.saveExpenseFromText(text, params && params._expenseDecision);
         if (r && r.ok) {
             const actualLimit = (params && params._expenseDecision) ? (params._expenseDecision.limitValue || this.EXPENSE_APPROVAL_THRESHOLD) : this.EXPENSE_APPROVAL_THRESHOLD;
             // تدقيق إلزامي: كل مصروف يسجَّل في سجل المراجعة باسم المشغّل
@@ -2920,7 +2922,7 @@ window.aiPosEngine = new AIPosEngine();
 // ===== SHARED VALIDATED EXPENSE SAVER =====
 // نقطة واحدة لتسجيل المصروف: تُستدعى من محرك الأوامر ومن محادثة باتمان ومن الواجهة.
 // لا تعرض رسالة نجاح أبداً قبل التأكد من نجاح `add` في قاعدة البيانات.
-window.saveExpenseFromText = async function (text) {
+window.saveExpenseFromText = async function (text, providedDecision) {
     try {
         const raw = String(text || '').trim();
         const m = raw.match(/(\d+(?:[.,]\d+)?)/);
@@ -2938,6 +2940,28 @@ window.saveExpenseFromText = async function (text) {
             .replace(/(جنيهات|جنيه|جنية|EGP|ل\.س|ل س|جنيها|دولار|ريال|درهم)/gi, ' ')
             .replace(/\s+/g, ' ').trim();
         if (!desc || desc.length < 2) desc = 'مصروف عام';
+
+        // ===== Phase 5A (BM-1/BM-2/EXP-1): كل إنشاء مصروف يمر عبر نفس طبقة قرار باتمان
+        // قبل أي كتابة في قاعدة البيانات. مسار المحرك يمرر قررَه الذي حُسم مسبقاً
+        // (providedDecision — شاملاً حالة التأكيد الصريح)، ونقاط الدردشة المباشرة تحسب قرراً عبر
+        // نفس _decide (السيرفر أولاً ثم fail-closed محلي). الرفض واضح: لا يُكتب أي شيء ولا تُعرض نجاح. =====
+        let decision = providedDecision || null;
+        if (!decision && window.aiPosEngine && typeof window.aiPosEngine._decide === 'function') {
+            try { decision = await window.aiPosEngine._decide('add_expense', amount); } catch (e) { decision = null; }
+        }
+        if (decision && decision.decision === 'blocked') {
+            return { ok: false, ask: true, decision: 'blocked', message: '🔒 ' + (decision.reason || 'هذا الإجراء غير مسموح لدورك الحالي') };
+        }
+        const needsApprovalHere = decision && decision.decision === 'needs_approval' && !providedDecision;
+        if (needsApprovalHere) {
+            const explicit = /(تأكيد المصروف|اعتماد المصروف|أكّد المصروف|اكد المصروف|تأكيد|اعتماد)/i.test(raw);
+            if (!explicit) {
+                return {
+                    ok: false, ask: true, decision: 'needs_approval', requiresApproval: true,
+                    message: '🔒 ' + (decision.reason || 'المبلغ يتجاوز الحد') + ' — أعد نفس الأمر مع كلمة "تأكيد" لتوثيق الموافقة الصريحة ثم يُسجَّل المصروف'
+                };
+            }
+        }
 
         // طريقة الدفع: نقدي افتراضياً. تبقى غير النقدية (فيزا/كارد/محفظة/تحويل/بنك/آجل) مسموحة
         // دائماً ومستقلة عن الوردية النقدية — مصروف إداري محاسبي.
@@ -2961,6 +2985,10 @@ window.saveExpenseFromText = async function (text) {
             paymentMethod,
             date: new Date().toISOString()
         });
+        // توثيق قرار باتمان (حين حُسب القرار في هذه النقطة — الدردشة المباشرة؛ مسار المحرك موثّق في toolAddExpense)
+        if (!providedDecision && window.aiPosEngine && typeof window.aiPosEngine._recordBatmanDecision === 'function') {
+            try { await window.aiPosEngine._recordBatmanDecision('add_expense', { amount, description: desc, paymentMethod }); } catch (e) { /* best-effort — outbox عند فشل الشبكة */ }
+        }
         let by = '—';
         try {
             const cu = window.LuccaDB && window.LuccaDB.Users && window.LuccaDB.Users.getCurrentUser && window.LuccaDB.Users.getCurrentUser();

@@ -66,6 +66,10 @@ function writeDenied(req: AuthRequest, store: string): boolean {
   if (!id) return true;
   if (id.role === 'admin') return false;
   if (store === 'users') return true; // لا يُنشأ عبر CRUD أصلاً
+  // P5A (EXP-21): حقول الصندوق المالية (expected/actual/difference/إقفال الوردية) لا تُكتب عبر CRUD
+  // إلا بهوية إدارية (admin/manager) — الكاشير/الجهاز/المطبخ بلا صلاحية كتابة هذه الحقول المحلورة
+  // مهما امتلكوا cash-registers.read (القراءة تبقى وظيفية). يمنع تزوير أرصدة/فروق الصندوق.
+  if (store === 'cash_registers' && !isAdminish(req)) return true;
   if (isAdminish(req)) return WRITE_ADMIN_STORES.has(store); // إداري/مدير
   const perm = STORE_WRITE_PERM[store];
   if (!perm) return true; // دور محدود لا يكتب مخزناً غير مقيّد (إداري/مدير فقط)
