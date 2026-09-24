@@ -102,11 +102,30 @@
     // 5) Ollama المحلي
     if (global.OllamaAI) {
       try {
-        var okO = await global.OllamaAI.isAvailable(true);
+        var hO = null;
+        try {
+          if (typeof global.OllamaAI.health === 'function') {
+            hO = await global.OllamaAI.health(true);
+          }
+        } catch (_) {}
+        var okO = false;
         var models = [];
-        try { var lm = await global.OllamaAI.listModels(true); models = Array.isArray(lm) ? lm : (Array.isArray(lm && lm.models) ? lm.models : []); } catch (_) {}
-        out.push(sig('ollama', 'Ollama (الذكاء المحلي)', !!okO,
-          okO ? ('النموذج: ' + (global.OllamaAI.model || '—') + (models.length ? ' — متاح: ' + models.map(function (m) { return (m.name || m.id || m.model || m); }).join('، ') : '')) : 'لا استجابة من Ollama'));
+        if (hO && hO.state) {
+          okO = hO.state === 'ready';
+          models = hO.availableModels || [];
+        } else {
+          okO = await global.OllamaAI.isAvailable(true);
+          try { var lm = await global.OllamaAI.listModels(true); models = Array.isArray(lm) ? lm : (Array.isArray(lm && lm.models) ? lm.models : []); } catch (_) {}
+        }
+        var modelName = (typeof global.OllamaAI.getOllamaModel === 'function' ? global.OllamaAI.getOllamaModel() : global.OllamaAI.model) || '—';
+        var detail = '';
+        if (hO && hO.state === 'ready') detail = 'النموذج: ' + modelName + ' — جاهز ✓' + (models.length ? ' — متاح: ' + models.join('، ') : '');
+        else if (hO && hO.state === 'model-missing') detail = 'النموذج المحدد (' + modelName + ') غير مثبّت في ' + (hO.host || 'Ollama') + ' — اختر من «النماذج»';
+        else if (hO && hO.state === 'unavailable') detail = 'لا استجابة من Ollama (' + (hO.host || 'http://localhost:11434') + ') — شغّل الخادم أو استخدم OpenAI';
+        else if (hO && hO.state === 'disabled') detail = 'المساعد المحلي معطّل من الإعدادات';
+        else if (hO && hO.state === 'openai') detail = 'وضع OpenAI فقط — النموذج السحابي: ' + modelName;
+        else detail = okO ? ('النموذج: ' + modelName + (models.length ? ' — متاح: ' + models.map(function (m) { return (m.name || m.id || m.model || m); }).join('، ') : '')) : 'لا استجابة من Ollama';
+        out.push(sig('ollama', 'Ollama (الذكاء المحلي)', !!okO, detail));
       } catch (e) {
         out.push(sig('ollama', 'Ollama (الذكاء المحلي)', false, String(e && e.message || e)));
       }

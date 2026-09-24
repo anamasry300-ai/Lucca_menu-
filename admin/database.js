@@ -706,76 +706,147 @@ const ServerAPI = {
 // ==================== إدارة المستخدمين ====================
 const Users = {
     async login(username, password) {
-        const search = String(username).trim().toLowerCase();
+        const raw = String(username || '').trim();
+        const search = raw.toLowerCase();
+        if (!raw || !password) throw new Error('أدخل بيانات صحيحة');
+
+        // 1) الخادم أولاً — مصدر الحقيقة للمستخدمين (users = backend auth فقط).
+        //    يُحسم «دخول ناجح» بما يُقبله الخادم حتى لو كانت النسخة المحلية (IndexedDB)
+        //    قديمة أو مفقودة — وهذا يحل «خطأ تسجيل الدخول مع بيانات صحيحة».
+        const serverResult = await this._serverLogin(raw, password).catch((e) => ({ decided: false, error: e }));
+        if (serverResult && serverResult.ok) return serverResult.user;
+        // 2) ردّ صريح من الخادم (401/403/400...) → قرار نهائي. لا نثق بالنسخة المحلية ضد الخادم
+        //    (لا تجاوز للمصادقة المحلية على حساب قرار الخادم).
+        if (serverResult && serverResult.decided) {
+            throw (serverResult.error instanceof Error) ? serverResult.error : new Error(serverResult.error);
+        }
+        // 3) تعذّر الاتصال بالخادم فقط → دخول محلي دون اتصال (offline-first يبقى).
+        const local = await this._offlineLogin(search, password);
+        if (local.ok) return local.user;
+        throw local.error;
+    },
+
+    // دخول عبر الخادم (POST /api/auth/login). يعيد:
+    //   { ok:true, user }                      عند نجاح المصادقة
+    //   { decided:true, error }                عند ردّ صريح من الخادم (رفض/خطأ مدخلات)
+    //   { decided:false }                      عند تعذّر الاتصال فقط (لا قرار)
+    async _serverLogin(username, password) {
+        const url = (localStorage.getItem('luccaServerUrl') || 'http://localhost:3000').replace(/\/+$/, '');
+        let res;
+        try {
+            res = await fetch(url + '/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+                signal: AbortSignal.timeout(4000)
+            });
+        } catch (e) {
+            return { decided: false, error: e };
+        }
+        if (!res) return { decided: false, error: new Error('لا استجابة') };
+        if (res.ok) {
+            let cj = {};
+            try { cj = await res.json(); } catch (_) {}
+            if (cj && cj.token) ServerAPI.setToken(cj.token);
+            const s = (cj && cj.user) || {};
+            // الهوية الموثوقة من الخادم — لا نأخذ الدور/المعرف من أي مصدر آخر.
+            const safe = {
+                id: s.id != null ? s.id : null,
+                userId: s.id != null ? s.id : null,
+                username: s.username || username,
+                name: s.name || '',
+                email: s.email != null ? s.email : null,
+                employeeId: s.employeeId != null ? s.employeeId : null,
+                role: s.role || 'cashier',
+                active: s.active !== undefined ? Number(s.active) : 1,
+                mustChangePassword: cj ? !!cj.mustChangePassword : false
+            };
+            // حدّث النسخة المحلية بهوية الخادم (لآخر دخول دون اتصال وإكمال مسار تغيير كلمة المرور).
+            await this._refreshLocalUser(String(username || '').trim().toLowerCase(), password, safe).catch(() => {});
+            localStorage.setItem('currentUser', JSON.stringify(safe));
+            return { ok: true, user: safe };
+        }
+        let msg = 'بيانات الدخول غير صحيحة';
+        try {
+            const j = await res.json();
+            if (j && j.error) msg = j.error;
+        } catch (_) {}
+        return { decided: true, error: new Error(msg) };
+    },
+
+    // دخول محلي (دون اتصال): تحقق من النسخة المحلية فقط.
+    async _offlineLogin(search, password) {
         const users = await db.getAll('users');
-        // الدخول بالمستخدم أو البريد الإلكتروني (متوافق مع الخادم: WHERE username = ? OR email = ?)
         const user = users.find(u =>
             (u.username || '').toLowerCase() === search ||
             (u.email || '').toLowerCase() === search
         );
         if (!user) throw new Error('اسم المستخدم أو كلمة المرور خطأ');
 
+        // القيد الأمني: حساب مُعطَّل محلياً يُرفض الدخول دون اتصال.
+        // activity قيّم صريحة فقط (0 / false / '0' / 'false') — وغياب الحقل يُعالج كفعّال
+        // لأجل سجلات قديمة لا تحمله (توافق النموذج الموجود). رسالة خطأ موحّدة بلا تمييز.
+        if (user.active !== undefined && user.active !== null &&
+            (user.active === 0 || user.active === false || user.active === '0' || user.active === 'false')) {
+            throw new Error('اسم المستخدم أو كلمة المرور خطأ');
+        }
+
         let valid = false;
-        // Support both hashed (pbkdf2:) and legacy plaintext passwords
-        if (user.password && user.password.startsWith('pbkdf2:')) {
-            // Hashed password from server - use Web Crypto API to verify
+        if (user.password && String(user.password).startsWith('pbkdf2:')) {
             try {
-                const parts = user.password.split(':');
-                const storedHash = parts[2];
-                const computedHash = await this.pbkdf2Hash(password, parts[1]);
-                valid = (computedHash === storedHash);
-            } catch(e) {
-                // Web Crypto not available, try server
+                const parts = String(user.password).split(':');
+                valid = (await this.pbkdf2Hash(password, parts[1])) === parts[2];
+            } catch (e) {
                 throw new Error('كلمة المرور مشفرة - استخدم تسجيل الدخول من الخادم');
             }
         } else {
             valid = (user.password === password);
         }
+        if (!valid) throw new Error('اسم المستخدم أو كلمة المرور خطأ');
 
-        if (valid) {
-            // الهوية الكاملة تُحفظ محلياً (تعمل دون خادم). حقول الهوية (userId/employeeId/email)
-            // مصدرها الخادم عند توفره — الخادم هو مصدر الحقيقة، لا نثق بهوية يرسلها العميل للعمليات.
-            const safe = {
-                id: user.id,
-                userId: user.userId != null ? user.userId : user.id,
-                employeeId: user.employeeId ?? null,
-                email: user.email || null,
-                username: user.username,
-                name: user.name,
-                role: user.role,
-                active: user.active !== undefined ? user.active : true,
-                mustChangePassword: user.mustChangePassword ? (Number(user.mustChangePassword) === 1 || user.mustChangePassword === true) : false
-            };
-            localStorage.setItem('currentUser', JSON.stringify(safe));
-            // الوصول الآمن للخادم: نسجّل دخولنا لدى الخادم للحصول على جلسة تُرفع صلاحيتنا الحقيقية.
-            // لا يُعطِّل الدخول المحلي إن لم يصل السيرفر (نسقط إلى مفتاح الجهاز للمزامنة فقط).
-            try {
-                const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
-                const cr = await fetch(`${url}/api/auth/login`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password }),
-                    signal: AbortSignal.timeout(4000)
-                });
-                // الخادم هو مصدر الحقيقة: إن سلّمنا جلسة، نستبدل حقول الهوية النسخة الموثوقة من الخادم.
-                if (cr.ok) {
-                    const cj = await cr.json();
-                    if (cj.token) ServerAPI.setToken(cj.token);
-                    const s = cj.user || cj;
-                    if (s) {
-                        safe.userId = s.userId != null ? s.userId : (s.id != null ? s.id : safe.userId);
-                        safe.employeeId = s.employeeId != null ? s.employeeId : safe.employeeId;
-                        safe.email = s.email != null ? s.email : safe.email;
-                        if (s.username) safe.username = s.username;
-                        if (s.role) safe.role = s.role;
-                        safe.active = s.active !== undefined ? s.active : safe.active;
-                        safe.mustChangePassword = s.mustChangePassword !== undefined ? s.mustChangePassword : false;
-                        localStorage.setItem('currentUser', JSON.stringify(safe));
-                    }
-                }
-            } catch(e) { /* السيرفر غير متاح — نكمل بدون جلسة خادم */ }
-            return safe;
+        const safe = {
+            id: user.id,
+            userId: user.userId != null ? user.userId : user.id,
+            employeeId: user.employeeId ?? null,
+            email: user.email || null,
+            username: user.username,
+            name: user.name,
+            role: user.role,
+            active: user.active !== undefined ? user.active : true,
+            mustChangePassword: user.mustChangePassword ? (Number(user.mustChangePassword) === 1 || user.mustChangePassword === true) : false
+        };
+        localStorage.setItem('currentUser', JSON.stringify(safe));
+        return { ok: true, user: safe };
+    },
+
+    // بعد نجاح المصادقة لدى الخادم: نُحدِّث سجل المستخدم المحلي بهوية الخادم (وليس العكس)،
+    // ونختزن تجزئة pbkdf2 لكلمة المرور المُسلَّمة (نفسها التي قبلها الخادم) لنُبقي
+    // الدخول دون اتصال متسقاً مع آخر دخول ناجح.
+    async _refreshLocalUser(search, password, serverUser) {
+        const users = await db.getAll('users');
+        const match = users.find(u =>
+            String(u.username || '').toLowerCase() === search ||
+            String(u.email || '').toLowerCase() === search
+        );
+        const salt = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
+        const hashed = await this.pbkdf2Hash(password, salt);
+        const merged = Object.assign({}, match || {}, {
+            username: (serverUser && serverUser.username) || (match && match.username) || search,
+            name: (serverUser && serverUser.name != null) ? serverUser.name : ((match && match.name) || ''),
+            role: (serverUser && serverUser.role) || (match && match.role) || 'cashier',
+            email: (serverUser && serverUser.email != null) ? serverUser.email : (match && match.email != null ? match.email : null),
+            employeeId: (serverUser && serverUser.employeeId != null) ? serverUser.employeeId : (match && match.employeeId != null ? match.employeeId : null),
+            active: (serverUser && serverUser.active !== undefined) ? Number(serverUser.active) : (match && match.active !== undefined ? match.active : 1),
+            mustChangePassword: (serverUser && serverUser.mustChangePassword) ? 1 : 0,
+            password: hashed ? 'pbkdf2:' + salt + ':' + hashed : (match && match.password)
+        }, { updatedAt: new Date().toISOString() });
+        if (match) {
+            await db.put('users', merged);
+        } else {
+            const maxId = users.reduce((m, u) => Math.max(m, Number(u.id) || 0), 0);
+            const rec = Object.assign({ id: maxId + 1, createdAt: new Date().toISOString(), syncId: newSyncId() }, merged);
+            await db.add('users', rec);
         }
-        throw new Error('اسم المستخدم أو كلمة المرور خطأ');
     },
 
     async pbkdf2Hash(password, salt) {
@@ -3781,7 +3852,7 @@ const KnowledgeBase = {
 };
 
 // تصدير للاستخدام
-window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, DailyShifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, ErrorLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, InventoryAlerts, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem };
+window.LuccaDB = { db, ServerAPI, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, DailyShifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, ErrorLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, InventoryAlerts, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem };
 
 // ===== SYNC INTEGRATION =====
 // When Supabase is available, enable auto-sync

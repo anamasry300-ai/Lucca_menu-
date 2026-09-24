@@ -5,6 +5,9 @@
 ║   ويُضاف OpenAI API (أو أي مزود متوافق chat/completions) كمزود ║
 ║   احتياطي "عند الحاجة" عبر إعدادات محلية مرنة (localStorage).  ║
 ║                                                               ║
+║   النموذج/العنوان يُقرآن حياً من الإعدادات (luccaOllamaModel / ║
+║   luccaOllamaHost) — selection يُحفظ ويصمد أمام إعادة التشغيل. ║
+║                                                               ║
 ║   أوضاع المزود luccaAIProvider:                                ║
 ║     auto    -> Ollama أولاً؛ OpenAI احتياطي عند تعذّر Ollama     ║
 ║     ollama  -> Ollama فقط (الافتراضي الفردي المجاني)            ║
@@ -22,8 +25,26 @@ window.OllamaAI = (function() {
         try { if (typeof localStorage !== 'undefined' && localStorage) localStorage.setItem(k, v); } catch(e) {}
     }
 
-    const OLLAMA_HOST = kGet('luccaOllamaHost') || 'http://localhost:11434';
-    const DEFAULT_MODEL = kGet('luccaOllamaModel') || 'qwen2.5:3b';
+    const DEFAULT_HOST = 'http://localhost:11434';
+    const DEFAULT_MODEL = 'qwen2.5:3b';
+
+    // ===== إعدادات Ollama النشطة (تُقرأ حياً من الإعدادات المحلية — تدوم عبر إعادة التشغيل) =====
+    function oHost() {
+        const h = kGet('luccaOllamaHost');
+        if (!h || !String(h).trim()) return DEFAULT_HOST;
+        return String(h).trim().replace(/[\/\s]+$/, '') || DEFAULT_HOST;
+    }
+    function oModel() {
+        const m = kGet('luccaOllamaModel');
+        return (m && String(m).trim()) ? String(m).trim() : DEFAULT_MODEL;
+    }
+    function setOllamaHost(h) {
+        kSet('luccaOllamaHost', String(h || '').trim().replace(/\/+$/, ''));
+        _available = null; // تجاهل ذاكرة التوفر القديمة
+    }
+    function getOllamaHost() { return oHost(); }
+    function setOllamaModel(m) { kSet('luccaOllamaModel', String(m || '').trim()); }
+    function getOllamaModel() { return oModel(); }
 
     // ============ H1: عنوان السيرفر والمصادقة (لبروكسي LLM) ============
     // نفس اصطلاح الواجهات: luccaServerUrl + (session luccaToken أو device x-api-key)
@@ -62,7 +83,7 @@ window.OllamaAI = (function() {
     function getOpenAIBase() { return (kGet('luccaOpenAIBase') || '').trim() || DEFAULT_OPENAI_BASE; }
     function setOpenAIBase(b) { kSet('luccaOpenAIBase', String(b || '').trim()); }
 
-    let _available = null; // cached
+    let _available = null; // cached (يُصفَّر عند تغيير العنوان/الوضع)
 
     // حالة التفعيل (افتراضية مفعّلة) — تخص Ollama المحلي
     function isEnabled() {
@@ -77,10 +98,12 @@ window.OllamaAI = (function() {
     async function llmReady(force) {
         const mode = getProviderMode();
         if (mode === 'openai') return hasOpenAI();
-        const ollamaOk = await isAvailable(force);
-        if (ollamaOk) return true;
+        if (!isEnabled()) return mode === 'auto' ? hasOpenAI() : false;
+        const h = await health(force);
+        // Ollama جاهز فقط إذا كان النموذج المحدد مثبّتاً فعلاً (لا "الخدمة متصلة" فقط).
+        if (h.state === 'ready' || h.state === 'openai') return true;
         if (mode === 'ollama') return false;
-        return hasOpenAI(); // auto: فشل Ollama -> نستخدم OpenAI عند الحاجة
+        return hasOpenAI(); // auto: Ollama غير جاهز -> OpenAI عند الحاجة
     }
 
     // هل المساعد مفعّل (أي مزود)؟ لتجاوز بوابة isEnabled القديمة في الواجهات
@@ -91,23 +114,28 @@ window.OllamaAI = (function() {
     }
 
     function fmtModel(model) {
-        return model || DEFAULT_MODEL;
+        return model || oModel();
     }
 
     // ============ OLLAMA: فحص المتاحين ============
-    // فحص توفر Ollama (cached 10 ثواني)
+    // فحص توفر خدمة Ollama (cached 10 ثواني) — استناداً إلى العنوان النشط
     async function isAvailable(force) {
         if (_available !== null && !force) return _available;
         try {
             const ctrl = new AbortController();
             const t = setTimeout(() => ctrl.abort(), 3000);
-            const res = await fetch(`${OLLAMA_HOST}/api/tags`, { signal: ctrl.signal });
+            const res = await fetch(`${oHost()}/api/tags`, { signal: ctrl.signal });
             clearTimeout(t);
             _available = res.ok;
         } catch(e) {
             _available = false;
         }
         return _available;
+    }
+
+    // باعث إلغاء بفاصل زمني (لحدود فحوص الشبكة دون ترك تعليق مفتوح)
+    function abortSignal(ms) {
+        try { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); return c.signal; } catch(e) { return undefined; }
     }
 
     // قائمة النماذج (Ollama محلياً، أو OpenAI عند ضبط المفتاح ووضع البعيد)
@@ -127,11 +155,46 @@ window.OllamaAI = (function() {
             } catch(e) {}
         }
         try {
-            const res = await fetch(`${OLLAMA_HOST}/api/tags`);
+            const res = await fetch(`${oHost()}/api/tags`);
             if (!res.ok) return [];
             const j = await res.json();
             return (j.models || []).map(m => m.name);
         } catch(e) { return []; }
+    }
+
+    // ====== حالات صحّة Ollama (إفصاح صريح للواجهات/باتمان) ======
+    //   disabled        : معطّل من الإعدادات
+    //   unavailable     : الخدمة غير متصلة (المسدس المنفصل)
+    //   model-missing   : الخدمة متصلة لكن النموذج المحدد غير مثبّت (لا تنزيل تلقائي)
+    //   ready           : الخدمة متصلة والنموذج المحدد مثبّت
+    //   openai          : وضع OpenAI فقط
+    async function health(force) {
+        const enabled = isEnabled();
+        const mode = getProviderMode();
+        const model = getOllamaModel();
+        const host = getOllamaHost();
+        if (mode === 'openai') return { state: 'openai', model, enabled: hasOpenAI(), host };
+        if (!enabled) return { state: 'disabled', model, enabled: false, host };
+        let tags = null;
+        try {
+            const res = await fetch(`${host}/api/tags`, { signal: abortSignal(3000) });
+            if (res.ok) { const j = await res.json(); tags = (j.models || []).map(m => m.name); }
+        } catch(e) { tags = null; }
+        if (tags === null) return { state: 'unavailable', model, enabled, host };
+        const selectedBase = model.indexOf(':') > -1 ? null : model;
+        const installed = tags.some(n => {
+            if (!n) return false;
+            if (n === model) return true;
+            return selectedBase !== null && n.split(':')[0] === selectedBase;
+        });
+        return {
+            state: installed ? 'ready' : 'model-missing',
+            model,
+            enabled,
+            host,
+            installed,
+            availableModels: tags
+        };
     }
 
     // keep_alive = متى يبقى النموذج محمّلاً في الذاكرة بعد الاستخدام (تسريع التحميل البارد)
@@ -139,6 +202,17 @@ window.OllamaAI = (function() {
         const v = opts.keepAlive;
         if (v === undefined || v === null) return -1;   // افتراضياً: أبقِ النموذج محمّلاً دائماً (أسرع)
         return v;
+    }
+
+    // تصنيف أخطاء Ollama: نَمط "model not found" => MODEL_NOT_FOUND (للإفصاح لا للتسبب)
+    function classifyOllamaError(status, detail) {
+        const result = { ok: false, provider: 'ollama' };
+        if (!detail) detail = 'Ollama HTTP ' + status;
+        if (/model.*(not found|doesn.t exist|missing)/i.test(detail) || /not found.*model/i.test(detail)) {
+            result.code = 'MODEL_NOT_FOUND';
+        }
+        result.error = detail;
+        return result;
     }
 
     // ============ OLLAMA: التوليد ============
@@ -157,14 +231,18 @@ window.OllamaAI = (function() {
         try {
             const ctrl = new AbortController();
             const t = setTimeout(() => ctrl.abort(), opts.timeout || 60000);
-            const res = await fetch(`${OLLAMA_HOST}/api/generate`, {
+            const res = await fetch(`${oHost()}/api/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
                 signal: ctrl.signal
             });
             clearTimeout(t);
-            if (!res.ok) return { ok: false, error: `Ollama HTTP ${res.status}` };
+            if (!res.ok) {
+                let detail = '';
+                try { const b = await res.json(); detail = (b && b.error) || ''; } catch(_) {}
+                return classifyOllamaError(res.status, detail);
+            }
             const j = await res.json();
             return { ok: true, text: (j.response || '').trim(), provider: 'ollama' };
         } catch(e) {
@@ -190,14 +268,18 @@ window.OllamaAI = (function() {
         try {
             const ctrl = new AbortController();
             const t = setTimeout(() => ctrl.abort(), opts.timeout || 90000);
-            const res = await fetch(`${OLLAMA_HOST}/api/chat`, {
+            const res = await fetch(`${oHost()}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
                 signal: ctrl.signal
             });
             clearTimeout(t);
-            if (!res.ok) return { ok: false, error: `Ollama HTTP ${res.status}` };
+            if (!res.ok) {
+                let detail = '';
+                try { const b = await res.json(); detail = (b && b.error) || ''; } catch(_) {}
+                return classifyOllamaError(res.status, detail);
+            }
             const j = await res.json();
             const msg = j.message && j.message.content;
             return { ok: true, text: (msg || '').trim(), provider: 'ollama' };
@@ -351,8 +433,8 @@ window.OllamaAI = (function() {
     function getConfig() {
         return {
             provider: getProviderMode(),
-            ollamaHost: OLLAMA_HOST,
-            ollamaModel: DEFAULT_MODEL,
+            ollamaHost: getOllamaHost(),
+            ollamaModel: getOllamaModel(),
             ollamaEnabled: isEnabled(),
             openAIKeySet: hasOpenAI(),
             openAIKeyMasked: hasOpenAI() ? '••••' + getOpenAIKey().slice(-4) : '',
@@ -363,15 +445,21 @@ window.OllamaAI = (function() {
 
     async function providerInfo() {
         const mode = getProviderMode();
-        const ollamaUp = await isAvailable();
+        const h = await health();
+        const stateText = (h.state === 'ready') ? 'النموذج المحدد جاهز ✓'
+            : (h.state === 'model-missing') ? '⚠️ النموذج المحدد غير مثبّت — اختر من القائمة: «النماذج»'
+            : (h.state === 'unavailable') ? 'غير متصل ✗'
+            : (h.state === 'disabled') ? 'معطّل ✗'
+            : (h.state === 'openai') ? 'وضع OpenAI'
+            : '—';
         const lines = [
             '🧠 **إعدادات مزود الذكاء**',
             '· الوضع: ' + (mode === 'auto' ? 'تلقائي (Ollama أولاً ثم OpenAI عند الحاجة)' : (mode === 'ollama' ? 'Ollama محلي فقط (مجاني)' : 'OpenAI سحابي فقط')),
-            '· Ollama: ' + (isEnabled() ? 'مفعّل ✓ ' : 'معطّل ✗ ') + (ollamaUp ? '— متصل ✓' : '— غير متصل ✗') + ' (' + OLLAMA_HOST + ')',
-            '· نموذج Ollama: ' + DEFAULT_MODEL,
+            '· Ollama: ' + (isEnabled() ? 'مفعّل ✓ ' : 'معطّل ✗ ') + '— ' + stateText + ' (' + getOllamaHost() + ')',
+            '· النموذج المحدد: ' + getOllamaModel() + (Array.isArray(h.availableModels) && h.availableModels.length ? ' — المثبّت: ' + h.availableModels.join('، ') : ''),
             '· OpenAI: ' + (hasOpenAI() ? 'مضبوط — ' + getOpenAIModel() : 'غير مضبوط')
         ];
-        return lines.join('\n') + '\n\n💡 أوامر: "استخدم ollama" / "استخدم openai" / "الوضع التلقائي" / "مفتاح openai: sk-..."';
+        return lines.join('\n') + '\n\n💡 أوامر: "استخدم ollama" / "استخدم openai" / "الوضع التلقائي" / "استخدم نموذج <الاسم>" / "مفتاح openai: sk-..."';
     }
 
     // ============ TOOL SELECTION (قراءة فقط — يختار من قائمة معطاة فقط) ============
@@ -444,6 +532,7 @@ window.OllamaAI = (function() {
         llmReady,
         llmEnabled,
         listModels,
+        health,
         generate,
         chat,
         extractJSON,
@@ -459,6 +548,11 @@ window.OllamaAI = (function() {
         setOpenAIModel,
         getOpenAIBase,
         setOpenAIBase,
+        // إعدادات Ollama الدائمة (النموذج/العنوان) — تُحفظ في localStorage
+        getOllamaHost,
+        setOllamaHost,
+        getOllamaModel,
+        setOllamaModel,
         getConfig,
         providerInfo,
         // أدوات القراءة (اسأل باتمان وغيرها)
@@ -467,7 +561,7 @@ window.OllamaAI = (function() {
         registerTool,
         registeredTools,
         runTool,
-        host: OLLAMA_HOST,
-        model: DEFAULT_MODEL
+        get host() { return oHost(); },
+        get model() { return oModel(); }
     };
 })();

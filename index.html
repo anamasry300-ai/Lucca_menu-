@@ -7208,7 +7208,19 @@ async function processAiCommand(text){
             if(window.OllamaAI){
                 const on = window.OllamaAI.isEnabled();
                 let status = on ? '✅ مفعّل' : '⛔ معطّل';
-                if(on) status += (await window.OllamaAI.isAvailable()) ? ' — متصل بـ Ollama ✓' : ' — ⚠️ Ollama غير متصل (شغّل الخادم أو استخدم OpenAI)';
+                if(on){
+                    if(typeof window.OllamaAI.health === 'function'){
+                        try{
+                            const h = await window.OllamaAI.health(true);
+                            const st = h.state === 'ready' ? ' — النموذج المحدد جاهز ✓'
+                                : (h.state === 'model-missing' ? ' — ⚠️ النموذج المحدد غير مثبّت (اختر من «النماذج»)' : '');
+                            if(h.host) status += ' (' + h.host + ')';
+                            status += st || ' — ⚠️ Ollama غير متصل (شغّل الخادم أو استخدم OpenAI)';
+                        }catch(e){ status += ' — ⚠️ تعذّر فحص الحالة'; }
+                    } else {
+                        status += (await window.OllamaAI.isAvailable()) ? ' — متصل بـ Ollama ✓' : ' — ⚠️ Ollama غير متصل (شغّل الخادم أو استخدم OpenAI)';
+                    }
+                }
                 let models = '';
                 try{
                     const list = await window.OllamaAI.listModels();
@@ -7233,6 +7245,26 @@ async function processAiCommand(text){
     }
     if(matchAny(t,['enable_ai_local','تفعيل الذكاء','فعّل الذكاء'])){
         if(window.OllamaAI && window.OllamaAI.setEnabled){ window.OllamaAI.setEnabled(true); return aiBotReply('✅ تم تفعيل المساعد المحلي (Qwen).'); }
+    }
+
+    // ===== OLLAMA MODEL SELECTION (يُحفظ محلياً — يدوم عبر إعادة التشغيل) =====
+    // اسم النموذج حرفياً بعد الكلمة (قد يحوي ':' كـ name:tag ولا يسمح بمسافة) — بلا أي تنفيذ.
+    const _mdl = t.match(/استخدم\s+نموذج\s*[:=]?\s*([a-zA-Z0-9_\-.:]+)/i) || t.match(/\bset\s+model\s*[:=]?\s*([a-zA-Z0-9_\-.:]+)/i);
+    if(_mdl && window.OllamaAI && window.OllamaAI.setOllamaModel){
+        window.OllamaAI.setOllamaModel(_mdl[1]);
+        return aiBotReply('✅ تم اختيار وحفظ النموذج: **'+_mdl[1]+'** — «حالة الذكاء» للتأكيد، أو «النماذج» لعرض المثبّت.');
+    }
+    if(matchAny(t,['النماذج','قائمة النماذج','اذكر النماذج','models','استخدم نموذج','اختر نموذج','set model','الاسم المثبتة'])){
+        if(window.OllamaAI){
+            try{
+                const list = await window.OllamaAI.listModels();
+                const sel = (typeof window.OllamaAI.getOllamaModel === 'function') ? window.OllamaAI.getOllamaModel() : window.OllamaAI.model;
+                const hint = list.length ? 'للتغيير اكتب: "استخدم نموذج <الاسم>"' : 'لم يُكتشف نموذج مثبّت — شغّل Ollama ثم أعد المحاولة';
+                return aiBotReply('📦 **النماذج المثبّتة (Ollama):**\n\n' +
+                    (list.length ? list.map(m=>'• '+m+(m===sel?'  ← المحدد':'')).join('\n') : '—') +
+                    '\n\nالمحدد حالياً: **'+sel+'**\n\n💡 '+hint);
+            }catch(e){ return aiBotReply('❌ تعذّر قراءة النماذج: '+e.message); }
+        }
     }
 
     // ===== PROVIDER CONFIG (Ollama أساسي مجاني + OpenAI اختياري) =====
