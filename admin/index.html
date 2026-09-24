@@ -2773,6 +2773,10 @@ async function init(){
 }
 
 // ===== AUTH =====
+// وضع صيانة مؤقت: يتجاوز شاشة الدخول حتى يتم إصلاح المصادقة.
+// يجب إعادته إلى false قبل توزيع نسخة إنتاجية محمية.
+const TEMPORARY_LOGIN_BYPASS = true;
+
 function normalizeLoginUsername(value){
     // إذا كُتبت لوحة المفاتيح بالعربية، حوّل أحرف تخطيط لوحة المفاتيح
     // إلى مفاتيحها الإنجليزية عند البحث عن اسم المستخدم.
@@ -2828,7 +2832,18 @@ function toggleLoginPassword(){
     button.setAttribute('aria-label', visible ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور');
     button.title = visible ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور';
 }
-
+async function enterTemporaryAdminMode(){
+    let users = await window.LuccaDB.Users.getAll();
+    if(!users || !users.length){
+        await window.LuccaDB.Users.createDefaultAdmin();
+        users = await window.LuccaDB.Users.getAll();
+    }
+    const admin = users.find(u => String(u.username || '').toLowerCase() === 'admin') || users[0];
+    if(!admin) throw new Error('لم يتم العثور على مستخدم الإدارة');
+    const sessionUser = { ...admin, active: true, role: admin.role || 'admin', mustChangePassword: false };
+    localStorage.setItem('currentUser', JSON.stringify(sessionUser));
+    enterApp(sessionUser);
+}
 
 function enterApp(u){
     currentUser = u || currentUser;
@@ -4770,6 +4785,13 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     // إذا وُجد رمز دعوة في الرابط → نعرض شاشة التفعيل ونتوقف (لا نفتح الجلسة المحفوظة).
     const inviteToken = new URLSearchParams(location.search).get('invite');
     if(inviteToken){ try { await initActivation(); } catch(e){ console.error(e); } return; }
+    if(TEMPORARY_LOGIN_BYPASS){
+        try { await enterTemporaryAdminMode(); } catch(e){
+            console.error('Temporary admin mode failed', e);
+            setLoginStatus('تعذر فتح وضع الصيانة: ' + (e.message || e), 'error');
+        }
+        return;
+    }
     // Supabase Realtime keeps the dashboard current when orders change on any device.
     let liveDashboardTimer = null;
     window.addEventListener('lucca:cloud-status', function(event){
