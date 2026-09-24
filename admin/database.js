@@ -706,14 +706,16 @@ const ServerAPI = {
 // ==================== إدارة المستخدمين ====================
 const Users = {
     async login(username, password) {
-        const search = String(username).trim().toLowerCase();
+        const keyboardMap = {'ض':'q','ص':'w','ث':'e','ق':'r','ف':'t','غ':'y','ع':'u','ه':'i','خ':'o','ح':'p','ش':'a','س':'s','ي':'d','ب':'f','ل':'g','ا':'h','ت':'j','ن':'k','م':'l','ئ':'z','ء':'x','ؤ':'c','ر':'v','لا':'b','ى':'n','ة':'m','و':',','ز':'.','ظ':'/'};
+        const raw = String(username || '').trim();
+        const search = raw.replace(/لا|[ضصثقفغعهخحشسيبلاتنمئءؤرىةوزظو]/g, ch => keyboardMap[ch] || ch).toLowerCase();
         const users = await db.getAll('users');
         // الدخول بالمستخدم أو البريد الإلكتروني (متوافق مع الخادم: WHERE username = ? OR email = ?)
         const user = users.find(u =>
             (u.username || '').toLowerCase() === search ||
             (u.email || '').toLowerCase() === search
         );
-        if (!user) throw new Error('اسم المستخدم أو كلمة المرور خطأ');
+        if (!user) throw new Error('المستخدم غير موجود');
 
         let valid = false;
         // Support both hashed (pbkdf2:) and legacy plaintext passwords

@@ -145,8 +145,13 @@
       return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
     },
     async login(username, password) {
-      const { data, error } = await _supabase.from('users').select('*').eq('username', username).single();
-      if (error || !data) throw new Error('بيانات الدخول غير صحيحة');
+      const search = String(username || '').trim().toLowerCase();
+      let { data, error } = await _supabase.from('users').select('*').eq('username', search).maybeSingle();
+      if (!data) {
+        const result = await _supabase.from('users').select('*').eq('email', search).maybeSingle();
+        data = result.data; error = result.error;
+      }
+      if (error || !data) throw new Error('المستخدم غير موجود');
       const user = toCamel(data);
       let valid = false;
       const stored = user.password;

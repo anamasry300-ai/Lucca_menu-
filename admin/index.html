@@ -138,6 +138,50 @@
             padding: 14px;
             font-size: 1rem;
         }
+        .login-card .login-brand {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 16px;
+            border-radius: 18px;
+            display: grid;
+            place-items: center;
+            background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+            color: #fff;
+            font-weight: 800;
+            font-size: 1.25rem;
+            letter-spacing: .08em;
+            box-shadow: 0 8px 20px rgba(30,58,138,.25);
+        }
+        .login-card .login-help {
+            margin: 12px 0 0;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: var(--info-surface);
+            color: var(--text-secondary);
+            font-size: .78rem;
+            text-align: right;
+        }
+        .login-card .login-help strong { color: var(--primary-dark); }
+        .password-wrap { position: relative; }
+        .password-wrap input { padding-left: 46px; }
+        .password-toggle {
+            position: absolute;
+            left: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            border: 0;
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 6px;
+            font-size: .85rem;
+        }
+        .password-toggle:focus-visible { outline: 2px solid var(--primary); border-radius: 6px; }
+        .login-status { min-height: 24px; }
+        .login-status.error { color: var(--danger); }
+        .login-status.success { color: var(--success-dark); }
+        .login-card input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+        @media (max-width: 480px) { .login-card { padding: 32px 22px; } }
 
         /* ===== App Layout ===== */
         .app {
@@ -1758,19 +1802,26 @@
 
 <!-- Login Screen -->
 <div class="login-screen" id="loginScreen">
-    <div class="login-card">
-        <h1>LUCCA</h1>
-        <p>لوحة التحكم - إدارة المطعم</p>
-        <div class="form-row">
-            <label>اسم المستخدم أو البريد</label>
-            <input type="text" id="loginUser" placeholder="اسم المستخدم أو البريد" autocomplete="username">
-        </div>
-        <div class="form-row">
-            <label>كلمة المرور</label>
-            <input type="password" id="loginPass" placeholder="كلمة المرور" autocomplete="current-password">
-        </div>
-        <button class="btn btn-primary" onclick="doLogin()">تسجيل الدخول</button>
-        <div id="loginError" style="color:var(--danger);font-size:0.85rem;margin-top:12px;text-align:center"></div>
+    <div class="login-card" role="main" aria-labelledby="loginTitle">
+        <div class="login-brand" aria-hidden="true">LC</div>
+        <h1 id="loginTitle">تسجيل الدخول</h1>
+        <p>لوحة التحكم وإدارة المطعم</p>
+        <form id="loginForm" novalidate>
+            <div class="form-row">
+                <label for="loginUser">اسم المستخدم أو البريد</label>
+                <input type="text" id="loginUser" dir="ltr" inputmode="email" autocapitalize="none" autocomplete="username" spellcheck="false" placeholder="admin">
+            </div>
+            <div class="form-row">
+                <label for="loginPass">كلمة المرور</label>
+                <div class="password-wrap">
+                    <input type="password" id="loginPass" dir="ltr" autocomplete="current-password" placeholder="أدخل كلمة المرور">
+                    <button type="button" class="password-toggle" id="toggleLoginPass" aria-label="إظهار كلمة المرور" title="إظهار كلمة المرور">إظهار</button>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" id="loginSubmit">دخول إلى لوحة الإدارة</button>
+            <div id="loginError" class="login-status" role="alert" aria-live="polite"></div>
+        </form>
+        <div class="login-help"><strong>الدخول الأول:</strong> اسم المستخدم <b dir="ltr">admin</b> وكلمة المرور الافتراضية <b dir="ltr">123456</b>، ثم سيُطلب منك تغييرها.</div>
     </div>
 </div>
 
@@ -2722,23 +2773,62 @@ async function init(){
 }
 
 // ===== AUTH =====
-async function doLogin(){
-    const user = document.getElementById('loginUser').value.trim();
+function normalizeLoginUsername(value){
+    // إذا كُتبت لوحة المفاتيح بالعربية، حوّل أحرف تخطيط لوحة المفاتيح
+    // إلى مفاتيحها الإنجليزية عند البحث عن اسم المستخدم.
+    const keyboardMap = {
+        'ض':'q','ص':'w','ث':'e','ق':'r','ف':'t','غ':'y','ع':'u','ه':'i','خ':'o','ح':'p',
+        'ش':'a','س':'s','ي':'d','ب':'f','ل':'g','ا':'h','ت':'j','ن':'k','م':'l',
+        'ئ':'z','ء':'x','ؤ':'c','ر':'v','لا':'b','ى':'n','ة':'m','و':',','ز':'.','ظ':'/'
+    };
+    const raw = String(value || '').trim();
+    const mapped = raw.replace(/لا|[ضصثقفغعهخحشسيبلاتنمئءؤرىةوزظو]/g, ch => keyboardMap[ch] || ch);
+    return mapped.toLowerCase();
+}
+function setLoginStatus(message, type){
+    const el = document.getElementById('loginError');
+    if(!el) return;
+    el.textContent = message || '';
+    el.className = 'login-status' + (type ? ' ' + type : '');
+}
+async function doLogin(event){
+    if(event) event.preventDefault();
+    const rawUser = document.getElementById('loginUser').value;
+    const user = normalizeLoginUsername(rawUser);
     const pass = document.getElementById('loginPass').value;
-    if(!user||!pass){ document.getElementById('loginError').textContent='أدخل بيانات صحيحة'; return; }
+    const btn = document.getElementById('loginSubmit');
+    if(!user){ setLoginStatus('اكتب اسم المستخدم، مثل admin.', 'error'); return; }
+    if(!pass){ setLoginStatus('اكتب كلمة المرور. لا يُسمح بكلمة مرور فارغة.', 'error'); return; }
+    if(btn){ btn.disabled = true; btn.textContent = 'جارٍ التحقق…'; }
+    setLoginStatus('جارٍ التحقق من بيانات الدخول…', '');
     try {
         const u = await window.LuccaDB.Users.login(user, pass);
         currentUser = u;
         window.__luccaRole = u.role || 'user';
         if (u.mustChangePassword) {
-            // إلزامية تغيير كلمة المرور: نعرض قفل بلا إغلاق ولا نفتح الواجهة قبل التغيير.
-            document.getElementById('loginError').textContent = '';
+            setLoginStatus('', '');
             openMustChangeModal();
             return;
         }
         enterApp(u);
-    } catch(e){ document.getElementById('loginError').textContent = 'خطأ في تسجيل الدخول'; }
+    } catch(e){
+        const reason = e && e.message ? e.message : 'اسم المستخدم أو كلمة المرور غير صحيحين';
+        setLoginStatus('تعذر الدخول بالحساب [' + user + ']: ' + reason, 'error');
+    } finally {
+        if(btn){ btn.disabled = false; btn.textContent = 'دخول إلى لوحة الإدارة'; }
+    }
 }
+function toggleLoginPassword(){
+    const input = document.getElementById('loginPass');
+    const button = document.getElementById('toggleLoginPass');
+    if(!input || !button) return;
+    const visible = input.type === 'text';
+    input.type = visible ? 'password' : 'text';
+    button.textContent = visible ? 'إظهار' : 'إخفاء';
+    button.setAttribute('aria-label', visible ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور');
+    button.title = visible ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور';
+}
+
 
 function enterApp(u){
     currentUser = u || currentUser;
@@ -4671,7 +4761,11 @@ function savePrinterSettings(){
 
 // ===== BOOT =====
 document.addEventListener('DOMContentLoaded', async ()=>{
-    try { await init(); } catch(e){ console.error(e); }
+    const loginForm = document.getElementById('loginForm');
+    if(loginForm) loginForm.addEventListener('submit', doLogin);
+    const togglePass = document.getElementById('toggleLoginPass');
+    if(togglePass) togglePass.addEventListener('click', toggleLoginPassword);
+    try { await init(); } catch(e){ console.error(e); setLoginStatus('تعذر تهيئة قاعدة البيانات: ' + (e.message || e), 'error'); }
     AdminPrinter.init();
     // إذا وُجد رمز دعوة في الرابط → نعرض شاشة التفعيل ونتوقف (لا نفتح الجلسة المحفوظة).
     const inviteToken = new URLSearchParams(location.search).get('invite');
