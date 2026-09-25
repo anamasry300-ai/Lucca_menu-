@@ -7337,7 +7337,50 @@ function matchAny(text, keywords){
     return keywords.some(k => text.includes(k));
 }
 </script>
-
+<!-- ===== UNIFIED APPLICATION LOGIN ===== -->
+<div id="appLoginOverlay" style="position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:24px;background:linear-gradient(135deg,#0f172a,#1e3a8a 55%,#2563eb);direction:rtl;">
+    <form id="appLoginForm" autocomplete="on" style="width:min(420px,100%);padding:34px 28px;background:#fff;border-radius:20px;box-shadow:0 24px 70px #0006;text-align:right;">
+        <div style="width:62px;height:62px;margin:0 auto 14px;border-radius:18px;display:grid;place-items:center;background:#2563eb;color:#fff;font-weight:800;font-size:1.25rem;letter-spacing:.08em;">LC</div>
+        <h1 style="margin:0;text-align:center;color:#0f172a;font-size:1.55rem;">تسجيل الدخول إلى LuccaPOS</h1>
+        <p style="margin:6px 0 24px;text-align:center;color:#64748b;font-size:.88rem;">تسجيل واحد للتطبيق والإدارة</p>
+        <label for="appLoginUser" style="display:block;margin:0 0 6px;color:#334155;font-weight:700;font-size:.86rem;">اسم المستخدم أو البريد</label>
+        <input id="appLoginUser" dir="ltr" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="admin" style="width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px;margin-bottom:14px;font-size:1rem;box-sizing:border-box;">
+        <label for="appLoginPass" style="display:block;margin:0 0 6px;color:#334155;font-weight:700;font-size:.86rem;">كلمة المرور</label>
+        <input id="appLoginPass" type="password" dir="ltr" autocomplete="current-password" placeholder="كلمة المرور" style="width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px;margin-bottom:16px;font-size:1rem;box-sizing:border-box;">
+        <button id="appLoginSubmit" type="submit" style="width:100%;padding:13px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-size:1rem;font-weight:800;cursor:pointer;">دخول</button>
+        <div id="appLoginError" role="alert" aria-live="polite" style="min-height:24px;margin-top:12px;color:#dc2626;text-align:center;font-size:.86rem;"></div>
+    </form>
+</div>
+<script>
+(function(){
+    async function unifiedLogin(e){
+        if(e) e.preventDefault();
+        const user = document.getElementById('appLoginUser').value.trim();
+        const pass = document.getElementById('appLoginPass').value;
+        const err = document.getElementById('appLoginError');
+        const btn = document.getElementById('appLoginSubmit');
+        if(!user || !pass){ err.textContent = 'أدخل اسم المستخدم وكلمة المرور'; return; }
+        btn.disabled = true; btn.textContent = 'جارٍ التحقق…'; err.textContent = '';
+        try{
+            const current = await window.LuccaDB.Users.login(user, pass);
+            window.currentUser = current;
+            if(window.electronAPI && typeof window.electronAPI.setAuthContext === 'function' && typeof window.LuccaDB.getAuthSession === 'function'){
+                const authResult = await window.electronAPI.setAuthContext(window.LuccaDB.getAuthSession());
+                if(!authResult || authResult.ok !== true) throw new Error('تعذر تثبيت جلسة التطبيق مع الخادم');
+            }
+            document.getElementById('appLoginOverlay').style.display = 'none';
+            if(current && current.mustChangePassword && typeof openMustChangeModal === 'function') openMustChangeModal();
+        }catch(ex){ err.textContent = ex && ex.message ? ex.message : 'بيانات الدخول غير صحيحة'; }
+        finally{ btn.disabled = false; btn.textContent = 'دخول'; }
+    }
+    document.addEventListener('DOMContentLoaded', function(){
+        const form = document.getElementById('appLoginForm');
+        if(form) form.addEventListener('submit', unifiedLogin);
+        const input = document.getElementById('appLoginUser');
+        if(input) input.focus();
+    });
+})();
+</script>
 <!-- ===== MUST CHANGE PASSWORD MODAL (قفل إجباري بلا إغلاق) ===== -->
 <div class="modal must-change-modal" id="mustChangeModal">
     <div class="modal-content">
