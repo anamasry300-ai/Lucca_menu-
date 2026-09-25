@@ -2773,10 +2773,6 @@ async function init(){
 }
 
 // ===== AUTH =====
-// وضع صيانة مؤقت: يتجاوز شاشة الدخول حتى يتم إصلاح المصادقة.
-// يجب إعادته إلى false قبل توزيع نسخة إنتاجية محمية.
-const TEMPORARY_LOGIN_BYPASS = true;
-
 function normalizeLoginUsername(value){
     // إذا كُتبت لوحة المفاتيح بالعربية، حوّل أحرف تخطيط لوحة المفاتيح
     // إلى مفاتيحها الإنجليزية عند البحث عن اسم المستخدم.
@@ -2832,17 +2828,27 @@ function toggleLoginPassword(){
     button.setAttribute('aria-label', visible ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور');
     button.title = visible ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور';
 }
-async function enterTemporaryAdminMode(){
-    let users = await window.LuccaDB.Users.getAll();
-    if(!users || !users.length){
-        await window.LuccaDB.Users.createDefaultAdmin();
-        users = await window.LuccaDB.Users.getAll();
+async function enterFromAppSession(){
+    if(!window.electronAPI || typeof window.electronAPI.getAuthContext !== 'function') return false;
+    const context = await window.electronAPI.getAuthContext();
+    if(!context || context.authenticated !== true){
+        setLoginStatus('الوصول مرفوض: لا توجد جلسة LuccaPOS موثقة.', 'error');
+        return true;
     }
-    const admin = users.find(u => String(u.username || '').toLowerCase() === 'admin') || users[0];
-    if(!admin) throw new Error('لم يتم العثور على مستخدم الإدارة');
-    const sessionUser = { ...admin, active: true, role: admin.role || 'admin', mustChangePassword: false };
+    const allowed = context.role === 'admin' || context.role === 'manager' || (context.permissions || []).includes('*') || (context.permissions || []).includes('admin.read');
+    if(!allowed){
+        setLoginStatus('الوصول مرفوض: دور المستخدم الحالي لا يملك صلاحية الإدارة.', 'error');
+        return true;
+    }
+    const users = await window.LuccaDB.Users.getAll();
+    const stored = users.find(u => String(u.id) === String(context.userId) || String(u.username || '').toLowerCase() === String(context.username || '').toLowerCase()) || {};
+    const sessionUser = { ...stored, id: context.userId || stored.id, username: context.username || stored.username, role: context.role, active: true, mustChangePassword: !!stored.mustChangePassword };
     localStorage.setItem('currentUser', JSON.stringify(sessionUser));
+    currentUser = sessionUser;
+    window.__luccaRole = context.role;
+    if(sessionUser.mustChangePassword){ openMustChangeModal(); return true; }
     enterApp(sessionUser);
+    return true;
 }
 
 function enterApp(u){
@@ -4785,11 +4791,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     // إذا وُجد رمز دعوة في الرابط → نعرض شاشة التفعيل ونتوقف (لا نفتح الجلسة المحفوظة).
     const inviteToken = new URLSearchParams(location.search).get('invite');
     if(inviteToken){ try { await initActivation(); } catch(e){ console.error(e); } return; }
-    if(TEMPORARY_LOGIN_BYPASS){
-        try { await enterTemporaryAdminMode(); } catch(e){
-            console.error('Temporary admin mode failed', e);
-            setLoginStatus('تعذر فتح وضع الصيانة: ' + (e.message || e), 'error');
-        }
+    try {
+        const handledByAppSession = await enterFromAppSession();
+        if(handledByAppSession) return;
+    } catch(e){
+        console.error('App session handoff failed', e);
+        setLoginStatus('تعذر التحقق من جلسة LuccaPOS: ' + (e.message || e), 'error');
         return;
     }
     // Supabase Realtime keeps the dashboard current when orders change on any device.

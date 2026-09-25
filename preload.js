@@ -7,7 +7,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
         chrome: process.versions.chrome,
         electron: process.versions.electron
     },
-    openAdmin: () => ipcRenderer.send('open-admin'),
+    openAdmin: () => ipcRenderer.invoke('open-admin'),
+    setAuthContext: (context) => ipcRenderer.invoke('auth-context-set', context),
+    getAuthContext: () => ipcRenderer.invoke('auth-context-get'),
     openExternal: (url) => ipcRenderer.send('open-external', url),
     saveImageToClipboard: (base64) => ipcRenderer.send('save-image-clipboard', base64),
     onImageSaved: (callback) => ipcRenderer.on('image-saved', (e, data) => callback(data)),

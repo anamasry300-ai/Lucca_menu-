@@ -275,29 +275,6 @@
         </div>
     </div>
 
-    <div class="modal" id="adminLoginModal">
-        <div class="modal-content" style="max-width:360px;">
-            <div class="modal-close" onclick="closeAdminLogin()">×</div>
-            <div style="text-align:center;padding:20px 0 10px;">
-                <div style="font-size:2.5rem;margin-bottom:8px;">🔐</div>
-                <h3 style="font-family:'Playfair Display',serif;color:var(--text);margin:0 0 4px;">لوحة التحكم</h3>
-                <p style="font-size:0.82rem;color:var(--text-secondary);">أدخل بيانات الدخول للمتابعة</p>
-            </div>
-            <div style="padding:0 16px 20px;">
-                <input type="text" id="adminLoginUser" placeholder="اسم المستخدم" autocomplete="username"
-                    style="width:100%;padding:12px;border:2px solid var(--border);border-radius:10px;font-size:0.95rem;margin-bottom:10px;text-align:center;font-family:var(--font);direction:rtl;">
-                <input type="password" id="adminLoginPass" placeholder="كلمة المرور" autocomplete="current-password"
-                    style="width:100%;padding:12px;border:2px solid var(--border);border-radius:10px;font-size:0.95rem;margin-bottom:14px;text-align:center;font-family:var(--font);direction:rtl;"
-                    onkeydown="if(event.key==='Enter')doAdminLogin()">
-                <button onclick="doAdminLogin()" id="adminLoginBtn"
-                    style="width:100%;padding:12px;background:var(--gradient-btn);color:white;border:none;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;font-family:var(--font);transition:all 0.2s;">
-                    دخول
-                </button>
-                <div id="adminLoginError" style="margin-top:10px;text-align:center;color:var(--danger);font-size:0.85rem;display:none;"></div>
-            </div>
-        </div>
-    </div>
-
     <div class="modal settings-modal" id="adminPanelModal">
         <div class="modal-content settings-content" style="max-width:700px;max-height:85vh;overflow-y:auto;">
             <div class="modal-close" onclick="closeAdminPanel()">×</div>
@@ -1041,11 +1018,14 @@
         }
 
         // ==================== لوحة التحكم السريعة ====================
-        function openAdminDashboard() {
+        async function openAdminDashboard() {
             // نافذة Electron داخلية عبر بريدج preload (البيانات تُقرأ من نفس LuccaDB المحلية)
             if (window.electronAPI && typeof window.electronAPI.openAdmin === 'function') {
                 try {
-                    window.electronAPI.openAdmin();
+                    const result = await window.electronAPI.openAdmin();
+                    if (result && result.ok === false) {
+                        showToast(result.error === 'forbidden' ? 'الوصول مرفوض: لا تملك صلاحية الإدارة' : 'لا توجد جلسة موثقة لفتح الإدارة', 'error');
+                    }
                     return;
                 } catch(e) { /* ننتقل للبديل أدناه */ }
             }
@@ -1240,62 +1220,11 @@
 
         // ==================== ADMIN LOGIN GATE ====================
         async function openAdminPanel() {
-            // إلزامية تغيير كلمة المرور: لا يمكن فتح أي واجهة مسؤول قبل التغيير.
             const cu = window.LuccaDB ? window.LuccaDB.Users.getCurrentUser() : null;
-            if (cu && cu.mustChangePassword) { openMustChangeModal(); return; }
-            // Check if already authenticated as admin in this session
-            const authed = sessionStorage.getItem('posAdminAuthed');
-            if (authed === '1') {
-                _showAdminPanelContent();
-                return;
-            }
-            // Show login modal
-            document.getElementById('adminLoginModal')?.classList.add('show');
-            document.getElementById('adminLoginUser').value = '';
-            document.getElementById('adminLoginPass').value = '';
-            document.getElementById('adminLoginError').style.display = 'none';
-            document.getElementById('adminLoginUser').focus();
-        }
-
-        function closeAdminLogin() {
-            document.getElementById('adminLoginModal')?.classList.remove('show');
-        }
-
-        async function doAdminLogin() {
-            const user = document.getElementById('adminLoginUser').value.trim();
-            const pass = document.getElementById('adminLoginPass').value;
-            const errEl = document.getElementById('adminLoginError');
-            const btn = document.getElementById('adminLoginBtn');
-            if (!user || !pass) { errEl.textContent = 'أدخل اسم المستخدم وكلمة المرور'; errEl.style.display = ''; return; }
-            btn.textContent = 'جاري التحقق...';
-            btn.disabled = true;
-            try {
-                await window.LuccaDB.Users.login(user, pass);
-                const currentUser = window.LuccaDB.Users.getCurrentUser();
-                window.currentUser = currentUser || null;
-                if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'manager')) {
-                    if (currentUser.mustChangePassword) {
-                        // إلزامية التغيير: نغلق الدخول ونعرض القفل — لا صلاحية قبل تعيين كلمة مرور جديدة.
-                        closeAdminLogin();
-                        openMustChangeModal();
-                        return;
-                    }
-                    sessionStorage.setItem('posAdminAuthed', '1');
-                    closeAdminLogin();
-                    _showAdminPanelContent();
-                } else {
-                    errEl.textContent = 'ليس لديك صلاحية الدخول لهذه المنطقة';
-                    errEl.style.display = '';
-                    window.LuccaDB.Users.logout();
-                }
-            } catch(e) {
-                errEl.textContent = e.message || 'بيانات الدخول غير صحيحة';
-                errEl.style.display = '';
-            } finally {
-                btn.textContent = 'دخول';
-                btn.disabled = false;
-                if (typeof applyVoidPermission === 'function') applyVoidPermission();
-            }
+            if (!cu) { showToast('لا توجد جلسة مستخدم حالية', 'error'); return; }
+            if (cu.mustChangePassword) { openMustChangeModal(); return; }
+            if (cu.role !== 'admin' && cu.role !== 'manager') { showToast('الوصول مرفوض: لا تملك صلاحية الإدارة', 'error'); return; }
+            _showAdminPanelContent();
         }
 
         function _showAdminPanelContent() {
@@ -1334,7 +1263,6 @@
                 } catch (_) {}
                 if (res && res.status !== 'synced') showToast('تم تغيير كلمة المرور محلياً — ستُزامن مع الخادم لاحقاً');
                 else showToast('تم تغيير كلمة المرور بنجاح');
-                sessionStorage.setItem('posAdminAuthed', '1');
                 window.currentUser = window.LuccaDB.Users.getCurrentUser();
                 _showAdminPanelContent();
                 if (typeof applyVoidPermission === 'function') applyVoidPermission();
@@ -4157,6 +4085,11 @@
                         // Prefill cashier name from logged-in user
                         const _cu = window.LuccaDB.Users.getCurrentUser();
                         window.currentUser = _cu || null;
+                        if (window.electronAPI && typeof window.electronAPI.setAuthContext === 'function' && typeof window.LuccaDB.getAuthSession === 'function') {
+                            try {
+                                await window.electronAPI.setAuthContext(window.LuccaDB.getAuthSession());
+                            } catch(e) { console.warn('[auth-context]', e); }
+                        }
                         if (document.getElementById('cashierNameInput')) document.getElementById('cashierNameInput').value = (_cu && (_cu.name || _cu.username)) || '';
                         // Cache cafe info for invoice generation
                         window._cachedCafeInfo = await getCafeInfo();

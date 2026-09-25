@@ -4,6 +4,32 @@ const fs = require('fs');
 
 let mainWindow;
 let adminWindow;
+let appAuthContext = { authenticated: false, userId: null, username: null, role: null, permissions: [] };
+
+function isKnownRenderer(event) {
+    const senderId = event && event.sender && event.sender.id;
+    return !!senderId && [mainWindow, adminWindow].some(w => w && !w.isDestroyed() && w.webContents.id === senderId);
+}
+
+function sanitizeAuthContext(input) {
+    const value = input && typeof input === 'object' ? input : {};
+    const role = typeof value.role === 'string' ? value.role : null;
+    const permissions = Array.isArray(value.permissions)
+        ? value.permissions.filter(p => typeof p === 'string').slice(0, 200)
+        : [];
+    return {
+        authenticated: value.authenticated === true && !!role,
+        userId: Number.isFinite(Number(value.userId)) ? Number(value.userId) : null,
+        username: typeof value.username === 'string' ? value.username.slice(0, 120) : null,
+        role,
+        permissions
+    };
+}
+
+function canOpenAdminFromContext() {
+    const c = appAuthContext;
+    return !!c.authenticated && (c.role === 'admin' || c.role === 'manager' || c.permissions.includes('*') || c.permissions.includes('admin.read'));
+}
 
 // ===== CONFIG =====
 const GITHUB_OWNER = 'anamasry300-ai';
@@ -121,11 +147,47 @@ app.whenReady().then(() => {
     // Initialize the real update engine (logs to userData, crash/rollback detect)
     updateEngine.init({ app, currentVersion: LOCAL_VERSION, send: sendUpdateState });
 
-    ipcMain.on('open-admin', () => {
+    ipcMain.handle('auth-context-set', async (event, context) => {
+        if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return { ok: false, error: 'invalid_sender' };
+        const input = context && typeof context === 'object' ? context : {};
+        const token = typeof input.sessionToken === 'string' ? input.sessionToken : '';
+        const serverUrl = typeof input.serverUrl === 'string' && /^https?:\/\//i.test(input.serverUrl)
+            ? input.serverUrl.replace(/\/$/, '') : '';
+        if (!token || !serverUrl) {
+            appAuthContext = { authenticated: false, userId: null, username: null, role: null, permissions: [] };
+            return { ok: false, error: 'backend_session_required' };
+        }
+        try {
+            const response = await fetch(serverUrl + '/api/auth/me', {
+                headers: { Authorization: 'Bearer ' + token },
+                signal: AbortSignal.timeout(4000)
+            });
+            if (!response.ok) throw new Error('session_invalid');
+            const body = await response.json();
+            const user = body && body.user ? body.user : {};
+            appAuthContext = sanitizeAuthContext({
+                authenticated: true,
+                userId: user.id,
+                username: user.username,
+                role: user.role,
+                permissions: user.role === 'admin' ? ['*'] : []
+            });
+            return { ok: true, context: appAuthContext };
+        } catch (e) {
+            appAuthContext = { authenticated: false, userId: null, username: null, role: null, permissions: [] };
+            return { ok: false, error: 'backend_session_invalid' };
+        }
+    });
+    ipcMain.handle('auth-context-get', (event) => {
+        if (!isKnownRenderer(event)) return { authenticated: false, error: 'invalid_sender' };
+        return { ...appAuthContext, permissions: [...appAuthContext.permissions] };
+    });
+    ipcMain.handle('open-admin', () => {
+        if (!canOpenAdminFromContext()) return { ok: false, error: 'forbidden' };
         // نافذة واحدة قابلة لإعادة الاستخدام: إن كانت مفتوحة → التركيز عليها بدل فتح نافذة فارغة أخرى
         if (adminWindow && !adminWindow.isDestroyed()) {
             adminWindow.focus();
-            return;
+            return { ok: true, reused: true };
         }
         adminWindow = new BrowserWindow({
             width: 1200,
@@ -152,6 +214,7 @@ app.whenReady().then(() => {
         });
         adminWindow.loadFile(path.join(__dirname, 'admin', 'index.html'));
         adminWindow.on('page-title-updated', (e) => e.preventDefault());
+        return { ok: true, reused: false };
     });
 
     ipcMain.on('open-external', (event, url) => {

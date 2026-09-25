@@ -3757,6 +3757,10 @@ const KnowledgeBase = {
 
 // تصدير للاستخدام
 window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, DailyShifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, ErrorLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, InventoryAlerts, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem };
+// جلسة التطبيق فقط: لا نعرض ServerAPI أو مفاتيح الجهاز للـ preload؛ Main يتحقق من التوكن عبر /api/auth/me.
+window.LuccaDB.getAuthSession = function(){
+    return { sessionToken: ServerAPI.getToken(), serverUrl: ServerAPI.getBaseUrl() };
+};
 
 // ===== SYNC INTEGRATION =====
 // When Supabase is available, enable auto-sync
