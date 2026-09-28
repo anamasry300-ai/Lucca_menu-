@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, globalShortcut, dialog, ipcMain, shell, clipboard, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const SessionManager = require('./main/session-manager');
 
 let mainWindow;
 let adminWindow;
@@ -10,6 +11,17 @@ const GITHUB_OWNER = 'anamasry300-ai';
 const GITHUB_REPO = 'Lucca_menu-';
 const GITHUB_BRANCH = 'main';
 const LOCAL_VERSION = app.getVersion();
+
+// ===== SECURE SESSION (main-process owned) =====
+const appSession = new SessionManager({ serverUrl: process.env.LUCCA_SERVER_URL || 'http://localhost:3000' });
+
+function broadcastSession(channel, payload) {
+    try {
+        for (const w of [mainWindow, adminWindow]) {
+            if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
+        }
+    } catch (e) { }
+}
 
 // ===== REAL PRODUCTION AUTO-UPDATE (electron-updater + GitHub Releases) =====
 const updateEngine = require('./update-engine');
@@ -116,12 +128,57 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+    // Single instance: second launch focuses the running POS instead of opening a copy
+    const gotLock = app.requestSingleInstanceLock();
+    if (!gotLock) {
+        app.quit();
+        return;
+    }
+    app.on('second-instance', () => {
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+        }
+    });
+
     createWindow();
 
     // Initialize the real update engine (logs to userData, crash/rollback detect)
     updateEngine.init({ app, currentVersion: LOCAL_VERSION, send: sendUpdateState });
 
-    ipcMain.on('open-admin', () => {
+    // ===== Session IPC (token held in main-process ONLY — never sent to renderer) =====
+    ipcMain.handle('session:get', () => appSession.session());
+    ipcMain.handle('session:login', async (_e, creds) => {
+        const r = await appSession.login(creds || {});
+        broadcastSession('session-changed', appSession.session());
+        return r;
+    });
+    ipcMain.handle('session:logout', async () => {
+        const r = await appSession.logout();
+        broadcastSession('session-changed', appSession.session());
+        return r;
+    });
+    ipcMain.handle('session:refresh', async () => {
+        const r = await appSession.refresh();
+        broadcastSession('session-changed', appSession.session());
+        return r;
+    });
+    ipcMain.handle('api:request', async (_e, args) => {
+        const r = await appSession.apiRequest(args && args.method, args && args.path, args && args.body);
+        return r;
+    });
+
+    ipcMain.on('open-admin', (event) => {
+        // GATE: no authenticated session → explicit denial (no silent bypass path)
+        const s = appSession.session();
+        if (!s.authenticated || !s.user) {
+            event.sender.send('admin-denied', { reason: 'no-session' });
+            return;
+        }
+        if (s.user.role !== 'admin' && s.user.role !== 'manager') {
+            event.sender.send('admin-denied', { reason: 'no-role' });
+            return;
+        }
         // نافذة واحدة قابلة لإعادة الاستخدام: إن كانت مفتوحة → التركيز عليها بدل فتح نافذة فارغة أخرى
         if (adminWindow && !adminWindow.isDestroyed()) {
             adminWindow.focus();
@@ -131,6 +188,7 @@ app.whenReady().then(() => {
             width: 1200,
             height: 800,
             show: false,
+            parent: mainWindow, // إغلاق POS يغلق لوحة التحكم (واحدة=نفس الجلسة)
             title: 'Lucca Caffè - لوحة التحكم',
             icon: path.join(__dirname, 'icon.ico'),
             webPreferences: {

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getDb, saveDb, queryOne } from '../db.js';
 import {
   verifyPassword, hashPassword, migrateLegacyPassword, createSession, destroySession,
-  getSessionUser, authRequired, getCurrentUser, AuthRequest, SESSION_COOKIE,
+  getSessionUser, authRequired, getCurrentUser, AuthRequest, SESSION_COOKIE, ROLE_PERMISSIONS,
 } from '../auth.js';
 
 const router = Router();
@@ -93,6 +93,20 @@ router.put('/password', authRequired, (req: AuthRequest, res: Response) => {
 router.get('/verify', authRequired, (req: AuthRequest, res: Response) => {
   const id = req.identity!;
   res.json({ authenticated: true, role: id.role, kind: id.kind, username: id.username || null });
+});
+
+// GET /api/auth/permissions — صلاحيات الدور الحالي (سيرفر-فرست، لتوزيع تبويبات الإدارة)
+router.get('/permissions', authRequired, (req: AuthRequest, res: Response) => {
+  const id = req.identity!;
+  const perms = ROLE_PERMISSIONS[id.role] || new Set();
+  const wildcard = perms.has('*');
+  res.json({
+    role: id.role,
+    kind: id.kind,
+    username: id.username || null,
+    wildcard,
+    permissions: wildcard ? [] : Array.from(perms).sort(),
+  });
 });
 
 export default router;

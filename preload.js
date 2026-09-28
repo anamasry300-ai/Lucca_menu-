@@ -13,6 +13,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onImageSaved: (callback) => ipcRenderer.on('image-saved', (e, data) => callback(data)),
     isElectron: true,
 
+    // ===== Secure session bridge (no secrets cross the boundary) =====
+    session: {
+        get: () => ipcRenderer.invoke('session:get'),
+        login: (creds) => ipcRenderer.invoke('session:login', creds),
+        logout: () => ipcRenderer.invoke('session:logout'),
+        refresh: () => ipcRenderer.invoke('session:refresh'),
+        onChanged: (callback) => ipcRenderer.on('session-changed', (e, session) => callback(session)),
+    },
+    apiRequest: (method, path, body) => ipcRenderer.invoke('api:request', { method, path, body }),
+    onAdminDenied: (callback) => ipcRenderer.on('admin-denied', (e, info) => callback(info)),
+
     getVersion: () => ipcRenderer.invoke('get-version'),
     getUpdateState: () => ipcRenderer.invoke('get-update-state'),
 

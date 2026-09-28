@@ -1241,6 +1241,24 @@
             // إلزامية تغيير كلمة المرور: لا يمكن فتح أي واجهة مسؤول قبل التغيير.
             const cu = window.LuccaDB ? window.LuccaDB.Users.getCurrentUser() : null;
             if (cu && cu.mustChangePassword) { openMustChangeModal(); return; }
+            // Electron: جلسة موحّدة مع main-process المفتاح (single sign-on). إن كانت فعّالة بإدارة/أدمن → دخول مباشر بلا شاشة دخول ثانية.
+            if (window.electronAPI && window.electronAPI.session && typeof window.electronAPI.session.get === 'function') {
+                try {
+                    const s = await window.electronAPI.session.get();
+                    if (s && s.authenticated && s.user) {
+                        if (s.user.role === 'admin' || s.user.role === 'manager') {
+                            if (s.user.mustChangePassword) { openMustChangeModal(); return; }
+                            sessionStorage.setItem('posAdminAuthed', '1');
+                            _showAdminPanelContent();
+                            return;
+                        }
+                        document.getElementById('adminLoginError').textContent = 'ليس لديك صلاحية الدخول لهذه المنطقة';
+                        document.getElementById('adminLoginError').style.display = '';
+                        return;
+                    }
+                    // لا جلسة → شاشة الدخول الموحّدة (نفس الحساب الخادمي، لا بديل محلي).
+                } catch(e) {}
+            }
             // Check if already authenticated as admin in this session
             const authed = sessionStorage.getItem('posAdminAuthed');
             if (authed === '1') {
@@ -1937,15 +1955,29 @@
             const url = document.getElementById('serverUrlInput').value.trim();
             const msg = document.getElementById('deviceKeyMsg');
             if (!url) { msg.textContent = '❌ اكتب رابط السيرفر أولاً'; return; }
-            const token = sessionStorage.getItem('luccaToken') || '';
-            if (!token) { msg.textContent = '❌ يجب تسجيل الدخول كمسؤول أولاً للحصول على المفتاح'; return; }
             try {
-                const res = await fetch(`${url}/api/auth/provision-device`, {
-                    method: 'POST', headers: { 'Authorization': 'Bearer ' + token },
-                    signal: AbortSignal.timeout(5000)
-                });
-                const data = await res.json();
-                if (res.ok && data.deviceKey) {
+                let data = null;
+                // Electron: عبر proxy main-process (التوكن في main) — يتطلب جلسة مسؤول فعّالة.
+                if (window.electronAPI && typeof window.electronAPI.apiRequest === 'function') {
+                    const s = await window.electronAPI.session.get();
+                    if (!(s && s.authenticated && s.user)) { msg.textContent = '❌ يجب تسجيل الدخول كمسؤول أولاً للحصول على المفتاح'; return; }
+                    const r = await window.electronAPI.apiRequest('POST', '/api/auth/provision-device');
+                    data = (r && r.json) || {};
+                    if (!r || r.status < 200 || r.status >= 300) {
+                        msg.textContent = '❌ ' + (data.error || 'غير مصرح (يلزم admin)');
+                        return;
+                    }
+                } else {
+                    const token = sessionStorage.getItem('luccaToken') || '';
+                    if (!token) { msg.textContent = '❌ يجب تسجيل الدخول كمسؤول أولاً للحصول على المفتاح'; return; }
+                    const res = await fetch(`${url}/api/auth/provision-device`, {
+                        method: 'POST', headers: { 'Authorization': 'Bearer ' + token },
+                        signal: AbortSignal.timeout(5000)
+                    });
+                    data = await res.json();
+                    if (!res.ok) { msg.textContent = '❌ ' + (data.error || 'غير مصرح (يلزم admin)'); return; }
+                }
+                if (data.deviceKey) {
                     document.getElementById('deviceKeyInput').value = data.deviceKey;
                     msg.textContent = '✅ تم جلب مفتاح الجهاز — اضغط حفظ المفتاح';
                 } else {
@@ -3286,27 +3318,34 @@
                 // Push to server in background
                 setTimeout(async () => {
                     try {
-                        const serverUrl = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
-                        const apiKey = localStorage.getItem('luccaApiKey') || '';
-                        const sessTok = sessionStorage.getItem('luccaToken') || '';
-                        const syncHeaders = { 'Content-Type': 'application/json' };
-                        if (sessTok) syncHeaders['Authorization'] = 'Bearer ' + sessTok;
-                        else if (apiKey) syncHeaders['x-api-key'] = apiKey;
-                        const controller = new AbortController();
-                        const timer = setTimeout(() => controller.abort(), 3000);
-                        await fetch(`${serverUrl}/api/sync`, {
-                            method: 'POST',
-                            headers: syncHeaders,
-                            body: JSON.stringify({
-                                orders: await LuccaDB.Orders.getAll(),
-                                customers: await LuccaDB.Customers.getAll(),
-                                tables: await LuccaDB.Tables.getAll(),
-                                settings: await LuccaDB.Settings.getAll(),
-                                inventory: [], purchases: [], employees: [], attendance: [], users: []
-                            }),
-                            signal: controller.signal
-                        });
-                        clearTimeout(timer);
+                        const payload = {
+                            orders: await LuccaDB.Orders.getAll(),
+                            customers: await LuccaDB.Customers.getAll(),
+                            tables: await LuccaDB.Tables.getAll(),
+                            settings: await LuccaDB.Settings.getAll(),
+                            inventory: [], purchases: [], employees: [], attendance: [], users: []
+                        };
+                        // Electron: عبر proxy main-process (التوكن في main). Browser: مباشر.
+                        if (window.electronAPI && typeof window.electronAPI.apiRequest === 'function') {
+                            const r = await window.electronAPI.apiRequest('POST', '/api/sync', payload);
+                            if (!r || r.status < 200 || r.status >= 300) throw new Error('sync ' + (r ? r.status : 0));
+                        } else {
+                            const serverUrl = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+                            const apiKey = localStorage.getItem('luccaApiKey') || '';
+                            const sessTok = sessionStorage.getItem('luccaToken') || '';
+                            const syncHeaders = { 'Content-Type': 'application/json' };
+                            if (sessTok) syncHeaders['Authorization'] = 'Bearer ' + sessTok;
+                            else if (apiKey) syncHeaders['x-api-key'] = apiKey;
+                            const controller = new AbortController();
+                            const timer = setTimeout(() => controller.abort(), 3000);
+                            await fetch(`${serverUrl}/api/sync`, {
+                                method: 'POST',
+                                headers: syncHeaders,
+                                body: JSON.stringify(payload),
+                                signal: controller.signal
+                            });
+                            clearTimeout(timer);
+                        }
                     } catch(e) {}
                 }, 50);
 
@@ -5432,6 +5471,10 @@
             checkCashDrawerStatus();
             initSyncEngine();
             initOrdersTracker();
+            // بوابة المصادقة الموحّدة: رفض فتح لوحة التحكم (لا جلسة/لا دور) → شاشة الدخول الموحّدة داخل POS.
+            if (window.electronAPI && typeof window.electronAPI.onAdminDenied === 'function') {
+                window.electronAPI.onAdminDenied(() => openAdminPanel());
+            }
         });
 
         // ===== SYNC ENGINE INIT =====
