@@ -217,6 +217,237 @@ class AIPosEngine {
         return this._localDecide(action, amount);
     }
 
+    // ===== P0: طبقة القرار الخادمية — مصدر الحقيقة للكتابة المحمية =====
+    // أي كتابة محمية (سعر / مكونات / وردية) لا تُنفَّذ على IndexedDB قبل موافقة الخادم.
+    // المسار: POST /api/batman/execute ← صلاحية دور الجلسة (لا localStorage) ← مصفوفة باتمان ← تنفيذ + تدقيق.
+    // عند تعذّر الوصول للخادم = رفض (fail-closed): لا كتابة محلية مباشرة.
+    _capsStore() {
+        if (!this._caps) this._caps = { role: '', wildcard: false, permissions: [], at: 0, ok: false };
+        return this._caps;
+    }
+
+    // صلاحيات الدور من الخادم فقط (GET /api/auth/permissions) — مصدر فرست، مع كاش 30 ثانية
+    async refreshServerCaps(force) {
+        const c = this._capsStore();
+        if (!force && c.ok && c.at && (Date.now() - c.at) < 30000) return c;
+        try {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 2500);
+            const res = await fetch(this._serverBase() + '/api/auth/permissions', { headers: this._authHeaders(), signal: ctrl.signal });
+            clearTimeout(timer);
+            if (res.ok) {
+                const j = await res.json();
+                c.role = String(j.role || '');
+                c.wildcard = !!j.wildcard;
+                c.permissions = Array.isArray(j.permissions) ? j.permissions : [];
+                c.at = Date.now();
+                c.ok = true;
+            } else {
+                c.ok = false;
+            }
+        } catch (e) { c.ok = false; }
+        return c;
+    }
+
+    // صلاحية مُعلنة من الخادم (fail-closed: فشل الفحص = لا صلاحية)
+    _capHas(perm) {
+        const c = this._capsStore();
+        if (!c.ok) return false;
+        if (c.wildcard) return true;
+        return c.permissions.indexOf(perm) >= 0;
+    }
+
+    async canServer(perm) {
+        await this.refreshServerCaps();
+        return this._capHas(perm);
+    }
+
+    // قدرات الدور من الخادم (fail-closed) — تستخدمها الواجهة لعزل البيانات المالية قبل سياق LLM
+    async serverCaps() {
+        const c = await this.refreshServerCaps();
+        return {
+            ok: !!c.ok,
+            role: c.role,
+            wildcard: !!c.wildcard,
+            permissions: c.permissions,
+            canViewReports: !!c.ok && (c.wildcard || c.permissions.indexOf('reports.read') >= 0),
+            canViewNetProfit: !!c.ok && !!c.wildcard
+        };
+    }
+
+    // تنفيذ إجراء مسجّل في طبقة القرار على الخادم (يفرض الدور من الجلسة + المصفوفة + سجل التدقيق)
+    async _executeDecision(action, params, opts) {
+        opts = opts || {};
+        const body = {
+            action,
+            params: params || {},
+            eventId: opts.eventId || this._uuid(),
+            requestText: opts.requestText || '',
+            explicitConfirm: !!opts.explicitConfirm
+        };
+        try {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 6000);
+            const res = await fetch(this._serverBase() + '/api/batman/execute', {
+                method: 'POST',
+                headers: this._authHeaders(),
+                body: JSON.stringify(body),
+                signal: ctrl.signal
+            });
+            clearTimeout(timer);
+            let j = null;
+            try { j = await res.json(); } catch (e) {}
+            if (!res.ok) {
+                const err = (j && j.error) || ('/api/batman/execute HTTP ' + res.status);
+                return { ok: false, code: res.status === 401 || res.status === 403 ? 'SESSION_REQUIRED' : 'BACKEND_ERROR', error: err };
+            }
+            return {
+                ok: !!(j && j.decision === 'executed'),
+                decision: (j && j.decision) || 'error',
+                reason: (j && j.reason) || '',
+                requiresApproval: !!(j && j.requiresApproval),
+                executed: !!(j && j.executed),
+                alreadyExecuted: !!(j && j.alreadyExecuted),
+                eventId: (j && j.eventId) || body.eventId,
+                result: j && j.result
+            };
+        } catch (e) {
+            return { ok: false, code: 'BACKEND_UNAVAILABLE', error: 'تعذّر الوصول لخادم القرار — لم يُنفَّذ أي تغيير.' };
+        }
+    }
+
+    // ===== P0: تعديل السعر عبر الخادم (مصدر الحقيقة SQLite) ثم إسقاط النسخة المحلية =====
+    async updateProductPrice(rawProductId, newPrice, rawText, opts) {
+        opts = opts || {};
+        const id = Number(rawProductId);
+        const price = Number(newPrice);
+        if (!Number.isFinite(id) || id <= 0) return { success: false, code: 'INVALID_ID', message: '❌ معرف المنتج غير صالح.' };
+        if (!Number.isFinite(price) || price < 0) return { success: false, code: 'INVALID_PRICE', message: '❌ السعر غير صحيح.' };
+
+        const d = await this._executeDecision('update_product', { id, price }, {
+            eventId: opts.eventId,
+            explicitConfirm: !!opts.confirmed,
+            requestText: (rawText || '') + (opts.confirmed ? ' [تأكيد صريح: نعم]' : '')
+        });
+
+        if (d.code === 'BACKEND_UNAVAILABLE' || d.code === 'BACKEND_ERROR') {
+            return { success: false, code: d.code, message: '⛔ ' + (d.error || 'تعذّر تنفيذ القرار على الخادم — لم يُعدَّل السعر.') };
+        }
+        if (d.code === 'SESSION_REQUIRED') {
+            return { success: false, code: d.code, message: '⛔ لا توجد جلسة صالحة على الخادم — لم يُعدَّل السعر.' };
+        }
+        if (d.decision === 'blocked') {
+            await this.logAudit('update_price_blocked', { productId: id, price, reason: d.reason });
+            return { success: false, code: 'BLOCKED', message: '🔒 ' + (d.reason || 'هذا الإجراء يتطلب صلاحية تعديل المنتجات.') };
+        }
+        if (d.decision === 'needs_approval') {
+            return { success: false, code: 'NEEDS_APPROVAL', requiresConfirmation: true, eventId: d.eventId, message: '🔒 ' + (d.reason || 'يتطلب الإجراء موافقة.') };
+        }
+        if (!d.ok) {
+            return { success: false, code: d.code || 'BACKEND_ERROR', message: '⛔ ' + (d.reason || 'لم يُنفَّذ التعديل.') };
+        }
+
+        // نجح الخادم ⇒ إسقاط النسخة المحلية (عرض/قراءة فقط) بلا أي تغيير محلي مستقل
+        const row = d.result || {};
+        const productId = row.id || id;
+        const newPriceFinal = Number(row.price != null ? row.price : price);
+        try {
+            await window.LuccaDB.Products.update(productId, { price: newPriceFinal });
+        } catch (e) { /* الخادم هو المرجع */ }
+        try {
+            await this.logAudit('update_price', {
+                product: row.nameAr || row.name || opts.productName || productId,
+                productId, oldPrice: opts.oldPrice, newPrice: newPriceFinal, via: 'server'
+            });
+        } catch (e) {}
+        return {
+            success: true,
+            serverAuthoritative: true,
+            productId,
+            newPrice: newPriceFinal,
+            oldPrice: opts.oldPrice
+        };
+    }
+
+    // ===== P0: تحديث مكونات المنتج عبر الخادم =====
+    async updateProductComponents(productId, components, rawText, opts) {
+        opts = opts || {};
+        const id = Number(productId);
+        if (!Number.isFinite(id) || id <= 0) return { success: false, code: 'INVALID_ID', message: '❌ معرف المنتج غير صالح.' };
+        let comps = components;
+        if (typeof comps === 'string') {
+            try { comps = JSON.parse(comps); } catch (e) { return { success: false, code: 'INVALID_JSON', message: '❌ صيغة المكونات غير صالحة.' }; }
+        }
+        if (!Array.isArray(comps) || comps.length === 0) return { success: false, code: 'INVALID_INPUT', message: '❌ حدّد المكونات كمصفوفة.' };
+
+        const d = await this._executeDecision('update_product', { id, components: JSON.stringify(comps) }, {
+            eventId: opts.eventId,
+            explicitConfirm: !!opts.confirmed,
+            requestText: (rawText || '') + (opts.confirmed ? ' [تأكيد صريح: نعم]' : '')
+        });
+
+        if (d.code === 'BACKEND_UNAVAILABLE' || d.code === 'BACKEND_ERROR' || d.code === 'SESSION_REQUIRED') {
+            return { success: false, code: d.code, message: '⛔ ' + (d.error || 'تعذّر تنفيذ القرار على الخادم — لم تُعدَّل المكونات.') };
+        }
+        if (d.decision === 'blocked') {
+            await this.logAudit('update_components_blocked', { productId: id, reason: d.reason });
+            return { success: false, code: 'BLOCKED', message: '🔒 ' + (d.reason || 'هذا الإجراء يتطلب صلاحية تعديل المنتجات.') };
+        }
+        if (d.decision === 'needs_approval') {
+            return { success: false, code: 'NEEDS_APPROVAL', requiresConfirmation: true, eventId: d.eventId, message: '🔒 ' + (d.reason || 'يتطلب الإجراء موافقة.') };
+        }
+        if (!d.ok) {
+            return { success: false, code: d.code || 'BACKEND_ERROR', message: '⛔ ' + (d.reason || 'لم يُنفَّذ التعديل.') };
+        }
+
+        const row = d.result || {};
+        try {
+            await window.LuccaDB.Products.update(row.id || id, { components: row.components != null ? row.components : JSON.stringify(comps) });
+        } catch (e) { /* الخادم هو المرجع */ }
+        try { await this.logAudit('update_components', { productId: row.id || id, via: 'server' }); } catch (e) {}
+        return { success: true, serverAuthoritative: true, productId: row.id || id, components: comps };
+    }
+
+    // ===== P0: وردية الموظف عبر الخادم (مصدر الحقيقة SQLite) =====
+    async manageEmployeeShift(intent, employeeId, rawText, opts) {
+        opts = opts || {};
+        const id = Number(employeeId);
+        if (!Number.isFinite(id) || id <= 0) return { success: false, code: 'INVALID_ID', message: '❌ معرف الموظف غير صالح.' };
+        const isStart = intent !== 'end';
+        const action = isStart ? 'open_employee_shift' : 'close_employee_shift';
+
+        const d = await this._executeDecision(action, isStart ? { employeeId: id } : { employeeId: id }, {
+            eventId: opts.eventId,
+            explicitConfirm: !!opts.confirmed,
+            requestText: rawText || ''
+        });
+
+        if (d.code === 'BACKEND_UNAVAILABLE' || d.code === 'BACKEND_ERROR' || d.code === 'SESSION_REQUIRED') {
+            return { success: false, code: d.code, message: '⛔ ' + (d.error || 'تعذّر تنفيذ القرار على الخادم — لم تتغيّر حالة الوردية.') };
+        }
+        if (d.decision === 'blocked') {
+            await this.logAudit((isStart ? 'shift_start' : 'shift_end') + '_blocked', { employeeId: id, reason: d.reason });
+            return { success: false, code: 'BLOCKED', message: '🔒 ' + (d.reason || 'إدارة الورديات تتطلب صلاحية مدير.') };
+        }
+        if (d.decision === 'needs_approval') {
+            return { success: false, code: 'NEEDS_APPROVAL', requiresConfirmation: true, eventId: d.eventId, message: '🔒 ' + (d.reason || 'يتطلب الإجراء موافقة.') };
+        }
+        if (!d.ok) {
+            return { success: false, code: d.code || 'BACKEND_ERROR', message: '⛔ ' + (d.reason || 'لم تُنفَّذ العملية.') };
+        }
+
+        const row = d.result || {};
+        try {
+            if (isStart) {
+                await window.LuccaDB.Shifts.start(id, row.notes || '');
+            } else {
+                await window.LuccaDB.Shifts.end(id);
+            }
+        } catch (e) { /* الخادم هو المرجع؛ قد يكون السجل المحلي مغلقاً مسبقاً */ }
+        try { await this.logAudit(isStart ? 'shift_start' : 'shift_end', { employeeId: id, via: 'server' }); } catch (e) {}
+        return { success: true, serverAuthoritative: true, employeeId: id, row };
+    }
+
     // تسجيل قرار بتاريخه في سجل باتمان بالسيرفر.
     // At-least-once: يحمل eventId فريداً (idempotent على السيرفر)، وعند فشل الشبكة
     // يُخزَّن في outbox محلي ويُصرف أوتوماتيكياً مع أول اتصال — لا يضيع الـ audit trail.
@@ -1535,13 +1766,9 @@ class AIPosEngine {
     }
 
     async toolUpdatePrice(params) {
-        // مصفوفة باتمان: تعديل السعر يتطلب دور مدير على الأقل
-        const priceDecision = await this._decide('update_price', 0);
-        if (priceDecision.decision === 'blocked') {
-            return { success: false, message: '🔒 ' + priceDecision.reason };
-        }
-
+        params = params || {};
         const text = params._rawText || '';
+        const confirmed = !!params._confirmed;
         const m = text.match(/(?:سعر|price)\s+(.+?)\s+(\d+)/i) || text.match(/(\D+?)\s+(\d+)\s*(?:ل.س|جنيه|pound)?/i);
         if (!m) return { success: false, message: '❌ حدد المنتج والسعر الجديد.\nمثال: "تعديل سعر لاتيه 50"' };
         const prodName = m[1].trim();
@@ -1556,12 +1783,22 @@ class AIPosEngine {
             });
             if (!found) return { success: false, message: '❌ ما لقيت منتج اسمه "' + prodName + '"' };
 
-            const oldPrice = found.price;
-            await window.LuccaDB.Products.update(found.id, { price: newPrice });
-            await this.logAudit('update_price', { product: found.nameAr || found.name, oldPrice, newPrice });
-            try { await this._recordBatmanDecision('update_price', { product: found.nameAr || found.name, oldPrice, newPrice }); } catch (e) { /* best-effort */ }
+            // P0: القرار على الخادم (دور الجلسة + مصفوفة باتمان + سجل تدقيق) — لا كتابة محلية قبلها
+            const r = await this.updateProductPrice(found.id, newPrice, text, {
+                confirmed,
+                eventId: params._eventId,
+                oldPrice: found.price,
+                productName: found.nameAr || found.name
+            });
 
-            return { success: true, message: '✅ تم تعديل السعر!\n📦 ' + (found.nameAr || found.name) + '\n💰 القديم: ' + this._fmtMoney(oldPrice) + ' ل.س\n💰 الجديد: **' + this._fmtMoney(newPrice) + ' ل.س**' };
+            if (r.code === 'NEEDS_APPROVAL') {
+                this.pendingConfirmation = true;
+                this.pendingAction = { intent: 'update_price', params: { _rawText: text, _confirmed: true, _eventId: r.eventId } };
+                return { success: false, requiresConfirmation: true, message: '🔒 ' + r.message + '\nاكتب "نعم" للتأكيد أو "إلغاء" للتراجع.' };
+            }
+            if (!r.success) return { success: false, message: r.message };
+
+            return { success: true, message: '✅ تم تعديل السعر (عبر الخادم)!\n📦 ' + (found.nameAr || found.name) + '\n💰 القديم: ' + this._fmtMoney(r.oldPrice) + ' ل.س\n💰 الجديد: **' + this._fmtMoney(r.newPrice) + ' ل.س**' };
         } catch (e) {
             return { success: false, message: '❌ ' + e.message };
         }

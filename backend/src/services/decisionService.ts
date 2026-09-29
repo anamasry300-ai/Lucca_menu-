@@ -365,6 +365,30 @@ const ACTIONS: Record<string, DecisionAction> = {
     amountOf: (p) => num(p.actualCash),
     handler: (p) => shift.closeDailyShift(String(p.date || ''), num(p.actualCash), str(p.notes)),
   },
+  open_employee_shift: {
+    name: 'open_employee_shift',
+    description: 'بدء وردية موظف (حضور تشغيلي)',
+    permission: 'shifts.write',
+    matrixAction: 'open_employee_shift',
+    requiresConfirmation: false,
+    auditAction: 'shifts.employee_open',
+    readOnly: false,
+    inputSchema: { employeeId: 'number', date: 'string', notes: 'string' },
+    amountOf: () => 0,
+    handler: (p) => shift.startEmployeeShift(p.employeeId, str(p.date), str(p.notes)),
+  },
+  close_employee_shift: {
+    name: 'close_employee_shift',
+    description: 'إنهاء وردية موظف (انصراف تشغيلي)',
+    permission: 'shifts.write',
+    matrixAction: 'close_employee_shift',
+    requiresConfirmation: false,
+    auditAction: 'shifts.employee_close',
+    readOnly: false,
+    inputSchema: { employeeId: 'number', notes: 'string' },
+    amountOf: () => 0,
+    handler: (p) => shift.endEmployeeShift(p.employeeId, str(p.notes)),
+  },
 };
 
 export function listActions(): DecisionActionDescriptor[] {

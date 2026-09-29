@@ -62,7 +62,7 @@ const D = '2026-09-10';
     const decisionMod = await import(pathToFileURL(path.join(BACKEND, 'dist', 'services', 'decisionService.js')).href);
     const permMod = await import(pathToFileURL(path.join(BACKEND, 'dist', 'services', 'permissionService.js')).href);
 
-    record('listActions → 26 أداة موثقة', decisionMod.listActions().length === 26, `count=${decisionMod.listActions().length}`);
+    record('listActions → 28 أداة موثقة', decisionMod.listActions().length === 28, `count=${decisionMod.listActions().length}`);
     const first = decisionMod.listActions()[0];
     record('أداة تحمل كامل الوصف (permission/matrixAction/readOnly)', !!(first && first.permission && first.matrixAction && first.readOnly === false && first.requiresConfirmation !== undefined && first.inputSchema), JSON.stringify(first).slice(0, 140));
 
@@ -148,9 +148,9 @@ const D = '2026-09-10';
     let r = await fetch(`${BASE}/api/batman/actions`, { method: 'GET' });
     record('GET /api/batman/actions بلا هوية → 401', r.status === 401, `status=${r.status}`);
     r = await api('GET', '/api/batman/actions');
-    record('GET /api/batman/actions أدمن → 200 + count=26', r.status === 200 && r.j.count === 26 && Array.isArray(r.j.actions), `count=${r.j && r.j.count}`);
+    record('GET /api/batman/actions أدمن → 200 + count=28', r.status === 200 && r.j.count === 28 && Array.isArray(r.j.actions), `count=${r.j && r.j.count}`);
     r = await api('GET', '/api/batman/actions', null, asDevice());
-    record('GET /api/batman/actions device → 200 (غير إدارية)', r.status === 200 && r.j.count === 26, `status=${r.status}`);
+    record('GET /api/batman/actions device → 200 (غير إدارية)', r.status === 200 && r.j.count === 28, `status=${r.status}`);
 
     // ===== تنفيذ عبر طبقة القرار (HTTP) =====
     r = await fetch(`${BASE}/api/batman/execute`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create_category', params: {} }) });
