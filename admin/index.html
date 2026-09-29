@@ -2458,31 +2458,36 @@ async function localDashboardFallback(path){
         const categories = await window.LuccaDB.Categories.getAll();
         const payments = await window.LuccaDB.PaymentMethods.getAll();
 
+        // P0 (العقد §1.1): شرط الإدراج = paymentStatus='paid' حصراً؛
+        // يوم الطلب = orders.date؛ يوم الاسترداد = refunds.createdAt أولاً؛
+        // الخصم = discountAmount (المبلغ) لا discount (نسبة مئوية)؛
+        // AOV = Σ total ÷ عدد المدفوعة (ما قبل الاسترداد) — مطابق لـ AdminAnalytics.compute.
+        const _day = v => String(v||'').slice(0,10);
         const filteredOrders = orders.filter(o => {
-            const d = (o.date || o.createdAt || '').slice(0,10);
+            const d = _day(o.date);
             return d >= from && d <= to;
         });
-        const completed = filteredOrders.filter(o => o.paymentStatus === 'paid' || o.status === 'completed' || o.status === 'closed');
+        const completed = filteredOrders.filter(o => String(o.paymentStatus||'').toLowerCase() === 'paid');
         const totalSalesGross = completed.reduce((s,o) => s + (o.total || o.totalAmount || 0), 0);
         const allRefundsStore = await window.LuccaDB.db.getAll('refunds');
         const rangeRefundsArr = allRefundsStore.filter(r => {
-            const d = (r.date || r.createdAt || r.updatedAt || '').slice(0,10);
+            const d = _day(r.createdAt || r.date || r.updatedAt);
             return d >= from && d <= to;
         });
         const rangeRefunds = rangeRefundsArr.reduce((s,r) => s + Number(r.amount||0), 0);
         const totalSales = totalSalesGross - rangeRefunds;
-        const totalDiscounts = filteredOrders.reduce((s,o) => s + (o.discount || 0), 0);
+        const totalDiscounts = completed.reduce((s,o) => s + (Number(o.discountAmount) || 0), 0);
         const totalRefunds = rangeRefunds;
-        const avgOrder = completed.length > 0 ? Math.round(totalSales / completed.length) : 0;
+        const avgOrder = completed.length > 0 ? Math.round(totalSalesGross / completed.length) : 0;
 
         if(path.startsWith('/dashboard/kpis')){
             return { sales:{value:totalSales}, orders:{value:completed.length}, avgOrder:{value:avgOrder}, discounts:{value:totalDiscounts}, refunds:{value:totalRefunds} };
         }
         if(path.startsWith('/dashboard/sales-by-day')){
             const refundByDay = {};
-            rangeRefundsArr.forEach(r => { const d = (r.date||r.createdAt||r.updatedAt||'').slice(0,10); refundByDay[d] = (refundByDay[d]||0) + Number(r.amount||0); });
+            rangeRefundsArr.forEach(r => { const d = _day(r.createdAt || r.date || r.updatedAt); refundByDay[d] = (refundByDay[d]||0) + Number(r.amount||0); });
             const dayMap = {};
-            completed.forEach(o => { const d = (o.date||o.createdAt||'').slice(0,10); dayMap[d] = ((dayMap[d]||0) + (o.total||0)) - (refundByDay[d]||0); });
+            completed.forEach(o => { const d = _day(o.date); dayMap[d] = ((dayMap[d]||0) + (o.total||0)) - (refundByDay[d]||0); });
             return Object.entries(dayMap).map(([date,revenue]) => ({date,revenue})).sort((a,b) => a.date.localeCompare(b.date));
         }
         if(path.startsWith('/dashboard/sales-by-category')){

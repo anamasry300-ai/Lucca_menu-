@@ -183,39 +183,89 @@ window.BatmanDashboard = (function(){
     function money(n){ return (Number(n)||0).toLocaleString('ar-EG',{maximumFractionDigits:0}); }
     function today() { return new Date().toISOString().slice(0,10); }
     function startOfYearPrefix(d){ d = d||new Date(); return d.toISOString().slice(0,4); }
+    function dayKey(date){ return String(date||'').slice(0,10); }
+
+    // ===== P0: مصدر الأرقام المالية = reportService على السيرفر (مصدر الحقيقة) =====
+    // كانBatman يعيد اشتقاق اليومية محلياً من IndexedDB (مرآة Possibly لا تزال) فيظهر
+    // رقم مختلف عن Reports عند اختلاف صيغة الطابع أو تأخر المزامنة. الآن:
+    //   1) نقرأ /api/reports/sales من reportService (نفس مسار Reports في الواجهة).
+    //   2) عند تعذّر الشبكة/الصلاحية نرجع للاشتقاق المحلي — دون كسر أي أداة.
+    // الأدوات تبقى قراءة-فOnly ولا يوجد أي تطوير للوكيل/الذاكرة/التعلّم.
+    async function canonicalReport(kind, from, to){
+        try {
+            var api = window.LuccaDB && window.LuccaDB.ServerAPI;
+            if (!api || typeof api.get !== 'function') return null;
+            var j = await api.get('/api/reports/' + kind + '?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+            return (j && typeof j === 'object') ? j : null;
+        } catch(e){ return null; /* offline / no permission → fallback محلي */ }
+    }
+
+    // reportService → نفس تعريف العقد: netSales = Σ total − Σ refunds
+    async function canonicalSales(from, to){
+        var j = await canonicalReport('sales', from, to);
+        if (!j || typeof j.revenue !== 'number' || typeof j.netSales !== 'number') return null;
+        return {
+            sales: Number(j.netSales) || 0,
+            gross: Number(j.revenue) || 0,
+            count: Number(j.orders) || 0,
+            refunds: Number(j.refunds) || 0,
+            discounts: Number(j.discounts) || 0,
+            avgOrder: Number(j.avgOrder) || 0,
+            cancelled: Number(j.cancelled) || 0,
+            payments: j.payments || null,
+            topProducts: j.topProducts || null,
+            byDay: j.byDay || null,
+            source: 'reportService'
+        };
+    }
 
     // ============ READ-ONLY REAL-DATA TOOLS ============
     // كل هذه الأدوات قراءة-فقط (SAFE) — لا تُعدّل أي بيانات.
     var BMRuntimeTools = {
         // ---- SALES ----
         async salesToday(){
+            var p = today();
+            var c = await canonicalSales(p, p);
+            if (c) return { sales: c.sales, gross: c.gross, count: c.count, refunds: c.refunds, source: c.source };
             var db = window.LuccaDB && window.LuccaDB.db;
             if(!db) throw new Error('قاعدة البيانات غير متاحة');
             var orders = await db.getAll('orders');
             var refunds = await db.getAll('refunds');
-            var p = today();
-            var paid = (orders||[]).filter(o => String(o.paymentStatus||'').toLowerCase()==='paid' && (o.createdAt||o.date||'').slice(0,p.length)===p);
+            var paid = (orders||[]).filter(o => String(o.paymentStatus||'').toLowerCase()==='paid' && dayKey(o.date)===p);
             var sales = paid.reduce(function(s,o){return s+Number(o.total||o.totalAmount||0);},0);
-            var ref = (refunds||[]).filter(r=>(r.createdAt||r.updatedAt||r.date||'').slice(0,p.length)===p);
+            var ref = (refunds||[]).filter(r=>dayKey(r.createdAt||r.updatedAt||r.date)===p);
             var refundTotal = ref.reduce(function(s,r){return s+Number(r.amount||0);},0);
-            return { sales: sales-refundTotal, gross: sales, count: paid.length, refunds: refundTotal };
+            return { sales: sales-refundTotal, gross: sales, count: paid.length, refunds: refundTotal, source: 'local' };
         },
         async salesByPayment(){
+            var p = today();
+            var c = await canonicalSales(p, p);
+            if (c && c.payments) {
+                return c.payments.map(function(r){
+                    return { method: String(r.method||'أخرى'), value: Number(r.total)||0, count: Number(r.count)||0 };
+                }).sort(function(a,b){return b.value-a.value;});
+            }
             var db = window.LuccaDB && window.LuccaDB.db;
             if(!db) return [];
             var orders = (await db.getAll('orders'))||[];
             var p = today();
-            var paid = orders.filter(o => String(o.paymentStatus||'').toLowerCase()==='paid' && (o.createdAt||o.date||'').slice(0,p.length)===p);
+            var paid = orders.filter(o => String(o.paymentStatus||'').toLowerCase()==='paid' && dayKey(o.date)===p);
             var map = {};
             paid.forEach(o=>{ var m = o.paymentMethod||'أخرى'; map[m]=(map[m]||0)+Number(o.total||o.totalAmount||0); });
             return Object.keys(map).map(function(k){return {method:k, value:map[k]};}).sort(function(a,b){return b.value-a.value;});
         },
         async productTotals(){
+            var p = today();
+            var c = await canonicalSales(p, p);
+            if (c && c.topProducts) {
+                return c.topProducts.slice(0,8).map(function(r){
+                    return { name: String(r.name||r.productName||'متنوع'), qty: Number(r.quantity||r.qty||r.totalSold||0) };
+                });
+            }
             var db = window.LuccaDB && window.LuccaDB.db;
             if(!db) return [];
             var orders = (await db.getAll('orders'))||[];
-            var p = today();
-            var paid = orders.filter(o => String(o.paymentStatus||'').toLowerCase()==='paid' && (o.createdAt||o.date||'').slice(0,p.length)===p);
+            var paid = orders.filter(o => String(o.paymentStatus||'').toLowerCase()==='paid' && dayKey(o.date)===p);
             var map = {};
             paid.forEach(function(o){
                 (o.items||[]).forEach(function(it){
@@ -240,33 +290,44 @@ window.BatmanDashboard = (function(){
             return orders.filter(function(o){ var s=o.status||o.paymentStatus||''; return s!=='closed' && s!=='paid' && s!=='completed' && s!=='cancelled'; }).length;
         },
         // ---- FINANCIAL ----
-        async expensesToday(){
+        // P0: expenses من reportService أيضاً (Σ expenses.amount للفترة) — نفس مصدر الحقيقة.
+        async expensesOn(date){
+            var p = dayKey(date || today());
+            var j = await canonicalReport('expenses', p, p);
+            if (j && typeof j.total === 'number') return { total: j.total, count: Number(j.count)||0, source: 'reportService' };
             var db = window.LuccaDB && window.LuccaDB.db;
-            if(!db) return { total:0, count:0 };
+            if(!db) return { total:0, count:0, source: 'local' };
             var all = (await db.getAll('expenses'))||[];
-            var p = today();
-            var list = all.filter(function(x){ var d=x.date||x.createdAt||''; return d.slice(0,p.length)===p; });
-            return { total: list.reduce(function(s,x){return s+Number(x.amount||0);},0), count: list.length };
+            var list = all.filter(function(x){ return dayKey(x.date || x.createdAt)===p; });
+            return { total: list.reduce(function(s,x){return s+Number(x.amount||0);},0), count: list.length, source: 'local' };
+        },
+        async expensesToday(){
+            return this.expensesOn(today());
         },
         async purchasesTotal(){
+            // P0: المشتريات ليست مصروفاً (عقد §1.2) ولا تدخل أي مؤشر ربح.
+            // تُقرأ كمعلومة تشغيلية فقط، بلا خصم من الأرباح.
             var db = window.LuccaDB && window.LuccaDB.db;
             if(!db) return 0;
             var all = (await db.getAll('purchases'))||[];
             var p = today();
-            var list = all.filter(function(x){ var d=x.date||x.createdAt||''; return d.slice(0,p.length)===p; });
+            var list = all.filter(function(x){ return dayKey(x.date || x.createdAt)===p; });
             return list.reduce(function(s,x){ return s + Number(x.total||x.totalCost||x.amount||0); },0);
         },
         async yearSales(){
+            var y = today().slice(0,4);
+            var c = await canonicalSales(y + '-01-01', y + '-12-31');
+            if (c) return { sales: c.sales, gross: c.gross, count: c.count, refunds: c.refunds, source: c.source };
             var db = window.LuccaDB && window.LuccaDB.db;
-            if(!db) return { sales:0, refunds:0, count:0 };
+            if(!db) return { sales:0, refunds:0, count:0, source: 'local' };
             var orders = (await db.getAll('orders'))||[];
             var refunds = (await db.getAll('refunds'))||[];
             var p = startOfYearPrefix();
-            var paid = orders.filter(function(o){ return String(o.paymentStatus||'').toLowerCase()==='paid' && (o.createdAt||o.date||'').slice(0,p.length)===p; });
+            var paid = orders.filter(function(o){ return String(o.paymentStatus||'').toLowerCase()==='paid' && dayKey(o.date).slice(0,4)===p; });
             var sales = paid.reduce(function(s,o){return s+Number(o.total||o.totalAmount||0);},0);
-            var ref = (refunds||[]).filter(function(r){ return (r.createdAt||r.updatedAt||r.date||'').slice(0,p.length)===p; });
+            var ref = (refunds||[]).filter(function(r){ return dayKey(r.createdAt||r.updatedAt||r.date).slice(0,4)===p; });
             var refundTotal = ref.reduce(function(s,r){return s+Number(r.amount||0);},0);
-            return { sales: sales-refundTotal, gross: sales, count: paid.length, refunds: refundTotal };
+            return { sales: sales-refundTotal, gross: sales, count: paid.length, refunds: refundTotal, source: 'local' };
         },
         // ---- EMPLOYEES ----
         async employeesActive(){
@@ -280,14 +341,14 @@ window.BatmanDashboard = (function(){
             if(!db) return [];
             var all = (await db.getAll('attendance'))||[];
             var p = today();
-            return all.filter(function(a){ return (a.date||a.createdAt||'').slice(0,p.length)===p; });
+            return all.filter(function(a){ return dayKey(a.date||a.createdAt)===p; });
         },
         async shiftsToday(){
             var db = window.LuccaDB && window.LuccaDB.db;
             if(!db) return [];
             var all = (await db.getAll('shifts'))||[];
             var p = today();
-            return all.filter(function(s){ return (s.date||s.createdAt||'').slice(0,p.length)===p; });
+            return all.filter(function(s){ return dayKey(s.date||s.createdAt)===p; });
         },
         // ---- SYSTEM ----
         async dbStatus(){
@@ -327,39 +388,37 @@ window.BatmanDashboard = (function(){
                 openTables: tables.length,
                 openOrders: open,
                 activeEmployees: emp.length,
-                profit: s.sales - e.total
+                // P0: الربح التشغيلي = GrossProfit − Expenses، وCOGS قد يكون غير متاح.
+                // اشتقاق الربح بـ(− expenses) فقط تبسيط يُوسم صريحاً، والمشتريات لا تُطرح.
+                profitBeforeCogs: s.sales - e.total,
+                profitLabel: 'قبل تكلفة البضاعة (COGS غير متاح هنا)',
+                source: s.source || 'local'
             };
         },
         // ---- ANALYSIS (قراءة-فقط) ----
-        // مبيعات وأرقام ليوم محدد (YYYY-MM-DD)
+        // مبيعات وأرقام ليوم محدد (YYYY-MM-DD) — من reportService عند توفّره
         async salesOn(date){
+            var p = dayKey(date || today());
+            var c = await canonicalSales(p, p);
+            if (c) return { sales: c.sales, gross: c.gross, count: c.count, refunds: c.refunds, discounts: c.discounts, avgOrder: c.avgOrder, source: c.source };
             var db = window.LuccaDB && window.LuccaDB.db;
-            if(!db) return { sales:0, gross:0, count:0, refunds:0 };
+            if(!db) return { sales:0, gross:0, count:0, refunds:0, source: 'local' };
             var orders = await db.getAll('orders');
             var refunds = await db.getAll('refunds');
-            var p = String(date||today()).slice(0,10);
-            var paid = (orders||[]).filter(o => String(o.paymentStatus||'').toLowerCase()==='paid' && (o.createdAt||o.date||'').slice(0,p.length)===p);
+            var paid = (orders||[]).filter(o => String(o.paymentStatus||'').toLowerCase()==='paid' && dayKey(o.date)===p);
             var sales = paid.reduce(function(s,o){return s+Number(o.total||o.totalAmount||0);},0);
-            var ref = (refunds||[]).filter(r=>(r.createdAt||r.updatedAt||r.date||'').slice(0,p.length)===p);
+            var ref = (refunds||[]).filter(r=>dayKey(r.createdAt||r.updatedAt||r.date)===p);
             var refundTotal = ref.reduce(function(s,r){return s+Number(r.amount||0);},0);
-            return { sales: sales-refundTotal, gross: sales, count: paid.length, refunds: refundTotal };
+            return { sales: sales-refundTotal, gross: sales, count: paid.length, refunds: refundTotal, source: 'local' };
         },
-        // مصروفات ليوم محدد
-        async expensesOn(date){
-            var db = window.LuccaDB && window.LuccaDB.db;
-            if(!db) return { total:0, count:0 };
-            var all = (await db.getAll('expenses'))||[];
-            var p = String(date||today()).slice(0,10);
-            var list = all.filter(function(x){ var d=x.date||x.createdAt||''; return d.slice(0,p.length)===p; });
-            return { total: list.reduce(function(s,x){return s+Number(x.amount||0);},0), count: list.length };
-        },
-        // مشتريات ليوم محدد
+        // مصروفات ليوم محدد — تنفّذ الآن في expensesOn أعلاه (reportService ثم محلي)
+        // مشتريات ليوم محدد (معلومة تشغيلية — ليست مصروفاً)
         async purchasesOn(date){
             var db = window.LuccaDB && window.LuccaDB.db;
             if(!db) return 0;
             var all = (await db.getAll('purchases'))||[];
-            var p = String(date||today()).slice(0,10);
-            var list = all.filter(function(x){ var d=x.date||x.createdAt||''; return d.slice(0,p.length)===p; });
+            var p = dayKey(date || today());
+            var list = all.filter(function(x){ return dayKey(x.date || x.createdAt)===p; });
             return list.reduce(function(s,x){ return s + Number(x.total||x.totalCost||x.amount||0); },0);
         },
         // اتجاه المبيعات لآخر n أيام (آخرها اليوم)
@@ -379,11 +438,12 @@ window.BatmanDashboard = (function(){
             var db = window.LuccaDB && window.LuccaDB.db;
             if(!db) return [];
             var orders = (await db.getAll('orders'))||[];
-            var p = String(date||today()).slice(0,10);
-            var paid = orders.filter(function(o){ return String(o.paymentStatus||'').toLowerCase()==='paid' && (o.createdAt||o.date||'').slice(0,p.length)===p; });
+            var p = dayKey(date || today());
+            // P0: يوم الطلب = orders.date (المصدر المرجعي)، لا createdAt.
+            var paid = orders.filter(function(o){ return String(o.paymentStatus||'').toLowerCase()==='paid' && dayKey(o.date)===p; });
             var map = {};
             paid.forEach(function(o){
-                var ds = String(o.createdAt||o.date||'');
+                var ds = String(o.date||'');
                 var h = /T(\d{2}):/.test(ds) ? parseInt(ds.match(/T(\d{2}):/)[1],10) : null;
                 if(h===null) { var m2 = ds.match(/(\d{2}):(\d{2})/); if(m2) h = parseInt(m2[1],10); }
                 if(h!==null) map[h] = (map[h]||0) + 1;
@@ -438,19 +498,30 @@ window.BatmanDashboard = (function(){
             } catch(e){ return {}; }
         },
         // اتجاه مصغّر لآخر n أيام بقراءة واحدة (سرعة بدل n استدعاءات)
+        // P0: طلب واحد إلى reportService لكل النطاق (نفس مصدر Reports) — لا اشتقاق محلي لليوم.
         async salesTrendCompact(n){
             n = n||5;
+            var keys=[], i;
+            for(i=n-1;i>=0;i--){ var dd=new Date(); dd.setDate(dd.getDate()-i); keys.push(dayKey(dd.toISOString())); }
+            var c = await canonicalSales(keys[0], keys[keys.length-1]);
+            if (c && c.byDay) {
+                var byDayS = {};
+                // P0: استخدم `net` (صافي بعد الاسترداد) لا `revenue` (إجمالي قبل الاسترداد) —
+                // بما يطابق salesToday/salesOn/yearSales والـ fallback المحلي أدناه.
+                c.byDay.forEach(function(row){ byDayS[dayKey(row.date)] = row.net != null ? Number(row.net) : (Number(row.revenue)||0); });
+                var trendS = [];
+                keys.forEach(function(k){ trendS.push([k.slice(5), byDayS[k] != null ? byDayS[k] : 0]); });
+                return trendS;
+            }
             var db = window.LuccaDB && window.LuccaDB.db;
             if(!db) return [];
             try {
                 var orders=(await db.getAll('orders'))||[];
                 var refunds=(await db.getAll('refunds'))||[];
-                var keys=[], i;
-                for(i=n-1;i>=0;i--){ var dd=new Date(); dd.setDate(dd.getDate()-i); keys.push(dd.toISOString().slice(0,10)); }
                 var byDay={};
                 keys.forEach(function(k){ byDay[k]=0; });
-                orders.forEach(function(o){ if(String(o.paymentStatus||'').toLowerCase()==='paid'){ var d=(o.createdAt||o.date||'').slice(0,10); if(byDay[d]!=null) byDay[d]+=Number(o.total||o.totalAmount||0); } });
-                refunds.forEach(function(r){ var d=(r.createdAt||r.updatedAt||r.date||'').slice(0,10); if(byDay[d]!=null) byDay[d]-=Number(r.amount||0); });
+                orders.forEach(function(o){ if(String(o.paymentStatus||'').toLowerCase()==='paid'){ var d=dayKey(o.date); if(byDay[d]!=null) byDay[d]+=Number(o.total||o.totalAmount||0); } });
+                refunds.forEach(function(r){ var d=dayKey(r.createdAt||r.updatedAt||r.date); if(byDay[d]!=null) byDay[d]-=Number(r.amount||0); });
                 var trend=[];
                 keys.forEach(function(k){ trend.push([k.slice(5), byDay[k]]); }); // MM-DD
                 return trend;
@@ -483,7 +554,9 @@ window.BatmanDashboard = (function(){
                 out.sales={ today:Math.round(s.sales), orders:s.count, refunds:Math.round(s.refunds) };
                 out.payments=(pay||[]).slice(0,3).map(function(x){ return [x.method, Math.round(x.value)]; });
                 out.top=(top||[]).slice(0,3).map(function(x){ return [x.name, x.qty]; });
-                out.profit={ net:Math.round(s.sales-e.total-pur), expenses:Math.round(e.total), purchases:Math.round(pur) };
+                // P0 (عقد §1.2): المشتريات تحويل أصول وليست مصروفاً — لا تُطرح من الربح.
+                // وCOGS غير متاح هنا ← يُوسم الرقم صراحةً بأنه «قبل تكلفة البضاعة».
+                out.profit={ beforeCogs:Math.round(s.sales-e.total), expenses:Math.round(e.total), purchases:Math.round(pur), label:'قبل تكلفة البضاعة' };
                 out.tables={ open:tables.length, ordersOpen:open };
                 out.inventory={ count:low.length, items:low.slice(0,4).map(function(i){ return [i.name,i.qty,i.threshold]; }) };
                 out.waste={ count:w.count, qty:w.qty, value:Math.round(w.value), top:w.top||'' };
@@ -512,8 +585,8 @@ window.BatmanDashboard = (function(){
                 lines.push('🔻 لا مبيعات مسجلة بعد اليوم.');
                 shown++;
             }
-            if(sn.profit && sn.profit.net < 0){
-                lines.push('🔻 الربح اليوم سالب ('+money(sn.profit.net)+' ل.س) — راجع المصروفات/المرتجعات.');
+            if(sn.profit && sn.profit.beforeCogs < 0){
+                lines.push('🔻 صافي اليوم قبل تكلفة البضاعة سالب ('+money(sn.profit.beforeCogs)+' ل.س) — راجع المصروفات/المرتجعات.');
                 shown++;
             }
             if(sn.tables && sn.tables.ordersOpen > 3){
@@ -607,7 +680,7 @@ window.BatmanDashboard = (function(){
             var snapshot = 'مبيعات اليوم: '+sum.todaySales+' ل.س، فواتير مدفوعة: '+sum.todayOrders+
                 '، مرتجعات: '+sum.todayRefunds+'، مصروف: '+sum.todayExpenses+'، مشتريات: '+sum.todayPurchases+
                 '، طاولات مفتوحة: '+sum.openTables+'، طلبات مفتوحة: '+sum.openOrders+
-                '، موظفون نشطون: '+sum.activeEmployees+'، الربح المحسوب: '+sum.profit+' ل.س'+
+                '، موظفون نشطون: '+sum.activeEmployees+"، صافي اليوم قبل تكلفة البضاعة: "+sum.profitBeforeCogs+' ل.س'+
                 '، أصناف مخزون منخفضة: '+low.length+'.';
             checkInventoryAlerts(low, sum);
             var r = await ollamaAnalyze('', { mode:'quick', snapshotOnly:true, context:snapshot, system:SYS_MONITOR, fullPrompt:snapshot, numPredict:70 });

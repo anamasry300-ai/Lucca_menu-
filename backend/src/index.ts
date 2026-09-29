@@ -4,6 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import { initDb, getDb, saveDb, closeDb, queryAll, queryOne, beginTransaction, beginImmediateTransaction, commitTransaction, rollbackTransaction } from './db.js';
 import { lookup } from 'node:dns/promises';
+import { rangeDays } from './dateRange.js';
 import { HttpError, applyStockDeduction, restoreStockAfterVoid } from './stock.js';
 import crudRoutes from './routes/crud.js';
 import specialRoutes from './routes/special.js';
@@ -322,6 +323,16 @@ async function assertSafeUpstreamHost(base: string): Promise<{ host: string }> {
 const MAX_PROXY_BODY_BYTES = 1_000_000;      // سقف حجم الطلب (payload)
 const MAX_PROXY_TIMEOUT_MS = 120_000;        // سقف مهلة المزود مهما طلب العميل
 
+// GET /api/proxy-llm/status — هل OpenAI مُهيّأ على الخادم؟ (بلا أسرار، يردّ باسم bool فقط)
+app.get(['/api/proxy-llm/status', '/api/openai/status'], authRequired, requirePasswordChanged, (req, res) => {
+  res.json({
+    ok: true,
+    openaiConfigured: !!String(process.env.OPENAI_API_KEY || '').trim(),
+    ollamaConfigured: true,
+    ollamaModel: String(process.env.OLLAMA_MODEL || 'qwen2.5:3b'),
+  });
+});
+
 app.post(['/api/proxy-llm', '/api/openai'], authRequired, requirePasswordChanged, async (req, res) => {
   const body = (req.body as Record<string, unknown>) || {};
 
@@ -348,10 +359,10 @@ app.post(['/api/proxy-llm', '/api/openai'], authRequired, requirePasswordChanged
     res.status(status).json({ ok: false, error: (e as Error).message }); return;
   }
 
-  // المفتاح: يُرسله العميل (localStorage) أو مفتاح البيئة
-  const key = String(body.key || '').trim() || process.env.OPENAI_API_KEY || '';
+  // P0 عزل السر: مفتاح OpenAI لا يُقبل من العميل إطلاقاً — مصدر الحقيقة بيئة الخادم فقط
+  const key = process.env.OPENAI_API_KEY || '';
   if (target === 'openai' && !key) {
-    res.status(400).json({ ok: false, error: 'لا يوجد مفتاح OpenAI — أضفه في .env أو بالسطر: مفتاح openai: sk-...' }); return;
+    res.status(400).json({ ok: false, error: 'OpenAI اختياري وغير مُهيّأ: المفتاح يُضبط في متغير البيئة OPENAI_API_KEY على الخادم فقط (لا يُحفظ في المتصفح).' }); return;
   }
 
   const model = String(body.model || '').trim()
@@ -761,6 +772,7 @@ const AMBIGUITY_MS = 5000; // التواريخ ضمن هذه النافذة غي
 const SYNC_WRITE_PERM: Record<string, string> = {
   purchases: 'purchases.write',
   expenses: 'expenses.write',
+  products: 'products.write',
   product_recipes: 'products.write',
   waste_log: 'inventory.write',
 };
@@ -1073,8 +1085,8 @@ app.post('/api/sync', authRequired, requirePermission('sync'), (req, res) => {
 // === Aggregation Endpoints ===
 app.get('/api/reports/summary', authRequired, requirePermission('reports.read'), (req, res) => {
   try {
-    const from = (req.query.from as string) || new Date().toISOString().slice(0, 10);
-    const to = (req.query.to as string) || new Date().toISOString().slice(0, 10);
+    // P0: توحيد حدود النطاق إلى أيام قبل SQL (dateRange.ts)
+    const { from, to } = rangeDays(req.query.from || new Date().toISOString().slice(0, 10), req.query.to || new Date().toISOString().slice(0, 10));
     const orders = queryAll(
       "SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(AVG(total), 0) as avgOrder FROM orders WHERE date(date) >= ? AND date(date) <= ? AND paymentStatus = 'paid'",
       [from, to]
@@ -1114,8 +1126,8 @@ app.get('/api/reports/summary', authRequired, requirePermission('reports.read'),
 
 app.get('/api/reports/sales-by-category', authRequired, requirePermission('reports.read'), (req, res) => {
   try {
-    const from = (req.query.from as string) || new Date().toISOString().slice(0, 10);
-    const to = (req.query.to as string) || new Date().toISOString().slice(0, 10);
+    // P0: توحيد حدود النطاق إلى أيام قبل SQL (dateRange.ts) — كان يقبل 'YYYY-MM-DDTHH:...' فيسقط كل صف.
+    const { from, to } = rangeDays(req.query.from, req.query.to, new Date().toISOString().slice(0, 10), new Date().toISOString().slice(0, 10));
     const rows = queryAll(
       "SELECT COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') as category, SUM(oi.quantity) as totalSold, SUM(oi.total) as revenue FROM order_items oi LEFT JOIN products p ON oi.productId = p.id LEFT JOIN categories c ON p.categoryId = c.id JOIN orders o ON oi.orderId = o.id WHERE date(o.date) >= ? AND date(o.date) <= ? AND o.paymentStatus = 'paid' GROUP BY COALESCE(NULLIF(c.name_ar, ''), c.name, 'غير محدد') ORDER BY revenue DESC",
       [from, to]

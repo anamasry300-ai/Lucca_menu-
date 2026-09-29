@@ -1713,10 +1713,13 @@
             document.getElementById('analyticsModal').classList.add('show');
             try {
                 const all = await (window.LuccaDB ? LuccaDB.Orders.getAll() : Promise.resolve([]));
-                const completed = (all || []).filter(o => o.status === 'completed' || o.status === 'closed');
-                const today = new Date(); today.setHours(0,0,0,0);
-                const todaySales = completed.filter(o => new Date(o.date) >= today);
-                const total = todaySales.reduce((s, o) => s + (o.total || 0), 0);
+                // P0: تعريف مرجعي — يوم اليوم بالضبط، مدفوعة فقط، مطروحاً منها الاستردادات
+                // (كان: كل completed/closed منذ بداية اليوم بلا حد أعلى ولا استرداد).
+                const todayPrefix = new Date().toISOString().slice(0,10);
+                const refunds = (window.LuccaDB && window.LuccaDB.db) ? await window.LuccaDB.db.getAll('refunds') : [];
+                const todayFin = computeNetSales(all, refunds, todayPrefix);
+                const todaySales = (all || []).filter(o => String(o.paymentStatus||'').toLowerCase()==='paid' && dayKeyOf(o.date, o.createdAt) === todayPrefix);
+                const total = todayFin.sales;
                 document.getElementById('analyticsRevenue').textContent = `${total.toFixed(0)} ج.م`;
 
                 // Top items
@@ -6358,15 +6361,17 @@ async function processAiCommand(text){
             
             const found = prods.find(p => (p.nameAr||'').includes(cleanText) || (p.name||'').toLowerCase().includes(cleanText.toLowerCase()));
             if(!found) return aiBotReply('❌ ما لقيت منتج اسمه "'+cleanText+'". حدد الاسم بالضبط.');
-            
-            await window.LuccaDB.Products.update(found.id, { price: newPrice });
-            
+
+            // P0: القرار على الخادم (دور الجلسة + مصفوفة باتمان + سجل تدقيق) — لا كتابة محلية مباشرة
+            const r = await window.aiPosEngine.updateProductPrice(found.id, newPrice, text, { oldPrice: found.price, productName: found.nameAr||found.name });
+            if(!r.success) return aiBotReply(r.message || '⛔ لم يُعدَّل السعر.');
+
             // Learn this correction
             try{
                 await window.LuccaDB.BotMemory.add('correction',{question:'سعر '+found.nameAr,answer:String(newPrice),keywords:'سعر '+found.nameAr+' correction price'});
             }catch(e){}
-            
-            return aiBotReply('✅ **تم تعديل السعر!**\n\n📦 '+found.nameAr+'\n💰 السعر القديم: '+Number(found.price||0).toLocaleString()+' ل.س\n💰 السعر الجديد: **'+newPrice.toLocaleString()+' ل.س**\n\n✅ تم الحفظ في الداتابيز.',[
+
+            return aiBotReply('✅ **تم تعديل السعر!**\n\n📦 '+found.nameAr+'\n💰 السعر القديم: '+Number(r.oldPrice||0).toLocaleString()+' ل.س\n💰 السعر الجديد: **'+Number(r.newPrice||newPrice).toLocaleString()+' ل.س**\n\n✅ تم التنفيذ على الخادم وتسجيله في سجل باتمان.',[
                 {text:'تفاصيل '+found.nameAr,cmd:'product details '+found.nameAr},
                 {text:'عرض كل المنتجات',cmd:'show_products'}
             ]);
@@ -6389,14 +6394,16 @@ async function processAiCommand(text){
             if(!compText) return aiBotReply('❌ حدد المكونات. مثال: "المكونات صح لاتيه هي حليب + قهوة + فاونديشن"');
             
             const components = compText.split(/\s*[+،,]\s*/).map((c,i) => ({name:c.trim(), qty:1}));
-            await window.LuccaDB.Products.update(found.id, { components: JSON.stringify(components) });
-            
+            // P0: القرار على الخادم — لا كتابة محلية مباشرة
+            const r = await window.aiPosEngine.updateProductComponents(found.id, components, text);
+            if(!r.success) return aiBotReply(r.message || '⛔ لم تُعدَّل المكونات.');
+
             // Learn this correction
             try{
                 await window.LuccaDB.BotMemory.add('correction',{question:'تكوين '+found.nameAr,answer:compText,keywords:'تكوين '+found.nameAr+' correction components'});
             }catch(e){}
-            
-            return aiBotReply('✅ **تم تعديل المكونات!**\n\n📦 '+found.nameAr+'\n🔧 المكونات الجديدة:\n'+components.map(c=>'  • '+c.name+' × '+c.qty).join('\n')+'\n\n✅ تم الحفظ في الداتابيز.',[
+
+            return aiBotReply('✅ **تم تعديل المكونات!**\n\n📦 '+found.nameAr+'\n🔧 المكونات الجديدة:\n'+components.map(c=>'  • '+c.name+' × '+c.qty).join('\n')+'\n\n✅ تم التنفيذ على الخادم وتسجيله في سجل باتمان.',[
                 {text:'تفاصيل '+found.nameAr,cmd:'product details '+found.nameAr},
                 {text:'عرض كل المنتجات',cmd:'show_products'}
             ]);
@@ -6574,10 +6581,12 @@ async function processAiCommand(text){
     if(t.startsWith('do_shift_start_')){
         const empId = Number(t.replace('do_shift_start_',''));
         try{
-            await window.LuccaDB.Shifts.start(empId);
+            // P0: القرار على الخادم (shifts.write — مدير/إدارة فقط) — لا كتابة محلية مباشرة
+            const r = await window.aiPosEngine.manageEmployeeShift('start', empId, t);
+            if(!r.success) return aiBotReply(r.message || '⛔ لم تبدأ الوردية.');
             const emps = await window.LuccaDB.Employees.getAll();
             const emp = emps.find(e=>e.id===empId);
-            return aiBotReply('✅ **بدأت وردية '+(emp?.name||'الموظف')+'**\nالوقت: '+new Date().toLocaleTimeString('ar-EG'));
+            return aiBotReply('✅ **بدأت وردية '+(emp?.name||'الموظف')+'**\nالوقت: '+new Date().toLocaleTimeString('ar-EG')+'\n✅ سُجّلت على الخادم.');
         } catch(e){ return aiBotReply('❌ '+e.message); }
     }
 
@@ -6592,10 +6601,12 @@ async function processAiCommand(text){
     if(t.startsWith('do_shift_end_')){
         const empId = Number(t.replace('do_shift_end_',''));
         try{
-            await window.LuccaDB.Shifts.end(empId);
+            // P0: القرار على الخادم (shifts.write — مدير/إدارة فقط) — لا كتابة محلية مباشرة
+            const r = await window.aiPosEngine.manageEmployeeShift('end', empId, t);
+            if(!r.success) return aiBotReply(r.message || '⛔ لم تنتهِ الوردية.');
             const emps = await window.LuccaDB.Employees.getAll();
             const emp = emps.find(e=>e.id===empId);
-            return aiBotReply('✅ **نتهت وردية '+(emp?.name||'الموظف')+'**\nالوقت: '+new Date().toLocaleTimeString('ar-EG'));
+            return aiBotReply('✅ **نتهت وردية '+(emp?.name||'الموظف')+'**\nالوقت: '+new Date().toLocaleTimeString('ar-EG')+'\n✅ سُجّلت على الخادم.');
         } catch(e){ return aiBotReply('❌ '+e.message); }
     }
 
@@ -7193,16 +7204,15 @@ async function processAiCommand(text){
             const purchases = await window.LuccaDB.Purchases.getAll();
             const today = new Date().toISOString().slice(0,10);
             const month = today.slice(0,7);
-            // Today
+            // P0: المبيعات تأتي من computeNetSales (التعريف المرجعي: مدفوعة فقط − استردادات اليوم).
+            // حُذف المرشِّحان المكرران (completed/closed) لأنهما لم يكونا مستخدمين وكانا أوسع من العقد.
             const todayRefunds = await window.LuccaDB.db.getAll('refunds');
-            const todayOrders = orders.filter(o=>(o.paymentStatus==='paid'||o.status==='completed'||o.status==='closed') && (o.createdAt||o.date||'').slice(0,10)===today);
             const todaySales = computeNetSales(orders, todayRefunds, today).sales;
-            const todayExpenses = expenses.filter(e=>(e.createdAt||e.date||'').slice(0,10)===today);
+            const todayExpenses = expenses.filter(e=>(e.date||e.createdAt||'').slice(0,10)===today);
             const todayExpTotal = todayExpenses.reduce((s,e)=>s+Number(e.amount||0),0);
             // This month
-            const monthOrders = orders.filter(o=>(o.paymentStatus==='paid'||o.status==='completed'||o.status==='closed') && (o.createdAt||o.date||'').slice(0,7)===month);
             const monthSales = computeNetSales(orders, todayRefunds, month).sales;
-            const monthExpenses = expenses.filter(e=>(e.createdAt||e.date||'').slice(0,7)===month);
+            const monthExpenses = expenses.filter(e=>(e.date||e.createdAt||'').slice(0,7)===month);
             const monthExpTotal = monthExpenses.reduce((s,e)=>s+Number(e.amount||0),0);
             const monthPurchases = purchases.filter(p=>(p.date||p.createdAt||'').slice(0,7)===month);
             const monthPurchTotal = monthPurchases.reduce((s,p)=>s+((p.costPrice||p.cost||0)*(p.quantity||1)),0);
@@ -7317,19 +7327,18 @@ async function processAiCommand(text){
     if(matchAny(t,['استخدم openai','فعل الذكاء البعيد','openai فقط','الذكاء السحابي','use openai'])){
         if(window.OllamaAI.setProvider){
             window.OllamaAI.setProvider('openai');
-            return aiBotReply(window.OllamaAI.hasOpenAI() ? '✅ وضع المزود: **OpenAI سحابي فقط** — النموذج: '+window.OllamaAI.getOpenAIModel() : '⚠️ وضع **OpenAI** لكن لم يُضبط مفتاح بعد — اكتب: "مفتاح openai: sk-..."');
+            const _oa = (typeof window.OllamaAI.openaiStatus==='function') ? await window.OllamaAI.openaiStatus() : window.OllamaAI.hasOpenAI();
+            return aiBotReply(_oa ? '✅ وضع المزود: **OpenAI سحابي فقط** — النموذج: '+window.OllamaAI.getOpenAIModel() : '⚠️ وضع **OpenAI** — لكن الخادم غير مُهيّأ (لا مفتاح OPENAI_API_KEY).\nOpenAI اختياري: Ollama المحلي يكفي ويعمل بدون إنترنت. لتفعيله: يُضبط المفتاح في متغير البيئة OPENAI_API_KEY على الخادم.');
         }
     }
     if(matchAny(t,['الوضع التلقائي','تلقائي','auto','الذكاء التلقائي','تلقائي openai'])){
         if(window.OllamaAI.setProvider){ window.OllamaAI.setProvider('auto'); return aiBotReply('✅ الوضع التلقائي: **Ollama أولاً** (مجاني)، و**OpenAI احتياطي** عند تعذّر Ollama.'); }
     }
-    const _okey = t.match(/مفتاح[ ]*(?:openai|أوبن|الذكاء البعيد)[ ]*[=:]?[ ]*([a-zA-Z0-9_\-\.]+)/i);
-    if(_okey && window.OllamaAI && window.OllamaAI.setOpenAIKey){
-        window.OllamaAI.setOpenAIKey(_okey[1]);
-        return aiBotReply('✅ تم حفظ مفتاح OpenAI API محلياً (جهازك فقط).\nاختبره: «حالة الذكاء» أو بدّل للوضع «auto» للاستخدام عند تعذّر Ollama.');
-    }
-    if(/مفتاح[ ]*(?:openai|أوبن|الذكاء البعيد)/i.test(t) && window.OllamaAI){
-        return aiBotReply('اكتب المفتاح هكذا: "مفتاح openai: sk-xxxxxxxx" لحفظه في إعدادات الجهاز المحلي.');
+    // P0 عزل السر: لا تُقبل مفاتيح OpenAI من المحادثة إطلاقاً (تُحفظ في المتصفح)
+    if(/مفتاح[ ]*(?:openai|أوبن|الذكاء البعيد)/i.test(t)){
+        return aiBotReply('🔐 **مفتاح OpenAI لا يُدخل من الواجهة ولا يُحفظ في المتصفح.**\n\n' +
+            '· مصدر المفتاح الوحيد: متغير البيئة **OPENAI_API_KEY** على الخادم.\n' +
+            '· إن لم يكن مُهيّأاً فالنظام يعمل كاملاً على **Ollama المحلي** (مجاني، بدون إنترنت): "استخدم ollama".');
     }
 
     // ===== GUARDED EXPENSE RECORDING =====
@@ -7355,11 +7364,15 @@ async function processAiCommand(text){
             const aiOn = (typeof window.OllamaAI.llmReady==='function') ? await window.OllamaAI.llmReady() : await window.OllamaAI.isAvailable();
             if(aiOn){
                 aiShowTyping();
-                const liveData = await buildLiveContext();
+                // P0 عزل الربح: القدرات من الخادم فقط (fail-closed) — لا أرقام مالية للنموذج بلا صلاحية
+                const caps = (window.aiPosEngine && typeof window.aiPosEngine.serverCaps==='function') ? await window.aiPosEngine.serverCaps() : { canViewReports:false, canViewNetProfit:false };
+                const canSeeMoney = !!(caps && caps.canViewReports);
+                const liveData = await buildLiveContext(canSeeMoney);
                 const system = 'أنت مساعد "باتمان" المحاسب الذكي لتطبيق كافيه لوكا (Lucca POS).' +
                     'أنت تعمل محليًا بدون إنترنت. ستحصل على بيانات حية من النظام بصيغة JSON.' +
-                    'أجب بالعربية بإيجاز واحترافية. إذا كان السؤال محاسبيًا (مبيعات/مصروف/أرباح/تقارير)' +
-                    'استخدم الأرقام الحية المقدمة. احسب الربح = الإيرادات - المصروفات.' +
+                    (canSeeMoney
+                        ? 'إذا كان السؤال محاسبيًا (مبيعات/مصروف/أرباح/تقارير) استخدم الأرقام الحية المقدمة. اجمع الربح = الإيرادات - المصروفات.'
+                        : 'الأرقام المالية غير مُتاحة في هذا السياق — لا تخترع أي مبلغ. أجب عن الأسئلة المحاسبية المحسوبة بدل التقدير.') +
                     'إن لم تكن الإجابة واضحة أو غير متوفرة، قل ذلك بصراحة ولا تخترع أرقامًا.';
                 const user = 'بيانات حية من النظام:\n' + liveData + '\n\nسؤال الزبون/المستخدم:\n' + text;
                 const res = await window.OllamaAI.chat(system, user, { temperature: 0.3, timeout: 90000, numCtx: 8192 });
@@ -7373,6 +7386,19 @@ async function processAiCommand(text){
                         {text:'تقرير يومي',cmd:'daily_report'},
                         {text:'مبيعات اليوم',cmd:'today_sales'},
                         {text:'تسجيل مصروف',cmd:'add_expense'}
+                    ]);
+                }
+                // C5: لا نخفي عطل المزوّد خلف "ما فهمت" — نفصل الخطأ بوضوح
+                if(res && res.code){
+                    const _why = (res.code === 'OPENAI_NOT_CONFIGURED') ? 'OpenAI اختياري وغير مُهيّأ على الخادم (يُضبط في متغير البيئة OPENAI_API_KEY).'
+                        : (res.code === 'NO_PROVIDER' || res.code === 'OLLAMA_ERROR' || res.code === 'OLLAMA_UNREACHABLE') ? 'خدمة Ollama المحلية غير متصلة أو لا يوجد نموذج محمّل على هذا الجهاز.'
+                        : (res.code === 'OLLAMA_DISABLED') ? 'Ollama معطّل من إعدادات الذكاء — فعّله أو اكتب "استخدم ollama".'
+                        : (res.code === 'MODEL_NOT_FOUND') ? 'النموذج المحدد غير مثبّت في Ollama — اختر نموذجاً مثبتاً: "النماذج".'
+                        : (res.code === 'SESSION_REQUIRED') ? 'يلزم تسجيل دخول صالح على الخادم لاستخدام الذكاء البعيد.'
+                        : (res.error || 'تعذّر الاتصال بمزوّد الذكاء.');
+                    return aiBotReply('⚠️ **تعذّر الحصول على رد من الذكاء الاصطناعي**\n\n· السبب: '+_why+'\n\n💡 الأدوات المحاسبية المحسوبة ما زالت تعمل: «مبيعات اليوم»، «تسجيل مصروف»، «تقرير يومي».',[
+                        {text:'حالة الذكاء',cmd:'حالة الذكاء'},
+                        {text:'استخدم ollama',cmd:'استخدم ollama'}
                     ]);
                 }
             }
@@ -7396,16 +7422,22 @@ async function processAiCommand(text){
 }
 
 // تجميع سياق حي مبسط من قاعدة البيانات للمساعد المحلي
-async function buildLiveContext(){
+// allowFinancials=false (افتراضي آمن) => لا تُمرَّر أي مبالغ مالية إلى النموذج إطلاقاً
+async function buildLiveContext(allowFinancials){
     const ctx = {};
+    const _money = !!allowFinancials;
+    if(!_money) ctx.financials = 'redacted';
     try{
         const orders = window.LuccaDB && window.LuccaDB.Orders ? await window.LuccaDB.Orders.getAll() : [];
         ctx.ordersCount = (orders||[]).length;
         const today = new Date().toISOString().slice(0,10);
-        const todayOrders = (orders||[]).filter(o => (o.date||o.createdAt||'').slice(0,10) === today);
-        const completed = todayOrders.filter(o => o.paymentStatus==='paid' || o.status==='completed' || o.status==='closed');
-        const ctxRefundsT = (await window.LuccaDB.db.getAll('refunds')).filter(r=>(r.createdAt||r.updatedAt||r.date||'').slice(0,10)===today).reduce((s,r)=>s+Number(r.amount||0),0);
-        ctx.todayRevenue = completed.reduce((s,o)=>s+(o.total||o.totalAmount||0),0) - ctxRefundsT;
+        const todayOrders = (orders||[]).filter(o => dayKeyOf(o.date, o.createdAt) === today);
+        // P0: شرط الإدراج المرجعي = paymentStatus='paid' حصراً (لا completed/closed).
+        const completed = todayOrders.filter(o => String(o.paymentStatus||'').toLowerCase()==='paid');
+        if(_money){
+            const ctxRefundsT = (await window.LuccaDB.db.getAll('refunds')).filter(r=>dayKeyOf(r.createdAt, r.updatedAt, r.date)===today).reduce((s,r)=>s+Number(r.amount||0),0);
+            ctx.todayRevenue = completed.reduce((s,o)=>s+(o.total||o.totalAmount||0),0) - ctxRefundsT;
+        }
         ctx.todayOrders = todayOrders.length;
         ctx.todayCompleted = completed.length;
     }catch(e){}
@@ -7421,22 +7453,42 @@ async function buildLiveContext(){
         ctx.tablesOpen = (await window.LuccaDB.Tables.getAll()).filter(t=>String(t.status)==='occupied'||String(t.status)==='open').length;
     }catch(e){}
     try{
-        const allRefundsT = await window.LuccaDB.db.getAll('refunds');
-        const allRefundSum = allRefundsT.reduce((s,r)=>s+Number(r.amount||0),0);
-        ctx.totalRevenue = (orders||[]).filter(o => o.paymentStatus==='paid' || o.status==='completed' || o.status==='closed')
-            .reduce((s,o)=>s+(o.total||o.totalAmount||0),0) - allRefundSum;
+        if(_money){
+            const allOrders = window.LuccaDB && window.LuccaDB.Orders ? await window.LuccaDB.Orders.getAll() : orders;
+            const allRefundsT = await window.LuccaDB.db.getAll('refunds');
+            const allRefundSum = allRefundsT.reduce((s,r)=>s+Number(r.amount||0),0);
+            // P0: نفس شرط العقد (paid فقط) — الأرقام تتفق مع Reports.
+            ctx.totalRevenue = (allOrders||[]).filter(o => String(o.paymentStatus||'').toLowerCase()==='paid')
+                .reduce((s,o)=>s+(o.total||o.totalAmount||0),0) - allRefundSum;
+        }
     }catch(e){}
     return JSON.stringify(ctx);
 }
 
-// إجمالي المبيعات الصافي = Σ أوامر مدفوعة (paymentStatus='paid'، بدون حساسية حالة) − Σ استردادات اليوم/الشهر
-// مطابق لتعريف تقرير الإقفال اليومي (getDailyClosingReport) في database.js
+// إجمالي المبيعات الصافي = Σ أوامر مدفوعة (paymentStatus='paid' حصراً) − Σ استردادات اليوم/الشهر
+// مطابق لتعريف العقد المرجعي docs/CANONICAL_REPORTING_CONTRACT.md §1.1:
+//   - شرط الإدراج: paymentStatus='paid' فقط (لا completed/closed — المبيعات تُحتسب عند الدفع)
+//   - يوم الطلب: orders.date (المصدر المرجعي) — لا createdAt
+//   - يوم الاسترداد: refunds.createdAt (أولاً) ثم تاريخ بديل
+//   - الخصم يُطرح مرة واحدة فقط (داخل orders.total) — لا نطرحه ثانية
 function computeNetSales(orders, refunds, prefix){
-    const paid = (orders||[]).filter(o => String(o.paymentStatus||'').toLowerCase()==='paid' && (o.createdAt||o.date||'').slice(0, prefix.length) === prefix);
+    const paid = (orders||[]).filter(o => String(o.paymentStatus||'').toLowerCase()==='paid' && dayKeyOf(o.date, o.createdAt) === prefix);
     const sales = paid.reduce((s,o)=>s+Number(o.total||o.totalAmount||0),0);
-    const ref = (refunds||[]).filter(r=>(r.createdAt||r.updatedAt||r.date||'').slice(0, prefix.length) === prefix);
+    const ref = (refunds||[]).filter(r=>dayKeyOf(r.createdAt, r.updatedAt, r.date) === prefix);
     const refundTotal = ref.reduce((s,r)=>s+Number(r.amount||0),0);
-    return { sales: sales - refundTotal, count: paid.length, refunds: refundTotal, salesGross: sales };
+    return { sales: sales - refundTotal, count: paid.length, refunds: refundTotal, salesGross: sales, discountAmount: paid.reduce((s,o)=>s+Number(o.discountAmount||0),0) };
+}
+// يوم السجل بصيغة 'YYYY-MM-DD' من أي طابع/تاريخ (ISO أو SQLite 'YYYY-MM-DD HH:MM:SS') — أول مصدر صالح.
+function dayKeyOf(...values){
+    for (const v of values) {
+        if (v == null) continue;
+        const s = String(v).trim();
+        const m = /^(\d{4}-\d{2}-\d{2})/.exec(s);
+        if (m) return m[1];
+        const d = new Date(s);
+        if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0,10);
+    }
+    return '';
 }
 
 function formatMoney(n){ return (Number(n)||0).toLocaleString('ar-EG',{maximumFractionDigits:0}); }

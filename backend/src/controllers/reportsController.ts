@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { rangeDays } from '../dateRange.js';
 import {
   getSalesReport, getExpensesReport, getInventoryReport, getEmployeesReport, getSuppliersReport,
   prevDateRange, todayCompact,
@@ -148,8 +149,8 @@ export async function exportReport(req: Request, res: Response): Promise<void> {
 // فترة سابقة مساعدة للواجهة (حساب سريع)
 export function previousPeriod(req: Request, res: Response): void {
   try {
-    const from = String(req.query.from || todayCompact());
-    const to = String(req.query.to || from);
+    // P0: توحيد حدود النطاق إلى أيام (dateRange.ts) قبل اشتقاق الفترة السابقة.
+    const { from, to } = rangeDays(req.query.from, req.query.to, todayCompact(), todayCompact());
     res.json({ range: { from, to }, previous: prevDateRange(from, to) });
   } catch (e: unknown) {
     res.status(500).json({ error: (e as Error).message });

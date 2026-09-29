@@ -967,6 +967,11 @@
         totalWalletSales: 0,
         totalExpenses: 0,
         totalRefunds: 0,
+        // P0 §1.3: expectedCash uses CASH-ONLY refunds/expenses (canonical server:
+        // cashRefundTotal = refundMethod='cash', cashExpensesTotal = paymentMethod='cash').
+        // Gross counters above remain for display/analytics only.
+        totalCashRefunds: 0,
+        totalCashExpenses: 0,
         transactionCount: 0,
         version: 1,
         notes: notes || ''
@@ -984,8 +989,8 @@
       drawer.closedAt = new Date().toISOString();
       drawer.expectedCash = (Number(drawer.openingCash || drawer.startingCash) || 0)
         + (Number(drawer.totalCashSales) || 0)
-        - (Number(drawer.totalExpenses) || 0)
-        - (Number(drawer.totalRefunds) || 0);
+        - (Number(drawer.totalCashExpenses) || 0)
+        - (Number(drawer.totalCashRefunds) || 0);
       drawer.difference = (Number(drawer.closingCash) || 0) - drawer.expectedCash;
       drawer.differenceType = drawer.difference > 0 ? 'overage' : (drawer.difference < 0 ? 'shortage' : 'balanced');
       drawer.version = (Number(drawer.version) || 1) + 1;
@@ -1000,8 +1005,12 @@
       amount = Number(amount) || 0;
       drawer.transactionCount = (drawer.transactionCount || 0) + 1;
       const m = String(method || '').toLowerCase();
+      const isCash = (m === 'cash' || m === 'كاش' || m === 'نقدي');
+      // ترقية الورديات المفتوحة قبل الإصلاح: تُعامل كمصروفات/استردادات نقدية (السلوك السابق).
+      if (drawer.totalCashExpenses == null) drawer.totalCashExpenses = Number(drawer.totalExpenses) || 0;
+      if (drawer.totalCashRefunds == null) drawer.totalCashRefunds = Number(drawer.totalRefunds) || 0;
       if (type === 'sale') {
-        if (m === 'cash' || m === 'كاش' || m === 'نقدي') {
+        if (isCash) {
           drawer.totalCashSales = (drawer.totalCashSales || 0) + amount;
           drawer.currentCash = (Number(drawer.currentCash) || 0) + amount;
         } else if (m === 'wallet' || m === 'محفظة' || m === 'digital' || m === 'تحويل') {
@@ -1011,15 +1020,21 @@
         }
       } else if (type === 'expense') {
         drawer.totalExpenses = (drawer.totalExpenses || 0) + amount;
-        drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
+        if (isCash) {
+          drawer.totalCashExpenses = (Number(drawer.totalCashExpenses) || 0) + amount;
+          drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
+        }
       } else if (type === 'refund') {
         drawer.totalRefunds = (drawer.totalRefunds || 0) + amount;
-        if (m === 'cash' || m === 'كاش' || m === 'نقدي') drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
+        if (isCash) {
+          drawer.totalCashRefunds = (Number(drawer.totalCashRefunds) || 0) + amount;
+          drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
+        }
       }
       drawer.expectedCash = (Number(drawer.openingCash || drawer.startingCash) || 0)
         + (Number(drawer.totalCashSales) || 0)
-        - (Number(drawer.totalExpenses) || 0)
-        - (Number(drawer.totalRefunds) || 0);
+        - (Number(drawer.totalCashExpenses) || 0)
+        - (Number(drawer.totalCashRefunds) || 0);
       _dcSave(rows);
       return true;
     },

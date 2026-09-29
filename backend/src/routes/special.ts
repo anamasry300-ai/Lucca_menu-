@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getDb, saveDb, queryAll, queryOne } from '../db.js';
+import { dayBound } from '../dateRange.js';
 import { authRequired, requirePasswordChanged, AuthRequest } from '../auth.js';
 
 const router = Router();
@@ -38,7 +39,8 @@ router.get('/daily-shifts', (req: Request, res: Response) => {
 router.get('/daily-shifts/:date', (req: Request, res: Response) => {
   if (!requireAdminish(req, res)) return;
   try {
-    const row = queryOne('SELECT * FROM daily_shifts WHERE date = ?', [req.params.date]);
+    // P0: daily_shifts.date مفتاح 'YYYY-MM-DD' — نُطبّع قبل المطابقة وإلا وُجدت لا صفاً (رصيد افتتاح مفقود).
+    const row = queryOne('SELECT * FROM daily_shifts WHERE date = ?', [dayBound(req.params.date, '')]);
     if (!row) { res.status(404).json({ error: 'Not found' }); return; }
     res.json(row);
   } catch (e: unknown) {
@@ -51,12 +53,15 @@ router.post('/daily-shifts', (req: Request, res: Response) => {
   try {
     const data = req.body;
     if (!data.date) { res.status(400).json({ error: 'date is required' }); return; }
+    // P0: تخزين المفتاح بصيغة يوم واحد حتى يطابق dayBound() في reportService/shiftService.
+    const shiftDate = dayBound(data.date, '');
+    if (!shiftDate) { res.status(400).json({ error: 'invalid date' }); return; }
     const db = getDb();
     const stmt = db.prepare(`INSERT OR REPLACE INTO daily_shifts
       (date, openingBalance, status, openedAt, closedAt, actualCash, expectedCash, difference, cashSales, cardSales, totalSales, totalExpenses, orderCount, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     stmt.bind([
-      data.date,
+      shiftDate,
       data.openingBalance ?? 0,
       data.status ?? 'open',
       data.openedAt || null,
@@ -74,7 +79,7 @@ router.post('/daily-shifts', (req: Request, res: Response) => {
     stmt.step();
     stmt.free();
     saveDb();
-    const created = queryOne('SELECT * FROM daily_shifts WHERE date = ?', [data.date]);
+    const created = queryOne('SELECT * FROM daily_shifts WHERE date = ?', [shiftDate]);
     res.status(201).json(created);
   } catch (e: unknown) {
     res.status(500).json({ error: (e as Error).message });
@@ -85,7 +90,8 @@ router.put('/daily-shifts/:date', (req: Request, res: Response) => {
   if (!requireAdminish(req, res)) return;
   try {
     const data = req.body;
-    const date = req.params.date;
+    // P0: تطبيع مفتاح اليوم في المسار.Params (dayBound).
+    const date = dayBound(req.params.date, '');
     const existing = queryOne('SELECT * FROM daily_shifts WHERE date = ?', [date]);
     if (!existing) { res.status(404).json({ error: 'Not found' }); return; }
     const merged = { ...existing, ...data, date };
@@ -122,7 +128,8 @@ router.delete('/daily-shifts/:date', (req: Request, res: Response) => {
   if (!requireAdminish(req, res)) return;
   try {
     const db = getDb();
-    db.run('DELETE FROM daily_shifts WHERE date = ?', [req.params.date]);
+    // P0: تطبيع مفتاح اليوم قبل الحذف.
+    db.run('DELETE FROM daily_shifts WHERE date = ?', [dayBound(req.params.date, '')]);
     saveDb();
     res.json({ success: true });
   } catch (e: unknown) {

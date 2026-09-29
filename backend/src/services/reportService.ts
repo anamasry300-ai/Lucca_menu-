@@ -1,4 +1,5 @@
 import { queryOne } from '../db.js';
+import { dayBound } from '../dateRange.js';
 import {
   paidOrdersSummary, paidOrdersSubtotal, cancelledCount, salesByDay, salesByCategory, topProducts,
   paymentMethods, salesGroupedByPeriod, cashPaymentsTotal, cashRefundTotal, paidOrderItemsBetween,
@@ -22,10 +23,12 @@ export function pctChange(cur: number, prev: number): number {
   return Number((((cur - prev) / prev) * 100).toFixed(1));
 }
 
+// P0: dayBound على الطرفين — الحدّ `'D || 'T23:59:59'` = نهاية اليوم، لكن الحدّ
+// السفلي يجب أن يكون 'YYYY-MM-DD' وإلا أسقط صيغة SQLite 'YYYY-MM-DD HH:MM:SS'.
 export function refundTotal(from: string, to: string): number {
   const row = queryOne(
     "SELECT COALESCE(SUM(amount), 0) as total FROM refunds WHERE createdAt >= ? AND createdAt <= ? || 'T23:59:59'",
-    [from, to],
+    [dayBound(from, '0000-01-01'), dayBound(to, '9999-12-31')],
   );
   return Number(row?.total || 0);
 }
@@ -208,8 +211,9 @@ function metric(period: { from: string; to: string }, value: number | null, sour
   return { value, currency: 'SYP', period, source, completeness, warnings };
 }
 
+// P0: daily_shifts.date مفتاح نصّي 'YYYY-MM-DD' — نُطبّع المدخل بالمثل (dayBound).
 function dailyShift(date: string): Record<string, unknown> | undefined {
-  return queryOne('SELECT * FROM daily_shifts WHERE date = ?', [date]);
+  return queryOne('SELECT * FROM daily_shifts WHERE date = ?', [dayBound(date, '')]);
 }
 
 export function getNetSales(from: string, to: string): MetricResult {

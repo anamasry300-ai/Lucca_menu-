@@ -1992,6 +1992,12 @@ const CashRegister = {
             totalWalletSales: 0,
             totalExpenses: 0,
             totalRefunds: 0,
+            // P0 §1.3: expectedCash must use CASH-ONLY refunds/expenses, matching the
+            // canonical server queries (cashRefundTotal = refundMethod='cash',
+            // cashExpensesTotal = paymentMethod='cash'). The gross counters above are
+            // kept for display/analytics only and must NOT affect reconciliation.
+            totalCashRefunds: 0,
+            totalCashExpenses: 0,
             transactionCount: 0,
             version: 1,
             notes: notes || ''
@@ -2022,10 +2028,11 @@ const CashRegister = {
         drawer.closedBy = identityName;
         drawer.closedByUser = identityId;
         // يعاد حساب المتوقع من الأرقام الحيّة للوردية — لا يتم ضبط مبيعات/مصروفات للموازنة
+        // P0 §1.3: المصروفات/الاستردادات المستخدمة هنا نقدية فقط.
         drawer.expectedCash = Number(drawer.openingCash || drawer.startingCash || 0)
             + (Number(drawer.totalCashSales) || 0)
-            - (Number(drawer.totalExpenses) || 0)
-            - (Number(drawer.totalRefunds) || 0);
+            - (Number(drawer.totalCashExpenses) || 0)
+            - (Number(drawer.totalCashRefunds) || 0);
         drawer.difference = (Number(drawer.closingCash) || 0) - drawer.expectedCash;
         drawer.differenceType = drawer.difference > 0 ? 'overage' : (drawer.difference < 0 ? 'shortage' : 'balanced');
         drawer.version = (Number(drawer.version) || 1) + 1;
@@ -2057,30 +2064,41 @@ const CashRegister = {
         amount = Number(amount) || 0;
         drawer.transactionCount = (drawer.transactionCount || 0) + 1;
         const m = String(method || '').toLowerCase();
+        const isCash = (m === 'cash' || m === 'كاش' || m === 'نقدي');
+
+        // ترقية الورديات المفتوحة قبل الإصلاح: مصروفات/استردادات نقدية تُعامل كنقدية
+        // (سلوك سابق) حتى لا تسقط مطابقة نقدية قائمة فجأة — أي حركة جديدة تُفلتر بعد ذلك.
+        if (drawer.totalCashExpenses == null) drawer.totalCashExpenses = Number(drawer.totalExpenses) || 0;
+        if (drawer.totalCashRefunds == null) drawer.totalCashRefunds = Number(drawer.totalRefunds) || 0;
 
         if(type === 'sale'){
-            if(m === 'cash' || m === 'كاش' || m === 'نقدي'){
-                drawer.totalCashSales += amount;
-                drawer.currentCash += amount;
+            if(isCash){
+                drawer.totalCashSales = (Number(drawer.totalCashSales) || 0) + amount;
+                drawer.currentCash = (Number(drawer.currentCash) || 0) + amount;
             } else if(m === 'wallet' || m === 'محفظة' || m === 'digital'){
                 drawer.totalWalletSales = (drawer.totalWalletSales || 0) + amount;
             } else {
-                drawer.totalCardSales += amount;
+                drawer.totalCardSales = (Number(drawer.totalCardSales) || 0) + amount;
             }
         } else if(type === 'expense'){
-            drawer.totalExpenses += amount;
-            drawer.currentCash -= amount;
+            drawer.totalExpenses = (Number(drawer.totalExpenses) || 0) + amount;
+            if(isCash){
+                drawer.totalCashExpenses = (Number(drawer.totalCashExpenses) || 0) + amount;
+                drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
+            }
         } else if(type === 'refund'){
-            drawer.totalRefunds = (drawer.totalRefunds || 0) + amount;
-            if(m === 'cash' || m === 'كاش' || m === 'نقدي'){
-                drawer.currentCash -= amount;
+            drawer.totalRefunds = (Number(drawer.totalRefunds) || 0) + amount;
+            if(isCash){
+                drawer.totalCashRefunds = (Number(drawer.totalCashRefunds) || 0) + amount;
+                drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
             }
         }
 
+        // P0 §1.3: expectedCash = opening + cashSales − cashRefunds − cashExpenses
         drawer.expectedCash = (Number(drawer.openingCash || drawer.startingCash) || 0)
             + (Number(drawer.totalCashSales) || 0)
-            - (Number(drawer.totalExpenses) || 0)
-            - (Number(drawer.totalRefunds) || 0);
+            - (Number(drawer.totalCashExpenses) || 0)
+            - (Number(drawer.totalCashRefunds) || 0);
         drawer.version = (Number(drawer.version) || 1) + 1;
         await db.put(this._storeName, drawer);
         return drawer;

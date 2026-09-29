@@ -11,8 +11,10 @@
   function num(n) { const x = Number(n); return Number.isFinite(x) ? x : 0; }
   function inRange(d, from, to) { return d >= from && d <= to; }
   function sum(arr, f) { return arr.reduce((s, x) => s + num(f(x)), 0); }
+  // P0 (العقد §1.1): شرط الإدراج المرجعي = paymentStatus='paid' حصراً.
+  // كان: paid || completed || closed → يضم طلبات غير مدفوعة للمبيعات (انحراف عن العقد).
   function isPaidOrder(o) {
-    return o.paymentStatus === 'paid' || o.status === 'completed' || o.status === 'closed';
+    return String(o.paymentStatus || '').toLowerCase() === 'paid';
   }
   function isOpenOrder(o) {
     return (o.status === 'open' || o.status === 'pending' || o.status === 'preparing' || o.status === 'in_preparation') && o.paymentStatus !== 'paid';
@@ -78,10 +80,12 @@
     employees.forEach(e => { empById[e.id] = (e.name || e.username || ''); });
 
     // ===== الفترة الحالية والفترة السابقة (للمقارنة) =====
-    const rangeOrders = orders.filter(o => inRange(day(o.date || o.createdAt), from, to));
+    // P0: يوم الطلب = orders.date (المصدر المرجعي) بلا fallback لـ createdAt،
+    // ويوم الاسترداد = refunds.createdAt أولاً (كما في reportService.refundTotal).
+    const rangeOrders = orders.filter(o => inRange(day(o.date), from, to));
     const completed = rangeOrders.filter(isPaidOrder);
 
-    const rangeRefunds = refunds.filter(r => inRange(day(r.date || r.createdAt || r.updatedAt || r.voidedAt), from, to));
+    const rangeRefunds = refunds.filter(r => inRange(day(r.createdAt || r.date || r.updatedAt), from, to));
     const refundsTotal = sum(rangeRefunds, r => r.amount);
 
     const gross = sum(completed, orderTotal);
@@ -96,9 +100,9 @@
     const prevFrom = new Date(new Date(from).getTime() - span * 86400000);
     const pf = day(prevFrom.toISOString());
     const pt = day(prevEnd.toISOString());
-    const prevCompleted = orders.filter(o => { const d = day(o.date || o.createdAt); return d >= pf && d <= pt && isPaidOrder(o); });
+    const prevCompleted = orders.filter(o => { const d = day(o.date); return d >= pf && d <= pt && isPaidOrder(o); });
     const prevGross = sum(prevCompleted, orderTotal);
-    const prevRefunds = sum(refunds.filter(r => { const d = day(r.date || r.createdAt || r.updatedAt); return d >= pf && d <= pt; }), r => r.amount);
+    const prevRefunds = sum(refunds.filter(r => { const d = day(r.createdAt || r.date || r.updatedAt); return d >= pf && d <= pt; }), r => r.amount);
     const prevNet = prevGross - prevRefunds;
     const prevCount = prevCompleted.length;
     const prevAvg = prevCount ? Math.round(prevGross / prevCount) : 0;
@@ -115,9 +119,9 @@
     // ===== المبيعات حسب اليوم =====
     const dayMap = {};
     const dayOrders = {};
-    completed.forEach(o => { const d = day(o.date || o.createdAt); dayMap[d] = (dayMap[d] || 0) + orderTotal(o); dayOrders[d] = (dayOrders[d] || 0) + 1; });
+    completed.forEach(o => { const d = day(o.date); dayMap[d] = (dayMap[d] || 0) + orderTotal(o); dayOrders[d] = (dayOrders[d] || 0) + 1; });
     const refundByDay = {};
-    rangeRefunds.forEach(r => { const d = day(r.date || r.createdAt || r.updatedAt); refundByDay[d] = (refundByDay[d] || 0) + num(r.amount); });
+    rangeRefunds.forEach(r => { const d = day(r.createdAt || r.date || r.updatedAt); refundByDay[d] = (refundByDay[d] || 0) + num(r.amount); });
     const salesByDay = Object.keys(dayMap).sort().map(d => ({
       date: d,
       orders: dayOrders[d] || 0,
@@ -376,7 +380,7 @@
           if ((oi.productId || oi.product_id) !== undefined && String(oi.productId || oi.product_id) === String(p.id)) {
             const ord = orderById[oi.orderId] || orderById[oi.orderSyncId];
             if (!ord || !isPaidOrder(ord)) continue;
-            const dd = day(ord.date || ord.createdAt);
+            const dd = day(ord.date);
             if (!inRange(dd, from, to)) continue;
             q += num(oi.quantity) || 1;
             r += num(oi.total);

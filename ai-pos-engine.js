@@ -1493,9 +1493,11 @@ class AIPosEngine {
                 const d = (o.date || o.createdAt || '').slice(0, 10);
                 return d === today;
             });
-            const completed = todayOrders.filter(o => o.paymentStatus === 'paid' || o.status === 'completed' || o.status === 'closed');
+            // P0: شرط الإدراج المرجعي = paymentStatus='paid' حصراً (العقد §1.1).
+            // كان completed/closed يضم طلبات غير مدفوعة في «مبيعات اليوم».
+            const completed = todayOrders.filter(o => String(o.paymentStatus || '').toLowerCase() === 'paid');
             const totalSalesGross = completed.reduce((s, o) => s + (o.total || o.totalAmount || 0), 0);
-            const todayRefunds = (await window.LuccaDB.db.getAll('refunds')).filter(r => (r.date||r.createdAt||r.updatedAt||'').slice(0,10) === today).reduce((s,r) => s + Number(r.amount||0), 0);
+            const todayRefunds = (await window.LuccaDB.db.getAll('refunds')).filter(r => this._dayOf(r.createdAt || r.date || r.updatedAt) === today).reduce((s,r) => s + Number(r.amount||0), 0);
             const totalSales = totalSalesGross - todayRefunds;
             const totalOrders = todayOrders.length;
 
@@ -2121,13 +2123,15 @@ class AIPosEngine {
     async _salesStats(period) {
         const rng = this._periodRange(period);
         const orders = (await window.LuccaDB.Orders.getAll()) || [];
+        // P0 — شرط الإدراج المرجعي: paymentStatus='paid' حصراً.
+        // كان: paid || completed || closed → كان يضم طلبات غير مدفوعة للمبيعات اليومية (انحراف عن العقد).
         const paid = orders.filter(o => this._inRange(o, rng) &&
-            (o.paymentStatus === 'paid' || o.status === 'completed' || o.status === 'closed'));
+            String(o.paymentStatus || '').toLowerCase() === 'paid');
         const gross = paid.reduce((s, o) => s + Number(o.total || o.totalAmount || 0), 0);
         let refunds = 0;
         try {
             const allRef = await window.LuccaDB.db.getAll('refunds');
-            refunds = allRef.filter(r => this._inRange({ date: r.date || r.createdAt || r.updatedAt }, rng))
+            refunds = allRef.filter(r => this._inRange({ date: r.createdAt || r.date || r.updatedAt }, rng))
                 .reduce((s, r) => s + Number(r.amount || 0), 0);
         } catch (e) { /* optional */ }
         return { range: rng, gross, refunds, net: gross - refunds, count: paid.length, orders: paid };

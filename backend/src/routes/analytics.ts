@@ -6,6 +6,7 @@ import {
   getNetSales, getRefunds, getAOV, getCOGS, getGrossProfit, getCancelledCount, getDiscounts, getOrdersCount,
 } from '../services/reportService.js';
 import { getProductUnitCost } from '../services/inventoryService.js';
+import { rangeDays } from '../dateRange.js';
 
 const router = Router();
 
@@ -13,9 +14,11 @@ const router = Router();
 router.use('/dashboard', authRequired as any);
 router.use('/dashboard', requirePermission('reports.read') as any);
 
+// P0: أي تاريخ قادم من العميل (حتى لو حمل وقتاً مثل '...T00:00:00') يُختزل إلى يوم
+// قبل الوصول إلى SQL — انظر src/dateRange.ts.
 function dateRange(req: Request): { from: string; to: string } {
   const today = new Date().toISOString().slice(0, 10);
-  return { from: (req.query.from as string) || today, to: (req.query.to as string) || today };
+  return rangeDays(req.query.from || today, req.query.to || today);
 }
 
 function prevDateRange(from: string, to: string): { from: string; to: string } {

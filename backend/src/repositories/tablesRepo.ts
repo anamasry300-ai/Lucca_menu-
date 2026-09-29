@@ -1,4 +1,5 @@
 import { execute, insert, queryAll, queryOne } from '../db.js';
+import { dayBound, rangeDays } from '../dateRange.js';
 
 const TABLE_WRITE_COLS: Record<string, string> = {
   number: 'number', status: 'status', capacity: 'capacity', currentOrder: 'currentOrder', zone: 'zone',
@@ -12,10 +13,13 @@ export function tablesSummary(): Record<string, unknown>[] {
   return queryAll("SELECT status, COUNT(*) as count FROM tables_store GROUP BY status ORDER BY count DESC");
 }
 
+// P0: daily_shifts.date مفتاح نصّي 'YYYY-MM-DD' — نُطبّع حدود النطاق قبل المقارنة
+// وإلا أسقط مدخل بصيغة ISO/SQLite كل الورديات في النطاق.
 export function dailyShiftsBetween(from: string, to: string): Record<string, unknown>[] {
+  const rng = rangeDays(from, to);
   return queryAll(
     "SELECT date, openingBalance, status, openedAt, closedAt, actualCash, expectedCash, difference, cashSales, cardSales, totalSales, totalExpenses, orderCount, notes FROM daily_shifts WHERE date >= ? AND date <= ? ORDER BY date DESC",
-    [from, to],
+    [rng.from, rng.to],
   );
 }
 
@@ -72,14 +76,15 @@ export function deleteTableRow(id: number): { changes: number } {
 }
 
 // ===== كتابة الورديات اليومية (Tier 2 — shift write) =====
+// P0: تطبيع مفتاح اليوم (dayBound) في كل قراءة/كتابة daily_shifts.
 export function dailyShiftByDate(date: string): Record<string, unknown> | undefined {
-  return queryOne("SELECT date, openingBalance, status, openedAt, closedAt, actualCash, expectedCash, difference, cashSales, cardSales, totalSales, totalExpenses, orderCount, notes FROM daily_shifts WHERE date = ?", [date]);
+  return queryOne("SELECT date, openingBalance, status, openedAt, closedAt, actualCash, expectedCash, difference, cashSales, cardSales, totalSales, totalExpenses, orderCount, notes FROM daily_shifts WHERE date = ?", [dayBound(date, '')]);
 }
 
 export function addDailyShiftRow(date: string, openingBalance: number): number {
   return insert(
     "INSERT INTO daily_shifts (date, openingBalance, status, openedAt) VALUES (?, ?, 'open', datetime('now'))",
-    [date, openingBalance],
+    [dayBound(date, ''), openingBalance],
   );
 }
 
@@ -100,5 +105,33 @@ export function closeDailyShiftRow(date: string, fields: {
       params.push(fields[key as keyof typeof fields]);
     }
   }
-  execute(`UPDATE daily_shifts SET ${sets.join(', ')} WHERE date = ?`, [...params, date]);
+  execute(`UPDATE daily_shifts SET ${sets.join(', ')} WHERE date = ?`, [...params, dayBound(date, '')]);
+}
+
+// ===== كتابة ورديات الموظفين (Tier 2 — shift write عبر طبقة القرار) =====
+const SHIFT_COLS = 'id, employeeId, date, startTime, endTime, hoursWorked, status, notes';
+
+export function employeeShiftById(id: number): Record<string, unknown> | undefined {
+  return queryOne(`SELECT ${SHIFT_COLS} FROM shifts WHERE id = ?`, [id]);
+}
+
+export function activeEmployeeShift(employeeId: number): Record<string, unknown> | undefined {
+  return queryOne(
+    `SELECT ${SHIFT_COLS} FROM shifts WHERE employeeId = ? AND status = 'active' ORDER BY id DESC LIMIT 1`,
+    [employeeId],
+  );
+}
+
+export function addEmployeeShiftRow(employeeId: number, date: string, startTime: string, notes: string): number {
+  return insert(
+    "INSERT INTO shifts (employeeId, date, startTime, status, notes) VALUES (?, ?, ?, 'active', ?)",
+    [employeeId, date, startTime, notes],
+  );
+}
+
+export function closeEmployeeShiftRow(id: number, endTime: string, hoursWorked: number, notes: string): void {
+  execute(
+    "UPDATE shifts SET endTime = ?, hoursWorked = ?, status = 'closed', notes = ? WHERE id = ?",
+    [endTime, hoursWorked, notes, id],
+  );
 }
