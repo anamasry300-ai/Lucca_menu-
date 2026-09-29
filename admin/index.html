@@ -1621,12 +1621,16 @@
             color: #fff;
         }
         .badge-option:hover { border-color: var(--accent); }
+        .conn-pill{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;margin-inline-end:8px}
+        .conn-pill.online{background:rgba(34,197,94,.12);color:#22c55e}
+        .conn-pill.offline{background:rgba(248,113,113,.12);color:#f87171}
+        .session-banner{display:none;align-items:center;gap:8px;padding:8px 14px;margin:10px 20px 0;background:rgba(248,113,113,.12);color:#f87171;font-size:.82rem;font-weight:600;border:1px solid rgba(248,113,113,.25);border-radius:8px}
     </style>
 </head>
 <body>
 
 <!-- Login Screen -->
-<div class="login-screen" id="loginScreen">
+<div class="login-screen" id="loginScreen" style="display:none">
     <div class="login-card">
         <h1>LUCCA</h1>
         <p>لوحة التحكم - إدارة المطعم</p>
@@ -1640,9 +1644,7 @@
         </div>
         <button class="btn btn-primary" onclick="doLogin()">تسجيل الدخول</button>
         <div id="loginError" style="color:var(--danger);font-size:0.85rem;margin-top:12px;text-align:center"></div>
-        <div style="margin-top:14px;text-align:center">
-            <a href="#" id="resetAdminLink" style="color:#94a3b8;font-size:.8rem;text-decoration:none" onclick="resetDefaultAdmin();return false">نسيت كلمة المرور؟ إعادة تعيين الأدمن الافتراضي</a>
-        </div>
+        <div id="loginServerLine" style="color:#64748b;font-size:.72rem;margin-top:6px;text-align:center"></div>
     </div>
 </div>
 
@@ -1666,6 +1668,17 @@
         </div>
         <button class="btn btn-primary" onclick="doActivate()">تفعيل الحساب</button>
         <div id="actError" style="color:var(--danger);font-size:0.85rem;margin-top:12px;text-align:center"></div>
+    </div>
+</div>
+
+<!-- برنامج دون جلسة (Strict Deny — تُدار المصادقة من نافذة الـ POS) -->
+<div class="login-screen" id="accessDenied" style="display:none">
+    <div class="login-card">
+        <h1>LUCCA</h1>
+        <p>لا يمكن فتح لوحة التحكم</p>
+        <div id="accessDeniedReason" style="margin:16px 0;text-align:center;color:var(--text-muted);font-size:0.9rem"></div>
+        <div style="margin:0 0 16px;text-align:center;color:var(--text-muted);font-size:.8rem">هذه النافذة ستُغلق تلقائياً.</div>
+        <button class="btn btn-primary" onclick="window.close()">إغلاق النافذة</button>
     </div>
 </div>
 
@@ -1724,6 +1737,10 @@
     <!-- Main Content -->
     <div class="main-content" id="mainContent">
 
+        <div class="session-banner" id="sessionBanner" style="display:none">
+            ⚠️ انتهت جلستك — البيانات المعروضة قد تكون قديمة والعمليات الحساسة موقوفة. عُد إلى نقطة البيع وأعد تسجيل الدخول.
+        </div>
+
         <!-- Header -->
         <header class="app-header">
             <div class="header-right">
@@ -1745,8 +1762,9 @@
             </div>
             <div class="header-left">
                 <div class="header-actions">
+                    <span class="conn-pill offline" id="connStatus" title="حالة الاتصال بالسيرفر">…</span>
                     <button class="header-btn" onclick="toggleDarkMode()" title="الوضع الليلي">🌙</button>
-                    <button class="header-btn" onclick="refreshDashboard()" title="تحديث">🔄</button>
+                    <button class="header-btn" onclick="refreshSession()" title="تحديث الجلسة والبيانات">🔄</button>
                 </div>
                 <div class="header-user" id="headerUser">
                     <div class="header-user-avatar" id="userAvatar">A</div>
@@ -1952,7 +1970,7 @@
                     <select id="prodFilterCat" onchange="filterProducts()" style="flex:1;min-width:160px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);background:var(--surface);color:var(--text)"><option value="">كل الأقسام</option></select>
                 </div>
                 <div class="panel"><div class="panel-body no-pad">
-                    <table class="data-table"><thead><tr><th>المنتج</th><th>القسم</th><th>السعر</th><th>التكلفة</th><th>الربح</th><th>الشارة</th><th>الحالة</th><th>إجراءات</th></tr></thead>
+                    <table class="data-table"><thead><tr><th>المنتج</th><th>القسم</th><th>السعر</th><th>التكلفة</th><th id="productsProfitTh">الربح</th><th>الشارة</th><th>الحالة</th><th>إجراءات</th></tr></thead>
                     <tbody id="productsBody"></tbody></table>
                 </div></div>
             </div>
@@ -2224,10 +2242,10 @@
                     <div class="report-card" onclick="loadReport('employees')"><h3>👥 الموظفين</h3><p>أداء كل موظف</p></div>
                     <div class="report-card" onclick="loadReport('discounts')"><h3>🏷️ الخصومات</h3><p>تحليل الخصومات المطبقة</p></div>
                     <div class="report-card" onclick="loadReport('refunds')"><h3>↩️ المرتجعات</h3><p>المرتجعات والإلغاءات</p></div>
-                    <div class="report-card" onclick="loadReport('profit')"><h3>📈 الأرباح</h3><p>صافي الربح وهامش الربح</p></div>
+                    <div class="report-card" id="reportCardProfit" onclick="loadReport('profit')"><h3>📈 الأرباح</h3><p>صافي الربح وهامش الربح</p></div>
                     <div class="report-card" onclick="loadReport('inventory')"><h3>📦 المخزون</h3><p>حالة المخزون والتنبيهات</p></div>
                     <div class="report-card" onclick="loadReport('shifts')"><h3>📅 الورديات</h3><p>ملخص الورديات والمبيعات</p></div>
-                    <div class="report-card" onclick="loadReport('cost')"><h3>🧮 مراقبة التكاليف</h3><p>نسبة تكلفة الطعام والأرباح</p></div>
+                    <div class="report-card" id="reportCardCost" onclick="loadReport('cost')"><h3>🧮 مراقبة التكاليف</h3><p>نسبة تكلفة الطعام والأرباح</p></div>
                     <div class="report-card" onclick="loadReport('expenses')"><h3>🧾 المصروفات</h3><p>المصروفات حسب الفئة والموظف</p></div>
                     <div class="report-card" onclick="loadReport('cash')"><h3>🪙 ملخص الصندوق</h3><p>فتح/إغلاق وإجماليات الصندوق</p></div>
                 </div>
@@ -2441,6 +2459,12 @@ async function apiFetch(path){
     if (token) headers['Authorization'] = 'Bearer ' + token;
     else headers['x-api-key'] = localStorage.getItem('luccaApiKey') || '';
     try {
+        // Electron: عبر proxy main-process (التوكن في main وحيداً) — إما نجاح أو فشل صريح.
+        if (window.electronAPI && typeof window.electronAPI.apiRequest === 'function'){
+            const r = await window.electronAPI.apiRequest('GET', '/api' + path);
+            if (!r || r.status < 200 || r.status >= 300) throw new Error('API '+ (r ? r.status : 0));
+            return r.json;
+        }
         const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
         if(!res.ok) throw new Error('API '+res.status);
         return res.json();
@@ -2552,61 +2576,208 @@ function getDateRange(){
 // ===== INIT =====
 async function init(){
     try { await window.LuccaDB.initSystem(); dbReady = true; } catch(e){ console.error('Init failed',e); }
+    var sv = document.getElementById('loginServerLine');
+    if (sv) sv.textContent = 'السيرفر المضبوط: ' + (localStorage.getItem('luccaServerUrl') || 'http://localhost:3000');
 }
 
-// ===== AUTH =====
+// ===== AUTH / ADMIN ACCESS (Session-first: الجلسة من main-process، الصلاحيات من السيرفر — لا توكن في هذا النطاق) =====
+let AdminAccess = null;
+let _heartbeatTimer = null;
+
+const ADMIN_ROLES = ['admin', 'manager'];
+const PROFIT_ROLES = ['admin'];
+
+function buildAccess(sessionUser, perms){
+    const role = String((sessionUser && sessionUser.role) || '').toLowerCase();
+    const wildcard = Array.isArray(perms) ? perms.includes('*') : perms === true;
+    return {
+        user: sessionUser,
+        role: role,
+        perms: Array.isArray(perms) ? perms : [],
+        wildcard: wildcard,
+        allowed: ADMIN_ROLES.includes(role),
+        canViewProfit: PROFIT_ROLES.includes(role),
+        sessionExpired: false,
+        online: true
+    };
+}
+
+async function loadPermissions(){
+    try {
+        const r = await ServerAPI._request('GET', '/api/auth/permissions');
+        if (r.ok && r.json) {
+            if (r.json.wildcard) return r.json.permissions.concat(['*']);
+            return r.json.permissions || [];
+        }
+        if (r.status === 401) markSessionExpired();
+        return null;
+    } catch(e){ return null; }
+}
+
+async function adminFetch(method, path, body){
+    const r = await ServerAPI._request(method || 'GET', path, body);
+    if (r.ok && r.status === 401) markSessionExpired();
+    return r;
+}
+
+function hasPerm(token){
+    const a = AdminAccess;
+    if (!a || !a.allowed) return false;
+    if (a.role === 'admin') return true;
+    if (a.wildcard) return true;
+    return Array.isArray(a.perms) && a.perms.includes(token);
+}
+
+function canViewProfit(){ return !!(AdminAccess && AdminAccess.canViewProfit); }
+
+function setOnline(online){
+    if(!AdminAccess) return;
+    AdminAccess.online = online;
+    const el = document.getElementById('connStatus');
+    if(el){
+        el.textContent = online ? '● متصل' : '● غير متصل';
+        el.className = 'conn-pill ' + (online ? 'online' : 'offline');
+        el.title = online ? 'السيرفر متاح' : 'السيرفر غير متاح — البيانات المعروضة قد تكون محلية أو قديمة';
+    }
+}
+
+function showSessionBanner(on){
+    const b = document.getElementById('sessionBanner');
+    if(b) b.style.display = on ? 'flex' : 'none';
+}
+
+function markSessionExpired(){
+    if(AdminAccess) AdminAccess.sessionExpired = true;
+    showSessionBanner(true);
+    setOnline(false);
+}
+
+async function probeConnection(){
+    if(!AdminAccess) return;
+    try {
+        const r = await ServerAPI._request('GET', '/api/auth/verify');
+        if (r.ok) {
+            setOnline(true);
+            if (AdminAccess.sessionExpired && r.json && r.json.authenticated) AdminAccess.sessionExpired = false;
+            showSessionBanner(false);
+            return;
+        }
+        if (r.status === 401) { markSessionExpired(); return; }
+        setOnline(false);
+    } catch(e){ setOnline(false); }
+}
+
+function startHeartbeat(){
+    stopHeartbeat();
+    _heartbeatTimer = setInterval(probeConnection, 30 * 1000);
+}
+function stopHeartbeat(){
+    if(_heartbeatTimer){ clearInterval(_heartbeatTimer); _heartbeatTimer = null; }
+}
+
+async function refreshSession(){
+    if(!AdminAccess) return;
+    const btn = document.querySelector('.header-btn[title*="تحديث الجلسة"]');
+    if(btn) btn.style.opacity = '.5';
+    try {
+        const perms = await loadPermissions();
+        if (perms && Array.isArray(perms)) {
+            AdminAccess.perms = perms.filter(p=>p!=='*');
+            AdminAccess.wildcard = perms.includes('*') || AdminAccess.role === 'admin';
+        }
+        initTabs();
+        await probeConnection();
+        refreshDashboard();
+        showToast('تم تحديث الجلسة والصلاحيات');
+    } catch(e){
+        showToast('تعذّر تحديث الجلسة','error');
+    } finally {
+        if(btn) btn.style.opacity = '1';
+    }
+}
+
+function canOpenAdmin(sessionUser, perms){
+    const a = buildAccess(sessionUser, perms);
+    if (!a.allowed) { showAccessDenied('no-role'); return null; }
+    return a;
+}
+
+function showAccessDenied(reason){
+    stopHeartbeat();
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('activationScreen').style.display='none';
+    document.getElementById('app').style.display='none';
+    const d = document.getElementById('accessDenied');
+    const msg = document.getElementById('accessDeniedReason');
+    const reasons = {
+        'no-role':   'لا تملك صلاحية فتح لوحة التحكم — هذه الصلاحية لحسابات الأدمن/المدير فقط.',
+        'no-session':'لا توجد جلسة نشطة — سجّل الدخول من نافذة نقطة البيع أولاً.',
+        'expired':   'انتهت الجلسة — عُد إلى نقطة البيع وأعد تسجيل الدخول.'
+    };
+    if(msg) msg.textContent = reasons[reason] || reasons['no-session'];
+    d.style.display='flex';
+}
+
 async function doLogin(){
     const user = document.getElementById('loginUser').value.trim();
     const pass = document.getElementById('loginPass').value;
-    if(!user||!pass){ document.getElementById('loginError').textContent='أدخل بيانات صحيحة'; return; }
+    if(!user){ document.getElementById('loginError').textContent='أدخل اسم المستخدم'; return; }
     try {
         const u = await window.LuccaDB.Users.login(user, pass);
         currentUser = u;
         window.__luccaRole = u.role || 'user';
         if (u.mustChangePassword) {
-            // إلزامية تغيير كلمة المرور: نعرض قفل بلا إغلاق ولا نفتح الواجهة قبل التغيير.
             document.getElementById('loginError').textContent = '';
             openMustChangeModal();
             return;
         }
-        enterApp(u);
-    } catch(e){ document.getElementById('loginError').textContent = 'خطأ في تسجيل الدخول'; }
-}
-
-async function resetDefaultAdmin(){
-    if(!window.confirm('سيُعاد تعيين حساب الأدمن المحلي إلى admin / 123456 مع فرض تغيير كلمة المرور عند الدخول. بياناتك الأخرى لن تتأثر. هل تريد المتابعة؟')) return;
-    const errEl = document.getElementById('loginError');
-    errEl.style.color = 'var(--danger)';
-    errEl.textContent = 'جارٍ إعادة التعيين...';
-    try {
-        const r = await window.LuccaDB.Users.resetDefaultAdmin();
-        document.getElementById('loginUser').value = r.username;
-        document.getElementById('loginPass').value = '';
-        errEl.style.color = '#22c55e';
-        errEl.textContent = '✅ تمت إعادة التعيين — سجّل الدخول بـ ' + r.username + ' / ' + r.password + ' ثم غيّر كلمة المرور';
+        await enterApp(u);
     } catch(e){
-        errEl.style.color = 'var(--danger)';
-        errEl.textContent = 'خطأ في إعادة التعيين: ' + ((e && e.message) || 'تعذرت العملية');
+        const errEl = document.getElementById('loginError');
+        const url = (localStorage.getItem('luccaServerUrl') || 'http://localhost:3000').replace(/\/+$/,'');
+        let net = '';
+        try {
+            const hr = await fetch(url + '/health', { signal: AbortSignal.timeout(3000) });
+            net = hr.ok ? ('السيرفر يرد (/' + hr.status + ')') : ('السيرفر يرد بحالة ' + hr.status);
+        } catch(_) { net = 'السيرفر لا يستجيب — تعذّر الاتصال بعنوان ' + url; }
+        errEl.textContent = 'خطأ في تسجيل الدخول — ' + (e && e.message ? e.message : 'غير معروف') + ' | ' + net;
     }
 }
 
-function enterApp(u){
+async function enterApp(u){
     currentUser = u || currentUser;
-    window.__luccaRole = (u && u.role) || currentUser.role || 'user';
+    window.__luccaRole = (u && u.role) || (currentUser && currentUser.role) || 'user';
+    let perms = null;
+    try { perms = await loadPermissions(); } catch(e){}
+    const a = canOpenAdmin(currentUser, perms);
+    AdminAccess = a;
+    if(!a) return;
     document.getElementById('loginScreen').style.display='none';
+    document.getElementById('activationScreen').style.display='none';
     document.getElementById('app').style.display='flex';
-    document.getElementById('userDisplayName').textContent = u?.displayName || u?.username || '';
-    document.getElementById('userRoleDisplay').textContent = u?.role || 'user';
-    document.getElementById('userAvatar').textContent = ((u?.displayName||u?.username||'U'))[0].toUpperCase();
+    const nm = (u && (u.displayName || u.name || u.username)) || (currentUser && (currentUser.displayName || currentUser.name || currentUser.username)) || '';
+    document.getElementById('userDisplayName').textContent = nm;
+    document.getElementById('userRoleDisplay').textContent = a.role || 'user';
+    document.getElementById('userAvatar').textContent = (nm || 'U')[0].toUpperCase();
     initDateFilter();
     initTabs();
+    setOnline(true);
+    startHeartbeat();
+    probeConnection();
     refreshDashboard();
 }
 
 function doLogout(){
-    window.LuccaDB.Users.logout();
+    stopHeartbeat();
+    try { window.LuccaDB.Users.logout(); } catch(e){}
     currentUser = null;
     window.__luccaRole = null;
+    AdminAccess = null;
+    // Electron: لا شاشة دخول داخل لوحة التحكم — بعد قطع الجلسة نعرض الرفض الصريح ونغلق.
+    if (window.electronAPI && window.electronAPI.session && typeof window.electronAPI.session.logout === 'function') {
+        showAccessDenied('no-session');
+        return;
+    }
     document.getElementById('loginScreen').style.display='flex';
     document.getElementById('app').style.display='none';
 }
@@ -2665,41 +2836,96 @@ async function doActivate(){
     }
 }
 
-// ===== TABS =====
-function initTabs(){
-    document.querySelectorAll('.sidebar-link').forEach(link => {
-        link.addEventListener('click', function(){
-            const page = this.dataset.page;
-            if(!page) return;
-            document.querySelectorAll('.sidebar-link').forEach(l=>l.classList.remove('active'));
-            this.classList.add('active');
-            document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-            const target = document.getElementById('page-'+page);
-            if(target) target.classList.add('active');
-            const loaders = {
-                'dashboard': ()=>refreshDashboard(),
-                'orders-page': ()=>loadOrders(),
-                'tables-page': ()=>loadTables(),
-                'categories-page': ()=>loadCategories(),
-                'products-page': ()=>{ loadProducts(); populateProductSelects(); },
-                'paymethods-page': ()=>loadPaymentMethods(),
-                'employees-page': ()=>loadEmployees(),
-                'attendance-page': ()=>loadAttendance(),
-                'shifts-page': ()=>{ loadShifts(); dsLoad(); },
-                'inventory-page': ()=>{ loadInventory(); loadAlertsBadge(); },
-                'purchases-page': ()=>loadPurchases(),
-                'expenses-page': ()=>{ populateExpenseForm(); loadExpenses(); },
-                'roles-page': ()=>loadRoleUsers(),
-                'batman-ask': ()=>BatmanQueries.mountAdminWidget('batmanAskMount'),
-                'audit-page': ()=>loadAuditLogs(),
-                'server-page': ()=>{},
-                'system-page': ()=>SystemHealth.run(),
-                'kb-page': ()=>{ refreshKBStats(); loadKBDocList(); },
-            };
-            if(loaders[page]) loaders[page]();
-        });
-    });
+// ===== TABS / ADMIN SHELL (RBAC سيرفر-فرست — مصدر الحقيقة /api/auth/permissions) =====
+const NAV_RULES = {
+    'dashboard':      null,
+    'orders-page':    'orders.read',
+    'tables-page':    null,
+    'categories-page':'categories.read',
+    'products-page':  'products.read',
+    'paymethods-page':'payments.write',
+    'employees-page': 'employees.read',
+    'attendance-page':'attendance.read',
+    'shifts-page':    'shifts.read',
+    'inventory-page': 'inventory.read',
+    'purchases-page': 'purchases.write',
+    'expenses-page':  'expenses.read',
+    'reports-page':   'reports.read',
+    'kb-page':        null,
+    'roles-page':     '__admin__',
+    'batman-ask':     null,
+    'audit-page':     'audit.read',
+    'backup-page':    '__admin__',
+    'server-page':    '__admin__',
+    'system-page':    null,
+    'printer-page':   null
+};
+
+const PAGE_LOADERS = {
+    'dashboard': ()=>refreshDashboard(),
+    'orders-page': ()=>loadOrders(),
+    'tables-page': ()=>loadTables(),
+    'categories-page': ()=>loadCategories(),
+    'products-page': ()=>{ loadProducts(); populateProductSelects(); },
+    'paymethods-page': ()=>loadPaymentMethods(),
+    'employees-page': ()=>loadEmployees(),
+    'attendance-page': ()=>loadAttendance(),
+    'shifts-page': ()=>{ loadShifts(); dsLoad(); },
+    'inventory-page': ()=>{ loadInventory(); loadAlertsBadge(); },
+    'purchases-page': ()=>loadPurchases(),
+    'expenses-page': ()=>{ populateExpenseForm(); loadExpenses(); },
+    'roles-page': ()=>loadRoleUsers(),
+    'batman-ask': ()=>BatmanQueries.mountAdminWidget('batmanAskMount'),
+    'audit-page': ()=>loadAuditLogs(),
+    'server-page': ()=>{},
+    'system-page': ()=>SystemHealth.run(),
+    'kb-page': ()=>{ refreshKBStats(); loadKBDocList(); },
+};
+
+function navRuleFor(page){
+    const a = AdminAccess;
+    if(!a || !a.allowed) return false;
+    const rule = NAV_RULES[page];
+    if(rule === '__admin__') return a.role === 'admin';
+    if(rule) return hasPerm(rule);
+    return true;
 }
+
+function openPage(page){
+    const a = AdminAccess;
+    if(!a || !a.allowed) return;
+    if(!navRuleFor(page)){ showToast('لا تملك صلاحية الوصول إلى هذا القسم','error'); return; }
+    document.querySelectorAll('.sidebar-link').forEach(l=>l.classList.toggle('active', l.dataset.page===page));
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    const target = document.getElementById('page-'+page);
+    if(target) target.classList.add('active');
+    if(PAGE_LOADERS[page]) PAGE_LOADERS[page]();
+}
+
+function initTabs(){
+    const a = AdminAccess;
+    document.querySelectorAll('.sidebar-link').forEach(link => {
+        const page = link.dataset.page;
+        if(!page) return;
+        const show = navRuleFor(page);
+        link.style.display = show ? '' : 'none';
+        if(!show && link.classList.contains('active')) link.classList.remove('active');
+    });
+    const profitCards = [
+        document.getElementById('reportCardProfit'),
+        document.getElementById('reportCardCost'),
+        document.getElementById('productsProfitTh')
+    ];
+    profitCards.forEach(el=>{ if(el) el.style.display = canViewProfit() ? '' : 'none'; });
+    const activeLink = document.querySelector('.sidebar-link.active');
+    if(activeLink && !navRuleFor(activeLink.dataset.page)) openPage('dashboard');
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.sidebar-link').forEach(function(link){
+        link.addEventListener('click', function(){ openPage(link.dataset.page); });
+    });
+});
 
 function toggleSidebar(){
     document.getElementById('sidebar').classList.toggle('open');
@@ -2797,6 +3023,15 @@ function renderKPIs(d){
     setTrend('kpiAvgTrend', d.kpis?.avgOrder?.change);
     set('kpiExpenses', formatMoney(d.expenses?.total||0));
     set('kpiRefunds', formatMoney(d.kpis?.refunds?.value||0));
+    if(!canViewProfit()){
+        const pf = document.getElementById('kpiProfit');
+        const fl = document.getElementById('kpiProfitFlag');
+        const lb = document.getElementById('kpiProfitLabel');
+        if(pf) pf.textContent = 'متاح للأدمن فقط';
+        if(fl) fl.style.display = 'none';
+        if(lb) lb.textContent = 'الربح يظهر لحساب الأدمن فقط (مصدره صلاحيات السيرفر)';
+        return;
+    }
     const p = d.profit || {};
     const missingClock = p.missingCost ? ' (~'+(p.missingProducts||0)+' بلا تكلفة)' : '';
     if(p.coverage > 0 && p.missingCost){
@@ -3129,7 +3364,8 @@ async function loadProducts(){
             var availIcon = avail ? '🔴' : '🟢';
             var badgeHtml = p.badge ? '<span class="badge badge-warning">'+(badgeLabels[p.badge]||p.badge)+'</span>' : '';
             var statusHtml = '<span class="badge '+(avail?'badge-success':'badge-neutral')+'">'+(avail?'متاح':'معطل')+'</span>';
-            return '<tr><td>'+(p.nameAr||p.name||'')+'</td><td>'+(catMap[p.categoryId]||p.category||'—')+'</td><td>'+formatMoney(price)+'</td><td>'+formatMoney(cost)+'</td><td style="color:'+(profit>=0?'var(--success)':'var(--danger)')+'">'+formatMoney(profit)+'</td><td>'+badgeHtml+'</td><td>'+statusHtml+'</td><td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" onclick="productDetailsModal(\''+p.id+'\')" title="التفاصيل">📋</button> <button class="btn btn-ghost btn-sm" onclick="editProductModal(\''+p.id+'\')" title="تعديل">✏️</button> <button class="btn btn-ghost btn-sm" onclick="toggleProduct(\''+p.id+'\','+(avail?0:1)+')" title="'+availText+'">'+availIcon+'</button> <button class="btn btn-ghost btn-sm" onclick="deleteProduct(\''+p.id+'\')" title="حذف">🗑️</button></td></tr>';
+            var profitCell = canViewProfit() ? '<td style="color:'+(profit>=0?'var(--success)':'var(--danger)')+'">'+formatMoney(profit)+'</td>' : '<td>—</td>';
+            return '<tr><td>'+(p.nameAr||p.name||'')+'</td><td>'+(catMap[p.categoryId]||p.category||'—')+'</td><td>'+formatMoney(price)+'</td><td>'+formatMoney(cost)+'</td>'+profitCell+'<td>'+badgeHtml+'</td><td>'+statusHtml+'</td><td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" onclick="productDetailsModal(\''+p.id+'\')" title="التفاصيل">📋</button> <button class="btn btn-ghost btn-sm" onclick="editProductModal(\''+p.id+'\')" title="تعديل">✏️</button> <button class="btn btn-ghost btn-sm" onclick="toggleProduct(\''+p.id+'\','+(avail?0:1)+')" title="'+availText+'">'+availIcon+'</button> <button class="btn btn-ghost btn-sm" onclick="deleteProduct(\''+p.id+'\')" title="حذف">🗑️</button></td></tr>';
         }).join('');
     } catch(e){ showToast('خطأ: '+e.message,'error'); }
 }
@@ -3249,7 +3485,7 @@ async function productDetailsModal(id){
         '<div class="detail-item"><label>النوع</label><div class="val">'+({standard:'عادي',variant:'لحجم',combo:'كومبو'}[p.productType]||'—')+'</div></div>'+
         '<div class="detail-item"><label>السعر</label><div class="val" style="color:var(--success)">'+formatMoney(price)+'</div></div>'+
         '<div class="detail-item"><label>التكلفة</label><div class="val">'+formatMoney(cost)+'</div></div>'+
-        '<div class="detail-item"><label>صافي الربح</label><div class="val" style="color:'+(profit>=0?'var(--success)':'var(--danger)')+'">'+formatMoney(profit)+'</div></div>'+
+        (canViewProfit() ? '<div class="detail-item"><label>صافي الربح</label><div class="val" style="color:'+(profit>=0?'var(--success)':'var(--danger)')+'">'+formatMoney(profit)+'</div></div>' : '')+
         '<div class="detail-item"><label>نسبة تكلفة الطعام</label><div class="val">'+foodCost+'%</div></div>'+
         '<div class="detail-item"><label>الشارة</label><div class="val">'+({new:'🆕 جديد',popular:'⭐ رائج',sale:'🏷️ تخفيض'}[p.badge]||'بدون')+'</div></div>'+
         '<div class="detail-item"><label>الحالة</label><div class="val"><span class="badge '+(avail?'badge-success':'badge-neutral')+'">'+(avail?'متاح':'معطل')+'</span></div></div>';
@@ -4117,6 +4353,11 @@ async function loadReport(type){
     content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
     const titles = {sales:'تقرير المبيعات',orders:'تقرير الطلبات',payments:'تقرير المدفوعات',products:'تقرير المنتجات',categories:'تقرير الأقسام',employees:'تقرير الموظفين',discounts:'تقرير الخصومات',refunds:'تقرير المرتجعات',profit:'تقرير الأرباح والتكلفة',inventory:'تقرير المخزون',shifts:'تقرير الورديات',expenses:'تقرير المصروفات',cost:'تحليل التكلفة والربحية',cash:'ملخص الصندوق'};
     title.textContent = titles[type]||'تقرير';
+    if((type==='profit' || type==='cost') && !canViewProfit()){
+        content.innerHTML = '<div class="empty-state"><div class="icon">🔒</div><p>تقرير الأرباح والتكلفة متاح لحساب الأدمن فقط.</p></div>';
+        currentReportData = null;
+        return;
+    }
     try {
         // كل التقارير من نفس طبقة الحسابات الموحدة (نفس مصدر لوحة التحكم و Batman)
         const d = await window.AdminAnalytics.compute(window.LuccaDB, {from, to});
@@ -4500,6 +4741,22 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(window.LuccaDB && typeof window.LuccaDB.enableSync === 'function'){
         window.LuccaDB.enableSync(window.LuccaDB._supabaseClient || null, { interval: 60000 });
     }
+    // ==== Electron: الجلسة في main-process (لا منقب localStorage) — إما دخول فعلي أو رفض صريح ====
+    if (window.electronAPI && window.electronAPI.session && typeof window.electronAPI.session.get === 'function') {
+        let s = null;
+        try { s = await window.electronAPI.session.get(); } catch(e) { console.error(e); }
+        if (s && s.authenticated && s.user) {
+            const u = s.user;
+            currentUser = Object.assign({}, u, { displayName: u.displayName || u.name || u.username });
+            window.__luccaRole = u.role || 'user';
+            if (u.mustChangePassword) { openMustChangeModal(); return; }
+            await enterApp(currentUser);
+            return;
+        }
+        // Strict Deny: بدون جلسة (أو انتهت) أو دور غير إداري → رفض صريح بلا شاشة دخول هنا.
+        showAccessDenied('no-session');
+        return;
+    }
     const savedUser = window.LuccaDB.Users.getCurrentUser();
     if(savedUser){
         try {
@@ -4514,18 +4771,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
                     openMustChangeModal();
                     return;
                 }
-                document.getElementById('loginScreen').style.display='none';
-                document.getElementById('app').style.display='flex';
-                document.getElementById('userDisplayName').textContent = exists.displayName || exists.username;
-                document.getElementById('userRoleDisplay').textContent = exists.role || 'user';
-                document.getElementById('userAvatar').textContent = (exists.displayName||exists.username||'U')[0].toUpperCase();
-                initDateFilter();
-                initTabs();
-                refreshDashboard();
+                await enterApp(currentUser);
                 return;
             }
         } catch(e){}
     }
+    document.getElementById('loginScreen').style.display='flex';
 });
 </script>
 
@@ -4977,10 +5228,12 @@ async function processAdminBot(text){
                 '<tr><td>المصروفات</td><td style="color:#ff6b6b">'+formatMoney(d.expenses.total)+' ل.س</td></tr>' +
                 '<tr><td>الخصومات</td><td>'+formatMoney(k.discounts.value)+' ل.س</td></tr>' +
                 '<tr><td>المرتجعات/الإلغاء</td><td style="color:#ff6b6b">'+formatMoney(k.refunds.value)+' ل.س</td></tr>';
-            if(p.coverage > 0){
-                h += '<tr><td>الربح التقديري</td><td style="color:'+(p.netProfit>=0?'#51cf66':'#ff6b6b')+'"><b>'+formatMoney(p.netProfit)+' ل.س</b></td></tr>';
-            } else {
-                h += '<tr><td>الربح</td><td style="color:#94a3b8">لا يمكن حسابه — لا توجد تكلفة بضاعة</td></tr>';
+            if(canViewProfit()){
+                if(p.coverage > 0){
+                    h += '<tr><td>الربح التقديري</td><td style="color:'+(p.netProfit>=0?'#51cf66':'#ff6b6b')+'"><b>'+formatMoney(p.netProfit)+' ل.س</b></td></tr>';
+                } else {
+                    h += '<tr><td>الربح</td><td style="color:#94a3b8">لا يمكن حسابه — لا توجد تكلفة بضاعة</td></tr>';
+                }
             }
             h += '</table>';
             const isReport = matchAny(t,['تقرير','report']);
@@ -5031,6 +5284,7 @@ async function processAdminBot(text){
     }
     // ===== COST CONTROL =====
     if(matchAny(t,['تكلفة','cost','نسبة التكلفة','food cost','هامش الربح','profit margin'])){
+        if(!canViewProfit()) return aiBotReply('🔒 تحليل التكلفة والربحية متاح لحساب الأدمن فقط.');
         try{
             if(!window.AdminAnalytics) return aiBotReply('⚠️ طبقة التحليلات غير محمّلة');
             const today = new Date().toISOString().slice(0,10);
@@ -5050,6 +5304,7 @@ async function processAdminBot(text){
     }
     // ===== ACCOUNTING (شهري، من نفس الطبقة) =====
     if(matchAny(t,['حسابات','accounting','P&L','الميزانية','المال','financial','الربح والخسارة','تقرير مالي'])){
+        if(!canViewProfit()) return aiBotReply('🔒 التقرير المالي والربح والخسارة متاح لحساب الأدمن فقط.');
         try{
             if(!window.AdminAnalytics) return aiBotReply('⚠️ طبقة التحليلات غير محمّلة');
             const d = await window.AdminAnalytics.compute(window.LuccaDB, {from: new Date().toISOString().slice(0,7)+'-01', to: new Date().toISOString().slice(0,10)});

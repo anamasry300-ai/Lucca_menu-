@@ -508,6 +508,30 @@ const ServerAPI = {
         return headers;
     },
 
+    // ===== Transport: Electron → secure main-process proxy (path must be backend-relative).
+    //      Browser/dev → direct fetch with session token (legacy path). =====
+    async _request(method, path, body) {
+        // Under Electron the renderer holds NO session token; main injects Authorization.
+        if (window.electronAPI && typeof window.electronAPI.apiRequest === 'function') {
+            const r = await window.electronAPI.apiRequest(method, path, body === undefined ? undefined : body);
+            const ok = !!(r && r.status >= 200 && r.status < 300);
+            return { ok, status: r ? r.status : 0, json: (r && r.json) || null };
+        }
+        // Legacy direct fetch (browser / dev): session token lives in sessionStorage.
+        const headers = this.authHeaders(body !== undefined ? 'application/json' : undefined);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        try {
+            const res = await fetch(`${this.getBaseUrl()}${path}`, {
+                method, headers,
+                body: body === undefined ? undefined : JSON.stringify(body),
+                signal: controller.signal
+            });
+            const json = await res.json().catch(() => ({}));
+            return { ok: res.ok, status: res.status, json };
+        } finally { clearTimeout(timer); }
+    },
+
     // ===== Offline retry queue: يحفظ العمليات الفاشلة (انقطاع الشبكة) ويعيد محاولتها لاحقاً =====
     OFFLINE_KEY: 'lucca_offline_queue',
     MAX_OFFLINE: 200,
@@ -533,10 +557,7 @@ const ServerAPI = {
         const batch = q.slice(0, 50);
         for (const op of batch) {
             try {
-                const headers = this.authHeaders('application/json');
-                const res = await fetch(`${this.getBaseUrl()}${op.path}`, {
-                    method: op.method, headers, body: op.body ? JSON.stringify(op.body) : undefined
-                });
+                const res = await this._request(op.method, op.path, op.body);
                 if (res.ok || res.status === 409 || res.status === 404) {
                     flushed++;
                 } else {
@@ -554,14 +575,8 @@ const ServerAPI = {
 
     async getAll(store) {
         try {
-            const headers = { 'Content-Type': 'application/json' };
-            const token = this.getToken();
-            if (token) headers['Authorization'] = 'Bearer ' + token;
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 3000);
-            const res = await fetch(`${this.getBaseUrl()}/api/${store}`, { headers, signal: controller.signal });
-            clearTimeout(timer);
-            if (res.ok) return await res.json();
+            const r = await this._request('GET', `/api/${store}`);
+            if (r.ok) return r.json;
             return null;
         } catch(e) { return null; }
     },
@@ -592,13 +607,10 @@ const ServerAPI = {
 
     async add(store, item, opts) {
         try {
-            const headers = this.authHeaders('application/json');
-            const res = await fetch(`${this.getBaseUrl()}/api/${store}`, {
-                method: 'POST', headers, body: JSON.stringify(item)
-            });
-            if (res.ok) return await res.json();
-            if (res.status === 409) {
-                const errBody = await res.json().catch(() => ({}));
+            const r = await this._request('POST', `/api/${store}`, item);
+            if (r.ok) return r.json;
+            if (r.status === 409) {
+                const errBody = r.json || {};
                 const err = new Error(errBody.error || 'الطاولة عليها طلب نشط بالفعل');
                 err.status = 409;
                 err.existingOrderId = errBody.existingOrderId;
@@ -617,44 +629,31 @@ const ServerAPI = {
 
     async put(store, id, item) {
         try {
-            const headers = this.authHeaders('application/json');
-            const res = await fetch(`${this.getBaseUrl()}/api/${store}/${id}`, {
-                method: 'PUT', headers, body: JSON.stringify(item)
-            });
-            return res.ok;
+            const r = await this._request('PUT', `/api/${store}/${id}`, item);
+            return r.ok;
         } catch(e) { this._enqueueOffline('PUT', '/api/' + store + '/' + id, item); return false; }
     },
 
     async remove(store, id) {
         try {
-            const headers = this.authHeaders();
-            const res = await fetch(`${this.getBaseUrl()}/api/${store}/${id}`, {
-                method: 'DELETE', headers
-            });
-            return res.ok;
+            const r = await this._request('DELETE', `/api/${store}/${id}`);
+            return r.ok;
         } catch(e) { this._enqueueOffline('DELETE', '/api/' + store + '/' + id, null); return false; }
     },
 
     async get(store, id) {
         try {
-            const headers = { 'Content-Type': 'application/json' };
-            const token = this.getToken();
-            if (token) headers['Authorization'] = 'Bearer ' + token;
-            const res = await fetch(`${this.getBaseUrl()}/api/${store}/${id}`, { headers });
-            if (res.ok) return await res.json();
-            return null;
+            const r = await this._request('GET', `/api/${store}/${id}`);
+            return r.ok ? r.json : null;
         } catch(e) { return null; }
     },
 
     async checkout(orderId, data) {
         try {
-            const headers = this.authHeaders('application/json');
-            const res = await fetch(`${this.getBaseUrl()}/api/orders/${orderId}/checkout`, {
-                method: 'POST', headers, body: JSON.stringify(data || {})
-            });
-            if (res.ok) return await res.json();
-            const errBody = await res.json().catch(() => ({}));
-            if (res.status === 409) {
+            const r = await this._request('POST', `/api/orders/${orderId}/checkout`, data || {});
+            if (r.ok) return r.json;
+            const errBody = r.json || {};
+            if (r.status === 409) {
                 const err = new Error(errBody.error || 'الطلب مغلق بالفعل');
                 err.status = 409;
                 throw err;
@@ -669,14 +668,11 @@ const ServerAPI = {
     // استدعاء POST عام على مسار (يحمل رأس المصادقة إن وُجد). يستخدم لمسارات الدعوات/الموظفين المخصّصة.
     async post(path, body) {
         try {
-            const headers = this.authHeaders('application/json');
-            const res = await fetch(`${this.getBaseUrl()}${path}`, {
-                method: 'POST', headers, body: JSON.stringify(body || {})
-            });
-            const json = await res.json().catch(() => ({}));
-            if (res.ok) return json;
+            const r = await this._request('POST', path, body || {});
+            const json = r.json || {};
+            if (r.ok) return json;
             const err = new Error(json.error || 'فشل الطلب');
-            err.status = res.status;
+            err.status = r.status;
             throw err;
         } catch(e) {
             if (e && e.status) throw e;
@@ -687,14 +683,11 @@ const ServerAPI = {
     // استدعاء GET عام على مسار (يحمل رأس المصادقة إن وُجد).
     async get(path) {
         try {
-            const headers = { 'Content-Type': 'application/json' };
-            const token = this.getToken();
-            if (token) headers['Authorization'] = 'Bearer ' + token;
-            const res = await fetch(`${this.getBaseUrl()}${path}`, { headers });
-            const json = await res.json().catch(() => ({}));
-            if (res.ok) return json;
+            const r = await this._request('GET', path);
+            const json = r.json || {};
+            if (r.ok) return json;
             const err = new Error(json.error || 'فشل الطلب');
-            err.status = res.status;
+            err.status = r.status;
             throw err;
         } catch(e) {
             if (e && e.status) throw e;
@@ -708,13 +701,29 @@ const Users = {
     async login(username, password) {
         const raw = String(username || '').trim();
         const search = raw.toLowerCase();
-        if (!raw || !password) throw new Error('أدخل بيانات صحيحة');
+        if (!raw) throw new Error('أدخل اسم المستخدم');
+
+        // Electron: مصادقة عبر main-process فقط — لا يُمرَّر أي توكن إلى renderer،
+        // ولا يوجد أي بديل محلي (لا متجاوز «admin» ولا تخفيف). القرار حصري للسيرفر.
+        if (window.electronAPI && typeof window.electronAPI.session && typeof window.electronAPI.session.login === 'function') {
+            const serverUrl = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+            const r = await window.electronAPI.session.login({ username: raw, password, serverUrl });
+            if (r && r.ok && r.user) {
+                const safe = r.user;
+                // حدّث النسخة المحلية بهوية الخادم (عرض فقط — تُستخدم للواجهة لا للتفويض).
+                await this._refreshLocalUser(search, password, safe).catch(() => {});
+                localStorage.setItem('currentUser', JSON.stringify(safe));
+                return safe;
+            }
+            throw new Error((r && r.error) || 'بيانات الدخول غير صحيحة');
+        }
 
         // 1) الخادم أولاً — مصدر الحقيقة للمستخدمين (users = backend auth فقط).
         //    يُحسم «دخول ناجح» بما يُقبله الخادم حتى لو كانت النسخة المحلية (IndexedDB)
         //    قديمة أو مفقودة — وهذا يحل «خطأ تسجيل الدخول مع بيانات صحيحة».
         const serverResult = await this._serverLogin(raw, password).catch((e) => ({ decided: false, error: e }));
         if (serverResult && serverResult.ok) return serverResult.user;
+
         // 2) ردّ صريح من الخادم (401/403/400...) → قرار نهائي. لا نثق بالنسخة المحلية ضد الخادم
         //    (لا تجاوز للمصادقة المحلية على حساب قرار الخادم).
         if (serverResult && serverResult.decided) {
@@ -904,9 +913,14 @@ const Users = {
     async logout() {
         // إبطال جلسة الخادم إن وُجدت
         try {
-            const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
-            const token = ServerAPI.getToken();
-            if (token) await fetch(`${url}/api/auth/logout`, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } });
+            // Electron: إبطال الجلسة في main-process (الذي يحمل التوكن).
+            if (window.electronAPI && typeof window.electronAPI.session && typeof window.electronAPI.session.logout === 'function') {
+                await window.electronAPI.session.logout();
+            } else {
+                const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+                const token = ServerAPI.getToken();
+                if (token) await fetch(`${url}/api/auth/logout`, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } });
+            }
         } catch(e) { /* best-effort */ }
         ServerAPI.setToken(null);
         localStorage.removeItem('currentUser');
@@ -968,17 +982,11 @@ const Users = {
 
         // دفع للخادم إن أمكن؛ وإلا نُخزِن للمزامنة اللاحقة. لا يُعاد قفل الحساب هنا.
         let status = 'local';
-        const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
-        const token = ServerAPI.getToken();
         try {
-            if (!token) { status = 'queued'; this._storePendingPasswordChange({ currentPassword, newPassword }); }
+            const hasToken = !!ServerAPI.getToken() || !!(window.electronAPI && typeof window.electronAPI.apiRequest === 'function');
+            if (!hasToken) { status = 'queued'; this._storePendingPasswordChange({ currentPassword, newPassword }); }
             else {
-                const res = await fetch(`${url}/api/auth/password`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                    body: JSON.stringify({ currentPassword, newPassword }),
-                    signal: AbortSignal.timeout(4000)
-                });
+                const res = await ServerAPI._request('PUT', '/api/auth/password', { currentPassword, newPassword });
                 if (res.ok) { status = 'synced'; this._clearPendingPasswordChange(); }
                 else { status = 'queued'; this._storePendingPasswordChange({ currentPassword, newPassword }); }
             }
@@ -993,25 +1001,19 @@ const Users = {
         const raw = localStorage.getItem(this.PENDING_PWD_KEY);
         if (!raw) return null;
         let pending; try { pending = JSON.parse(raw); } catch(e) { this._clearPendingPasswordChange(); return null; }
-        const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
-        let token = ServerAPI.getToken();
         try {
-            // لا جلسة → حاول تسجيل الدخول بكلمة المرور السابقة (لا تزال صالحة عند الخادم)
-            if (!token) {
+            const inElectron = !!(window.electronAPI && typeof window.electronAPI.apiRequest === 'function');
+            // browser فقط: لا جلسة → حاول تسجيل الدخول بكلمة المرور السابقة (لا تزال صالحة عند الخادم)
+            if (!ServerAPI.getToken() && !inElectron) {
                 const user = this.getCurrentUser();
-                const lr = await fetch(`${url}/api/auth/login`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username: (user && (user.username || user.email)) || '', password: pending.currentPassword }),
-                    signal: AbortSignal.timeout(4000)
+                const lr = await ServerAPI._request('POST', '/api/auth/login', {
+                    username: (user && (user.username || user.email)) || '', password: pending.currentPassword
                 });
-                if (lr.ok) { const lj = await lr.json(); if (lj.token) { ServerAPI.setToken(lj.token); token = lj.token; } }
+                if (lr.ok && lr.json && lr.json.token) ServerAPI.setToken(lr.json.token);
             }
-            if (!token) return { status: 'queued' };
-            const res = await fetch(`${url}/api/auth/password`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                body: JSON.stringify({ currentPassword: pending.currentPassword, newPassword: pending.newPassword }),
-                signal: AbortSignal.timeout(4000)
+            if (!ServerAPI.getToken() && !inElectron) return { status: 'queued' };
+            const res = await ServerAPI._request('PUT', '/api/auth/password', {
+                currentPassword: pending.currentPassword, newPassword: pending.newPassword
             });
             if (res.ok) { this._clearPendingPasswordChange(); return { status: 'synced' }; }
             // الخادم رفض لاحقاً: لا نُعيد قفل الحساب بصمت — سجّل ونبّه.
@@ -1075,7 +1077,7 @@ const Users = {
             password: hashed ? 'pbkdf2:' + salt + ':' + hashed : '123456',
             role: 'admin',
             active: true,
-            mustChangePassword: 1,
+            mustChangePassword: 0,
             updatedAt: new Date().toISOString()
         };
         if (existing) {
@@ -1088,7 +1090,7 @@ const Users = {
         sessionStorage.removeItem('posAdminAuthed');
         ServerAPI.setToken(null);
         try { ServerAPI.add('users', { username: 'admin', name: 'مدير النظام', role: 'admin' }).catch(() => {}); } catch(e) {}
-        return { ok: true, username: 'admin', password: '123456', mustChangePassword: true };
+        return { ok: true, username: 'admin', password: '123456', mustChangePassword: false };
     }
 };
 
@@ -3405,7 +3407,6 @@ const ServerSync = {
     },
 
     async pushAll() {
-        const url = this.getServerUrl();
         const apiKey = localStorage.getItem('luccaApiKey') || '';
         const result = { startedAt: new Date().toISOString(), inserted: 0, updated: 0, skipped: 0, conflicts: 0, errors: 0, conflictDetail: [] };
         try {
@@ -3414,23 +3415,15 @@ const ServerSync = {
             // 2) جمع البيانات المحلية
             const data = await this._collectAllData();
             // 3) إرسال — السيرفر ينفذ Safe Sync (لا DELETE). نرسل أيضاً النسخة المحلية للمقارنة.
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 15000);
-            const res = await fetch(`${url}/api/sync`, {
-                method: 'POST',
-                headers: ServerAPI.authHeaders('application/json'),
-                body: JSON.stringify(data),
-                signal: controller.signal
-            });
-            clearTimeout(timer);
+            const res = await ServerAPI._request('POST', '/api/sync', data);
             if (!res.ok) {
-                const body = await res.json().catch(() => ({}));
+                const body = res.json || {};
                 result.errors++;
                 result.message = body.message || 'فشل رفع البيانات';
                 await this._logSync('push', result);
                 return { success: false, message: result.message };
             }
-            const parsed = await res.json().catch(() => ({}));
+            const parsed = res.json || {};
             if (parsed.log) {
                 result.inserted = parsed.log.inserted || 0;
                 result.updated = parsed.log.updated || 0;
@@ -3457,7 +3450,6 @@ const ServerSync = {
     },
 
     async pullAll() {
-        const url = this.getServerUrl();
         const apiKey = localStorage.getItem('luccaApiKey') || '';
         const result = { startedAt: new Date().toISOString(), inserted: 0, updated: 0, skipped: 0, conflicts: 0, errors: 0, conflictDetail: [] };
         try {
@@ -3466,15 +3458,9 @@ const ServerSync = {
             // نسجل أيضاً نسخة محلية مضمّنة داخل sync_log (إشارة قبل الدمج)
             const collections = SYNC_STORES.concat('settings');
             for (const col of collections) {
-                const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), 8000);
-                const res = await fetch(`${url}/api/${col}`, {
-                    headers: ServerAPI.authHeaders(),
-                    signal: controller.signal
-                });
-                clearTimeout(timer);
+                const res = await ServerAPI._request('GET', '/api/' + col);
                 if (!res.ok) { continue; }
-                const serverItems = (await res.json().catch(() => [])) || [];
+                const serverItems = res.json || [];
                 if (!Array.isArray(serverItems)) continue;
                 const localItems = await db.getAll(col);
                 // MERGE لا REPLACE: لا نمسح IndexedDB أبداً
@@ -3573,10 +3559,9 @@ const ServerSync = {
 
     async testConnection() {
         const url = this.getServerUrl();
-        const apiKey = localStorage.getItem('luccaApiKey') || '';
         try {
-            const res = await fetch(`${url}/api/tables`, { method: 'HEAD', cache: 'no-store', headers: { 'x-api-key': apiKey } });
-            return res.ok;
+            const r = await ServerAPI._request('GET', '/api/tables');
+            return r.ok;
         } catch {
             return false;
         }
