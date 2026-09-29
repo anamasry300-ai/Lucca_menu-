@@ -75,13 +75,43 @@ window.OllamaAI = (function() {
     function setProvider(mode) {
         kSet('luccaAIProvider', (mode === 'openai' || mode === 'ollama') ? mode : 'auto');
     }
-    function getOpenAIKey() { return (kGet('luccaOpenAIKey') || '').trim(); }
-    function hasOpenAI() { return !!getOpenAIKey(); }
-    function setOpenAIKey(key) { kSet('luccaOpenAIKey', String(key || '').trim()); }
     function getOpenAIModel() { return (kGet('luccaOpenAIModel') || '').trim() || DEFAULT_OPENAI_MODEL; }
     function setOpenAIModel(m) { kSet('luccaOpenAIModel', String(m || '').trim()); }
     function getOpenAIBase() { return (kGet('luccaOpenAIBase') || '').trim() || DEFAULT_OPENAI_BASE; }
     function setOpenAIBase(b) { kSet('luccaOpenAIBase', String(b || '').trim()); }
+
+    // ===== P0 عزل السر: لا مفتاح OpenAI في المتصفح إطلاقاً =====
+    // المصدر الوحيد: متغير البيئة OPENAI_API_KEY على الخادم.
+    // أي مفتاح قديم مخزّن في المتصفح يُمحى عند التحميل.
+    try {
+        if (typeof localStorage !== 'undefined' && localStorage && localStorage.getItem('luccaOpenAIKey')) {
+            localStorage.removeItem('luccaOpenAIKey');
+        }
+    } catch(e) {}
+    function getOpenAIKey() { return ''; }                       // لا تُعدّ سرّاً في الواجهة إطلاقاً
+    function setOpenAIKey() { return false; }                   // رفض صريح: لا يُحفظ من الواجهة
+
+    let _openaiRemote = null;                                  // null = لم يُفحص بعد
+    let _openaiProbeAt = 0;
+    const OPENAI_PROBE_TTL = 60000;
+
+    // فحص جاهزية OpenAI على الخادم (bool فقط — بلا أسرار) مع كاش 60 ثانية
+    async function openaiStatus(force) {
+        if (_openaiRemote !== null && !force && (Date.now() - _openaiProbeAt) < OPENAI_PROBE_TTL) return _openaiRemote;
+        try {
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 4000);
+            const res = await fetch(`${_serverBase()}/api/proxy-llm/status`, { headers: _authHeaders(), signal: ctrl.signal });
+            clearTimeout(t);
+            const j = await res.json().catch(() => null);
+            _openaiRemote = !!(res.ok && j && j.openaiConfigured);
+        } catch(e) {
+            _openaiRemote = false;
+        }
+        _openaiProbeAt = Date.now();
+        return _openaiRemote;
+    }
+    function hasOpenAI() { return _openaiRemote === true; }      // قراءة من الكاش فقط (متزامن)
 
     let _available = null; // cached (يُصفَّر عند تغيير العنوان/الوضع)
 
@@ -97,13 +127,13 @@ window.OllamaAI = (function() {
     // هل هناك أي مزود قابل للاستخدام حالياً؟ (البوابة الموحّدة للعبارات)
     async function llmReady(force) {
         const mode = getProviderMode();
-        if (mode === 'openai') return hasOpenAI();
-        if (!isEnabled()) return mode === 'auto' ? hasOpenAI() : false;
+        if (mode === 'openai') return await openaiStatus(force);
+        if (!isEnabled()) return mode === 'auto' ? await openaiStatus(force) : false;
         const h = await health(force);
         // Ollama جاهز فقط إذا كان النموذج المحدد مثبّتاً فعلاً (لا "الخدمة متصلة" فقط).
         if (h.state === 'ready' || h.state === 'openai') return true;
         if (mode === 'ollama') return false;
-        return hasOpenAI(); // auto: Ollama غير جاهز -> OpenAI عند الحاجة
+        return await openaiStatus(force); // auto: Ollama غير جاهز -> OpenAI عند الحاجة
     }
 
     // هل المساعد مفعّل (أي مزود)؟ لتجاوز بوابة isEnabled القديمة في الواجهات
@@ -138,22 +168,8 @@ window.OllamaAI = (function() {
         try { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); return c.signal; } catch(e) { return undefined; }
     }
 
-    // قائمة النماذج (Ollama محلياً، أو OpenAI عند ضبط المفتاح ووضع البعيد)
+    // قائمة النماذج — Ollama المحلي فقط (لا اتصال مباشر بأي مزود سحابي)
     async function listModels() {
-        const mode = getProviderMode();
-        if (mode !== 'ollama' && hasOpenAI() && mode !== 'auto') {
-            try {
-                const base = getOpenAIBase().replace(/\/$/, '');
-                const res = await fetch(`${base}/models`, {
-                    headers: { 'Authorization': 'Bearer ' + getOpenAIKey() }
-                });
-                if (res.ok) {
-                    const j = await res.json();
-                    const names = (j.data || []).map(m => m.id);
-                    if (names.length) return names;
-                }
-            } catch(e) {}
-        }
         try {
             const res = await fetch(`${oHost()}/api/tags`);
             if (!res.ok) return [];
@@ -173,7 +189,7 @@ window.OllamaAI = (function() {
         const mode = getProviderMode();
         const model = getOllamaModel();
         const host = getOllamaHost();
-        if (mode === 'openai') return { state: 'openai', model, enabled: hasOpenAI(), host };
+        if (mode === 'openai') return { state: 'openai', model, enabled: await openaiStatus(), host };
         if (!enabled) return { state: 'disabled', model, enabled: false, host };
         let tags = null;
         try {
@@ -210,6 +226,8 @@ window.OllamaAI = (function() {
         if (!detail) detail = 'Ollama HTTP ' + status;
         if (/model.*(not found|doesn.t exist|missing)/i.test(detail) || /not found.*model/i.test(detail)) {
             result.code = 'MODEL_NOT_FOUND';
+        } else {
+            result.code = 'OLLAMA_ERROR';
         }
         result.error = detail;
         return result;
@@ -246,7 +264,7 @@ window.OllamaAI = (function() {
             const j = await res.json();
             return { ok: true, text: (j.response || '').trim(), provider: 'ollama' };
         } catch(e) {
-            return { ok: false, error: e.name === 'AbortError' ? 'انتهت مهلة Ollama' : e.message };
+            return { ok: false, provider: 'ollama', code: 'OLLAMA_UNREACHABLE', error: e.name === 'AbortError' ? 'انتهت مهلة Ollama' : e.message };
         }
     }
 
@@ -284,13 +302,12 @@ window.OllamaAI = (function() {
             const msg = j.message && j.message.content;
             return { ok: true, text: (msg || '').trim(), provider: 'ollama' };
         } catch(e) {
-            return { ok: false, error: e.name === 'AbortError' ? 'انتهت مهلة Ollama' : e.message };
+            return { ok: false, provider: 'ollama', code: 'OLLAMA_UNREACHABLE', error: e.name === 'AbortError' ? 'انتهت مهلة Ollama' : e.message };
         }
     }
 
     // ============ OPENAI (أو أي مزود متوافق chat/completions) ============
-    // H1: المسار المفضل — عبر بروكسي السيرفر (/api/proxy-llm) الذي يفك CORS ويخفي المفتاح.
-    // عند تعذّر الوصول للسيرفر (غير مشغّل/غير مصرح) نلجأ للاتصال المباشر (السلوك القديم).
+    // P0 عزل السر: المسار الوحيد هو بروكسي السيرفر (/api/proxy-llm) — لا مفتاح، ولا اتصال مباشر.
     async function openaiViaProxy(payload, opts, ctx) {
         const timeout = (opts.timeout || 90000) + 10000;
         try {
@@ -301,7 +318,6 @@ window.OllamaAI = (function() {
                 headers: _authHeaders(),
                 body: JSON.stringify({
                     target: 'openai',
-                    key: ctx.key,
                     base: ctx.base,
                     model: payload.model,
                     messages: payload.messages,
@@ -314,50 +330,26 @@ window.OllamaAI = (function() {
             clearTimeout(t);
             const j = await res.json().catch(() => null);
             if (res.ok && j && j.ok) {
-                return { used: true, ok: true, text: (j.text || '').trim(), hardError: true };
+                return { used: true, ok: true, text: (j.text || '').trim() };
             }
-            // أخطاء مؤكدة من المزود/السيرفر لا فائدة من العودة للمباشر؛
-            // 401 من السيرفر = غير مصرح (لا جلسة/مفتاح جهاز) أو غير مشغّل → ننزل للمباشر.
-            const canRetry = res.status === 401 || res.status === 500 || res.status === 404;
-            return { used: true, ok: false, hardError: !canRetry, error: (j && j.error) || '(api/proxy-llm HTTP ' + res.status + ')' };
+            const msg = (j && j.error) || ('/api/proxy-llm HTTP ' + res.status);
+            if (res.status === 401 || res.status === 403) {
+                return { used: true, ok: false, code: 'SESSION_REQUIRED', error: 'OpenAI عبر السيرفر يتطلب جلسة صالحة على هذا الجهاز.' };
+            }
+            if (res.status === 400) {
+                return { used: true, ok: false, code: 'OPENAI_NOT_CONFIGURED', error: msg };
+            }
+            return { used: true, ok: false, code: 'PROXY_ERROR', error: msg };
         } catch(e) {
-            if (e && e.name === 'AbortError') return { used: true, ok: false, hardError: false, error: 'انتهت مهلة بروكسي السيرفر' };
-            return { used: true, ok: false, hardError: false, error: e && e.message ? e.message : String(e) };
+            const msg = (e && e.name === 'AbortError') ? 'انتهت مهلة بروكسي السيرفر' : (e && e.message ? e.message : String(e));
+            return { used: true, ok: false, code: 'PROXY_UNREACHABLE', error: 'تعذّر الوصول لبروكسي السيرفر — OpenAI يعمل عبر الخادم فقط (متغير البيئة OPENAI_API_KEY). (' + msg + ')' };
         }
     }
 
     async function openaiChatRequest(payload, opts) {
-        const key = getOpenAIKey();
-        if (!key) return { ok: false, error: 'لا يوجد مفتاح OpenAI API مضبوط' };
-        const base = getOpenAIBase().replace(/\/$/, '');
-        const server = _serverBase();
-
-        const viaProxy = await openaiViaProxy(payload, opts, { key, base, server });
-        if (viaProxy.used && viaProxy.hardError) {
-            return { ok: viaProxy.ok, text: viaProxy.text || '', provider: 'openai', error: viaProxy.error };
-        }
-
-        try {
-            const ctrl = new AbortController();
-            const t = setTimeout(() => ctrl.abort(), opts.timeout || 90000);
-            const res = await fetch(`${base}/chat/completions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-                body: JSON.stringify(payload),
-                signal: ctrl.signal
-            });
-            clearTimeout(t);
-            if (!res.ok) {
-                let msg = 'OpenAI HTTP ' + res.status;
-                try { const e = await res.json(); if (e && e.error && e.error.message) msg = e.error.message; } catch(_) {}
-                return { ok: false, error: msg };
-            }
-            const j = await res.json();
-            const text = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
-            return { ok: !!text, text: text.trim(), provider: 'openai' };
-        } catch(e) {
-            return { ok: false, error: e.name === 'AbortError' ? 'انتهت مهلة OpenAI' : e.message };
-        }
+        const res = await openaiViaProxy(payload, opts, { base: getOpenAIBase().replace(/\/$/, ''), server: _serverBase() });
+        if (res.ok) return { ok: true, text: res.text || '', provider: 'openai' };
+        return { ok: false, provider: 'openai', code: res.code, error: res.error || 'تعذّر تنفيذ طلب OpenAI' };
     }
 
     async function openaiChat(system, user, opts) {
@@ -389,18 +381,19 @@ window.OllamaAI = (function() {
         // 1) Ollama المحلي أولاً (الخيار الأساسي والمجاني)
         if (mode !== 'openai' && isEnabled()) {
             const res = await ollamaChat(system, user, opts);
-            if (res.ok || mode === 'ollama' || !hasOpenAI()) return res;
-            // auto: Ollama فشل -> ننتقل لـ OpenAI
+            if (res.ok || mode === 'ollama' || !(await openaiStatus())) return res;
+            // auto: Ollama فشل -> ننتقل لـ OpenAI عبر السيرفر
         } else if (mode === 'ollama') {
-            return { ok: false, error: 'Ollama معطّل — فعّله من إعدادات الذكاء' };
+            return { ok: false, code: 'OLLAMA_DISABLED', error: 'Ollama معطّل — فعّله من إعدادات الذكاء' };
         }
 
-        // 2) OpenAI عند الحاجة (وضع openai أو auto مع فشل Ollama)
-        if ((mode === 'openai' || mode === 'auto') && hasOpenAI()) {
-            return await openaiChat(system, user, opts);
+        // 2) OpenAI عند الحاجة (وضع openai أو auto مع فشل Ollama) — عبر السيرفر فقط
+        if (mode === 'openai' || mode === 'auto') {
+            if (await openaiStatus()) return await openaiChat(system, user, opts);
         }
 
-        return { ok: false, error: mode === 'openai' ? 'لا يوجد مفتاح OpenAI API مضبوط' : 'لا مزود LLM متاح: Ollama غير متصل أو المفتاح غير مضبوط' };
+        if (mode === 'openai') return { ok: false, code: 'OPENAI_NOT_CONFIGURED', error: 'OpenAI اختياري وغير مُهيّأ على الخادم: يُضبط المفتاح في متغير البيئة OPENAI_API_KEY على الخادم فقط.' };
+        return { ok: false, code: 'NO_PROVIDER', error: 'لا مزود LLM متاح: Ollama غير متصل (شغّل خدمة Ollama محلياً)' };
     }
 
     async function generate(prompt, opts) {
@@ -408,14 +401,14 @@ window.OllamaAI = (function() {
         const mode = getProviderMode();
         if (mode !== 'openai' && isEnabled()) {
             const res = await ollamaGenerate(prompt, opts);
-            if (res.ok || mode === 'ollama' || !hasOpenAI()) return res;
+            if (res.ok || mode === 'ollama' || !(await openaiStatus())) return res;
         } else if (mode === 'ollama') {
-            return { ok: false, error: 'Ollama معطّل — فعّله من إعدادات الذكاء' };
+            return { ok: false, code: 'OLLAMA_DISABLED', error: 'Ollama معطّل — فعّله من إعدادات الذكاء' };
         }
-        if ((mode === 'openai' || mode === 'auto') && hasOpenAI()) {
-            return await openaiGenerate(prompt, opts);
+        if (mode === 'openai' || mode === 'auto') {
+            if (await openaiStatus()) return await openaiGenerate(prompt, opts);
         }
-        return { ok: false, error: 'لا مزود LLM متاح' };
+        return { ok: false, code: 'NO_PROVIDER', error: 'لا مزود LLM متاح' };
     }
 
     // 🔍 استخراج JSON آمن من رد النموذج
@@ -437,7 +430,8 @@ window.OllamaAI = (function() {
             ollamaModel: getOllamaModel(),
             ollamaEnabled: isEnabled(),
             openAIKeySet: hasOpenAI(),
-            openAIKeyMasked: hasOpenAI() ? '••••' + getOpenAIKey().slice(-4) : '',
+            openAIKeyMasked: '',                    // لا مقطع مفتاح في الواجهة إطلاقاً
+            openAIKeySource: 'server:OPENAI_API_KEY',
             openAIModel: getOpenAIModel(),
             openAIBase: getOpenAIBase()
         };
@@ -446,6 +440,7 @@ window.OllamaAI = (function() {
     async function providerInfo() {
         const mode = getProviderMode();
         const h = await health();
+        const openaiReady = await openaiStatus();
         const stateText = (h.state === 'ready') ? 'النموذج المحدد جاهز ✓'
             : (h.state === 'model-missing') ? '⚠️ النموذج المحدد غير مثبّت — اختر من القائمة: «النماذج»'
             : (h.state === 'unavailable') ? 'غير متصل ✗'
@@ -457,9 +452,9 @@ window.OllamaAI = (function() {
             '· الوضع: ' + (mode === 'auto' ? 'تلقائي (Ollama أولاً ثم OpenAI عند الحاجة)' : (mode === 'ollama' ? 'Ollama محلي فقط (مجاني)' : 'OpenAI سحابي فقط')),
             '· Ollama: ' + (isEnabled() ? 'مفعّل ✓ ' : 'معطّل ✗ ') + '— ' + stateText + ' (' + getOllamaHost() + ')',
             '· النموذج المحدد: ' + getOllamaModel() + (Array.isArray(h.availableModels) && h.availableModels.length ? ' — المثبّت: ' + h.availableModels.join('، ') : ''),
-            '· OpenAI: ' + (hasOpenAI() ? 'مضبوط — ' + getOpenAIModel() : 'غير مضبوط')
+            '· OpenAI: ' + (openaiReady ? 'مُهيّأ على الخادم ✓ (' + getOpenAIModel() + ')' : 'غير مُهيّأ على الخادم (اختياري)')
         ];
-        return lines.join('\n') + '\n\n💡 أوامر: "استخدم ollama" / "استخدم openai" / "الوضع التلقائي" / "استخدم نموذج <الاسم>" / "مفتاح openai: sk-..."';
+        return lines.join('\n') + '\n\n💡 أوامر: "استخدم ollama" / "استخدم openai" / "الوضع التلقائي" / "استخدم نموذج <الاسم>"\n🔐 مفتاح OpenAI لا يُدخل من الواجهة — يُضبط في متغير البيئة OPENAI_API_KEY على الخادم فقط.';
     }
 
     // ============ TOOL SELECTION (قراءة فقط — يختار من قائمة معطاة فقط) ============
@@ -543,6 +538,7 @@ window.OllamaAI = (function() {
         setProvider,
         getOpenAIKey,
         hasOpenAI,
+        openaiStatus,
         setOpenAIKey,
         getOpenAIModel,
         setOpenAIModel,
