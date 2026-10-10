@@ -5,6 +5,7 @@ const SessionManager = require('./main/session-manager');
 
 let mainWindow;
 let adminWindow;
+let kitchenWindow;
 
 // ===== CONFIG =====
 const GITHUB_OWNER = 'anamasry300-ai';
@@ -210,6 +211,51 @@ app.whenReady().then(() => {
         });
         adminWindow.loadFile(path.join(__dirname, 'admin', 'index.html'));
         adminWindow.on('page-title-updated', (e) => e.preventDefault());
+    });
+
+    // D-04: شاشة المطبخ تُفتح كنافذة Electron بجلسة موثَّقة (لا anon) — تحديث الحالات يمر
+    // عبر apiRequest/الخادم المصادق عليه. أي دور تشغيلي (admin/manager/cashier/kitchen) يملك orders.write.
+    ipcMain.on('open-kitchen', (event) => {
+        const s = appSession.session();
+        if (!s.authenticated || !s.user) {
+            event.sender.send('kitchen-denied', { reason: 'no-session' });
+            return;
+        }
+        const allowed = ['admin', 'manager', 'cashier', 'kitchen'];
+        if (!allowed.includes(s.user.role)) {
+            event.sender.send('kitchen-denied', { reason: 'no-role' });
+            return;
+        }
+        if (kitchenWindow && !kitchenWindow.isDestroyed()) {
+            kitchenWindow.focus();
+            return;
+        }
+        kitchenWindow = new BrowserWindow({
+            width: 1400,
+            height: 900,
+            show: false,
+            parent: mainWindow,
+            title: 'Lucca Caffè - شاشة المطبخ',
+            icon: path.join(__dirname, 'icon.ico'),
+            webPreferences: {
+                preload: path.join(__dirname, 'preload.js'),
+                nodeIntegration: false,
+                contextIsolation: true
+            }
+        });
+        kitchenWindow.once('ready-to-show', () => {
+            if (kitchenWindow && !kitchenWindow.isDestroyed() && !kitchenWindow.showing()) kitchenWindow.show();
+        });
+        kitchenWindow.on('closed', () => { kitchenWindow = null; });
+        kitchenWindow.webContents.setWindowOpenHandler(({ url }) => {
+            if (url.startsWith('http:') || url.startsWith('https:')) {
+                shell.openExternal(url);
+                return { action: 'deny' };
+            }
+            return { action: 'allow' };
+        });
+        kitchenWindow.loadFile(path.join(__dirname, 'kitchen.html'));
+        kitchenWindow.on('page-title-updated', (e) => e.preventDefault());
     });
 
     ipcMain.on('open-external', (event, url) => {

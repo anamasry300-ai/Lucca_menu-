@@ -58,9 +58,10 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
     await check('login new password → 200', r.status === 200 && r.json?.mustChangePassword === false, JSON.stringify(r.json || r.status));
     const token2 = r.json.token;
 
-    // 2) Create an open order
+    // 2) Create an open order (سطر حقيقي — السيرفر يحسب total من الأصناف ويُرفض الإجمالي صفر/سالب)
     r = await api('POST', '/api/orders', {
-      status: 'pending', paymentStatus: 'unpaid', items: '[]',
+      status: 'pending', paymentStatus: 'unpaid',
+      items: [{ name: 'بند اختبار idem', quantity: 1, price: 250, unitPrice: 250, total: 250 }],
       subtotal: 250, tax: 0, total: 250, createdBy: 'idem-test',
       orderType: 'dine_in', tableId: '1',
     }, token2);

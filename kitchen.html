@@ -413,29 +413,33 @@ function playNewOrderSound(){
     } catch(e){}
 }
 
-// ===== LOAD ORDERS =====
+// ===== D-04: جلسة المطبخ =====
+// شاشة المطبخ تعمل كنافذة Electron موثَّقة (open-kitchen). كل قراءة/كتابة تمر عبر
+// apiRequest (السيرفر المصادق عليه) — أُزيل مفتاح Supabase anon المضمّن ومسارات الكتابة به.
+function kitchenApi(method, path, body){
+    if(window.electronAPI && typeof window.electronAPI.apiRequest === 'function'){
+        return window.electronAPI.apiRequest(method, path, body);
+    }
+    return Promise.resolve(null);
+}
+
 async function loadOrders(){
     let orders = [];
 
-    // Try Supabase first
-    if(window.supabase){
-        try {
-            const SUPABASE_URL = 'https://uudimvcdkaacqaxgajbk.supabase.co';
-            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZGltdmNka2FhY3FheGdhamJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMzQ4MTYsImV4cCI6MjEwMjgxMDgxNn0.WrwCUlqWW2ib7D8T41DNzUbybo4FHnNQ1AIBTZr2ZlM';
-            const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-            const { data, error } = await supabase.from('orders').select('*').order('created_at', {ascending: false}).limit(50);
-            if(!error && data) orders = data;
-        } catch(e){}
-    }
+    // 1) السيرفر المصادق عليه (مصدر الحقيقة)
+    try {
+        const r = await kitchenApi('GET', '/api/orders');
+        if(r && r.status >= 200 && r.status < 300 && Array.isArray(r.json)) orders = r.json;
+    } catch(e){}
 
-    // Fallback to IndexedDB
+    // 2) ذاكرة محلية (IndexedDB) كاحتياط عند تعذّر السيرفر
     if(orders.length === 0 && window.LuccaDB){
         try {
             orders = await window.LuccaDB.Orders.getAll();
         } catch(e){}
     }
 
-    // Fallback to localStorage
+    // 3) localStorage كاحتياط أخير
     if(orders.length === 0){
         try { orders = JSON.parse(localStorage.getItem(DB_KEY) || '[]'); } catch(e){ orders = []; }
     }
@@ -576,18 +580,31 @@ function getElapsedTime(timeStr){
 }
 
 // ===== UPDATE ORDER STATUS =====
+// المسار الرسمي: السيرفر المصادق عليه عبر PUT /api/orders/:id (يتطلب orders.write).
+// الرفض (403/409) يُظهر للمستخدم ولا يُكتب محلياً (مصدر الحقيقة = السيرفر).
 async function updateOrderStatus(orderId, newStatus){
-    // Try Supabase first
-    if(window.supabase){
-        try {
-            const SUPABASE_URL = 'https://uudimvcdkaacqaxgajbk.supabase.co';
-            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZGltdmNka2FhY3FheGdhamJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMzQ4MTYsImV4cCI6MjEwMjgxMDgxNn0.WrwCUlqWW2ib7D8T41DNzUbybo4FHnNQ1AIBTZr2ZlM';
-            const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-            await supabase.from('orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId);
-        } catch(e){}
+    const r = await kitchenApi('PUT', '/api/orders/' + encodeURIComponent(orderId), { status: newStatus, updatedAt: new Date().toISOString() });
+
+    if(r && r.status >= 200 && r.status < 300){
+        // نجح على السيرفر — حدّث النسخة المحلية للعرض فقط
+        await _localSetStatus(orderId, newStatus);
+        renderOrders();
+        return;
     }
 
-    // Also update IndexedDB
+    if(r && (r.status === 403 || r.status === 409 || r.status === 401)){
+        const msg = (r.json && r.json.error) || (r.status === 403 ? 'ليس لديك صلاحية تحديث حالة الطلب' : 'تعذّر تحديث حالة الطلب');
+        alert('❌ ' + msg);
+        return;
+    }
+
+    // تعذّر الاتصال بالسيرفر: حدّث محلياً للعرض فقط (سيُزامَن لاحقاً)، مع إشعار
+    await _localSetStatus(orderId, newStatus);
+    renderOrders();
+    if(typeof showOfflineBadge === 'function') showOfflineBadge();
+}
+
+async function _localSetStatus(orderId, newStatus){
     if(window.LuccaDB){
         try {
             const order = await window.LuccaDB.db.get('orders', orderId);
@@ -598,8 +615,6 @@ async function updateOrderStatus(orderId, newStatus){
             }
         } catch(e){}
     }
-
-    // Update localStorage fallback
     try {
         const orders = JSON.parse(localStorage.getItem(DB_KEY) || '[]');
         const idx = orders.findIndex(o => o.id == orderId);
@@ -609,8 +624,6 @@ async function updateOrderStatus(orderId, newStatus){
             localStorage.setItem(DB_KEY, JSON.stringify(orders));
         }
     } catch(e){}
-
-    renderOrders();
 }
 
 // ===== TOGGLE ITEM DONE =====
@@ -661,8 +674,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 
-<!-- Load Supabase SDK -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- D-04: أُزيل Supabase SDK/anon — القراءة/الكتابة عبر الجلسة المصادقة (apiRequest) أو محلياً -->
 <!-- Load IndexedDB fallback -->
 <script src="admin/database.js"></script>
 

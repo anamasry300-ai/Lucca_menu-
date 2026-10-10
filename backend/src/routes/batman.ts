@@ -4,9 +4,11 @@ import { matrix, updateMatrix, decisions, stats, checkDecision, record, publicMa
 
 const router = Router();
 
-// نقطة القرار والتسجيل: متاحة لأي هوية مصادقة (يستخدمها المحرك والواجهة)
+// نقطة القرار: متاحة لأي هوية مصادقة (يستخدمها المحرك والواجهة)
 router.post('/check', authRequired as any, requirePasswordChanged as any, checkDecision as any);
-router.post('/record', authRequired as any, requirePasswordChanged as any, record as any);
+// D-08: كتابة سجل قرارات باتمان يدوياً حِكر على admin — يمنع تزوير سجل القرارات/التدقيق
+// (سجل القرارات الرسمي يُكتب خادمياً داخل /execute و /permissions أصلاً).
+router.post('/record', authRequired as any, requirePasswordChanged as any, requireRole('admin') as any, record as any);
 
 // طبقة القرار: سجل الأدوات + تنفيذ إجراء عبر قرار باتمان (idempotent بالـ eventId)
 router.get('/actions', authRequired as any, requirePasswordChanged as any, listActions as any);

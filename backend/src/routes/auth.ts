@@ -7,8 +7,11 @@ import {
 
 const router = Router();
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+const accountStore = new Map<string, { count: number; resetAt: number }>();
 const WINDOW = 60 * 1000;
 const MAX = 10;
+const ACCOUNT_WINDOW = 10 * 60 * 1000; // نافذة قفل الحساب: 10 دقائق
+const ACCOUNT_MAX = 8;                  // محاولات فاشلة لكل اسم مستخدم قبل القفل المؤقت
 
 function tooMany(ip: string): boolean {
   const now = Date.now();
@@ -17,25 +20,59 @@ function tooMany(ip: string): boolean {
   e.count++; return e.count > MAX;
 }
 
+// D-07: قفل مؤقت لكل حساب (لا لكل IP فقط) — يصدّ تخمين كلمة المرور الموزّع ببطء من عنوان واحد مشترك.
+function accountLocked(username: string): boolean {
+  const e = accountStore.get(username);
+  return !!e && e.count >= ACCOUNT_MAX && Date.now() <= e.resetAt;
+}
+function accountFail(username: string): void {
+  const now = Date.now();
+  const e = accountStore.get(username);
+  if (!e || now > e.resetAt) { accountStore.set(username, { count: 1, resetAt: now + ACCOUNT_WINDOW }); return; }
+  e.count++;
+}
+function accountReset(username: string): void { accountStore.delete(username); }
+
+// D-07: تدقيق موحّد لمسارات المصادقة (نجاح/فشل) مع userId وIP — بلا أي أسرار.
+function auditAuth(action: string, userName: string, userId: number | null, ip: string, detail?: unknown) {
+  try {
+    getDb().run(
+      "INSERT INTO audit_logs (action, objectType, objectId, newValue, userName, userId, ipAddress, createdAt) VALUES (?, 'auth', ?, ?, ?, ?, ?, datetime('now'))",
+      [action, userId != null ? String(userId) : null,
+       typeof detail === 'string' ? detail : JSON.stringify(detail || {}),
+       userName || 'unknown', userId ?? null, ip || null]
+    );
+  } catch { /* best-effort */ }
+}
+
 // POST /api/auth/login — المصادقة على الخادم، هجرة كلمة النصية القديمة على النجاح
 router.post('/login', (req: Request, res: Response) => {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   if (tooMany(ip)) { res.status(429).json({ error: 'Too many attempts. Try later.' }); return; }
   const { username, password } = req.body || {};
   if (!username || !password) { res.status(400).json({ error: 'username and password required' }); return; }
+  const uname = String(username).trim();
+  if (accountLocked(uname.toLowerCase())) {
+    auditAuth('login.locked', uname, null, ip, { reason: 'account temporarily locked' });
+    res.status(429).json({ error: 'تم قفل الحساب مؤقتاً بعد محاولات فاشلة متكررة — حاول لاحقاً' }); return;
+  }
   try {
-    const user = queryOne('SELECT * FROM users WHERE username = ? OR email = ?', [String(username), String(username).trim().toLowerCase()]);
-    if (!user) { res.status(401).json({ error: 'بيانات الدخول غير صحيحة' }); return; }
-    if (Number(user.active) === 0) { res.status(403).json({ error: 'الحساب مُعطَّل' }); return; }
+    const user = queryOne('SELECT * FROM users WHERE username = ? OR email = ?', [String(username), uname.toLowerCase()]);
+    if (!user) { accountFail(uname.toLowerCase()); auditAuth('login.failed', uname, null, ip, { reason: 'unknown user' }); res.status(401).json({ error: 'بيانات الدخول غير صحيحة' }); return; }
+    if (Number(user.active) === 0) { auditAuth('login.failed', uname, Number(user.id), ip, { reason: 'inactive' }); res.status(403).json({ error: 'الحساب مُعطَّل' }); return; }
 
     const stored = user.password as string | undefined;
     if (!verifyPassword(String(password), stored)) {
+      accountFail(uname.toLowerCase());
+      auditAuth('login.failed', uname, Number(user.id), ip, { reason: 'bad password' });
       res.status(401).json({ error: 'بيانات الدخول غير صحيحة' }); return;
     }
 
     // هجرة كلمة النصية القديمة → مجزّأة (فور النجاح، بلا تغيير وصول)
     migrateLegacyPassword(Number(user.id), String(password), stored);
     saveDb();
+    accountReset(uname.toLowerCase());
+    auditAuth('login.success', String(user.username), Number(user.id), ip, { role: user.role || 'cashier' });
 
     const token = createSession({
       id: Number(user.id), username: String(user.username), role: String(user.role || 'cashier'),
@@ -55,7 +92,9 @@ router.post('/login', (req: Request, res: Response) => {
 // POST /api/auth/logout — إبطال الجلسة
 router.post('/logout', authRequired, (req: AuthRequest, res: Response) => {
   const id = req.identity!;
+  const ip = ((req.headers['x-forwarded-for'] as string) || req.ip || '').toString().split(',')[0].trim();
   if (id.token) destroySession(id.token);
+  if (id.kind === 'user') auditAuth('logout', id.username || 'unknown', id.userId ?? null, ip, {});
   res.json({ success: true });
 });
 
@@ -83,6 +122,8 @@ router.put('/password', authRequired, (req: AuthRequest, res: Response) => {
     const hashed = hashPassword(String(newPassword));
     getDb().run('UPDATE users SET password = ?, mustChangePassword = 0 WHERE id = ?', [hashed, id.userId]);
     saveDb();
+    const pip = ((req.headers['x-forwarded-for'] as string) || req.ip || '').toString().split(',')[0].trim();
+    auditAuth('password.changed', id.username || 'unknown', id.userId ?? null, pip, {});
     res.json({ success: true });
   } catch (e: unknown) {
     res.status(500).json({ error: (e as Error).message });

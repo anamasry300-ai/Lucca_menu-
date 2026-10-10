@@ -1364,8 +1364,9 @@
         }
 
         function openKitchenDisplay(){
-            if(window.electronAPI && window.electronAPI.isElectron){
-                window.electronAPI.openExternal('file://' + __dirname + '/kitchen.html');
+            // D-04: داخل Electron تُفتح شاشة المطبخ كنافذة موثَّقة (جلسة) لا عبر فتح ملف خارجي/anon.
+            if(window.electronAPI && window.electronAPI.isElectron && typeof window.electronAPI.openKitchen === 'function'){
+                window.electronAPI.openKitchen();
             } else {
                 window.open('kitchen.html', '_blank', 'width=1400,height=900');
             }
@@ -2504,6 +2505,10 @@
                 if (!itemData) return null;
                 const label = entry.selectedOrigin ? `${itemData.name} - ${entry.selectedOrigin}` : itemData.name;
                 return {
+                    // D-02/P5: ربط الكتالوج — يُرسل معرّف المنتج (إن توفّر) ليتحقق السيرفر من سعر البند
+                    // ومنع تصفير سعر منتج مدفوع بلا صلاحية price.override. الأصناف الحرة (_orphan) والعناصر
+                    // غير المربوطة بالكتالوج تبقى بلا productId (لا قيد كتالوجي عليها على السيرفر).
+                    ...(itemData._productId != null ? { productId: itemData._productId } : {}),
                     name: label,
                     price: (entry.originPrice !== undefined) ? entry.originPrice : itemData.price,
                     quantity: entry.quantity,
@@ -4918,26 +4923,33 @@
         }
 
         async function reopenOrder(orderId) {
+            // D-01: إعادة الفتح إجراء إداري خادمي (مدير/أدمن فقط) بسبب إلزامي وسجل تدقيق.
+            // كان سابقاً كتابة محلية مباشرة بلا صلاحية تُظهر أوردراً مدفوعاً قابلاً للتعديل.
+            if (typeof canVoidRefund === 'function' && !canVoidRefund()) {
+                showToast('ليس لديك صلاحية إعادة الفتح (مدير/أدمن فقط)', 'error'); return;
+            }
+            if (!window.ServerAPI || !ServerAPI.post) {
+                showToast('❌ الخادم غير متاح — لا يمكن إعادة الفتح محلياً', 'error'); return;
+            }
+            const reason = (window.prompt('سبب إعادة فتح الطلب (إلزامي):', '') || '').trim();
+            if (!reason) { showToast('سبب إعادة الفتح إلزامي', 'error'); return; }
             try {
-                const orders = await LuccaDB.Orders.getAll();
-                const order = orders.find(o => o.id === orderId);
-                if (!order) { showToast('الطلب غير موجود'); return; }
-
-                // Revert to pending
-                order.status = 'pending';
-                await LuccaDB.db.put('orders', order);
-
-                // If it has a table, set to occupied
-                if (order.tableId && !isNaN(parseInt(order.tableId))) {
-                    await LuccaDB.Tables.update(parseInt(order.tableId), { status: 'occupied', currentOrder: orderId });
-                }
-
-                // Load it for editing
+                await ServerAPI.post('/api/orders/' + orderId + '/reopen', { reason });
                 await loadOrderToEdit(orderId);
+                if (window.LuccaDB && LuccaDB.Tables) {
+                    const orders = await LuccaDB.Orders.getAll();
+                    const order = orders.find(o => o.id === orderId);
+                    if (order && order.tableId && !isNaN(parseInt(order.tableId))) {
+                        await LuccaDB.Tables.update(parseInt(order.tableId), { status: 'occupied', currentOrder: orderId });
+                    }
+                }
                 await loadTables();
                 setOrderStatus(`تم إعادة فتح طلب #${orderId}`, 'success');
             } catch(e) {
-                showToast('خطأ في إعادة فتح الطلب');
+                const msg = (e && e.status === 403) ? 'ليس لديك صلاحية إعادة الفتح (مدير/أدمن فقط)'
+                    : (e && e.status === 409) ? (e.message || 'الطلب غير مُغلق')
+                    : (e && e.message) || 'تعذّر إعادة فتح الطلب';
+                showToast('❌ ' + msg, 'error');
             }
         }
 
@@ -5029,108 +5041,35 @@
                     }
                 }
 
-                // يحاول التسجيل الخادمي أولاً (يسجل الموظف الأصلي + مَن ألغى في audit + refund)
-                if (window.ServerAPI && ServerAPI.post && navigator.onLine !== false) {
-                    try {
-                        await ServerAPI.post('/api/orders/' + _voidOrderId + '/void', {
-                            reason: reason, note: note
-                        });
-                        document.getElementById('voidOrderModal').classList.remove('show');
-                        document.getElementById('orderSearchModal').classList.remove('show');
-                        await loadTables();
-                        if (typeof performOrderSearch === 'function') await performOrderSearch();
-                        setOrderStatus(`❌ تم إلغاء وتسجيل استرداد طلب #${_voidOrderId} (السبب: ${reason})`, 'success');
-                        showToast('تم إلغاء الطلب وتسجيل الاسترداد على الخادم');
-                        _voidOrderId = null;
-                        _viewingOrderId = null;
-                        return;
-                    } catch(e) {
-                        // فشل خادمي -> المتابعة محلياً
-                        console.error('[void server]', e);
-                        if (e && e.status === 403) { showToast('ليس لديك صلاحية الإلغاء/الاسترداد'); return; }
-                        if (e && e.status === 400) { showToast(e.message || 'سبب الإلغاء إلزامي'); return; }
-                    }
+                // D-03: الإلغاء/الاسترداد حصري عبر الخادم (مصدر الحقيقة الوحيد).
+                // عند تعذّر الاتصال نرفض العملية (fail-closed) بدل الكتابة محلياً — الكتابة المحلية
+                // كانت تتجاوز سقف الاسترداد المضاعف وردّ المخزون والتدقيق المزدوج.
+                if (!window.ServerAPI || !ServerAPI.post) {
+                    showToast('❌ الخادم غير متاح — لا يمكن الإلغاء/الاسترداد محلياً', 'error');
+                    return;
                 }
-
-                const orders = await LuccaDB.Orders.getAll();
-                const order = orders.find(o => o.id === _voidOrderId);
-                if (!order) { showToast('الطلب غير موجود'); return; }
-
-                const refundAmount = order.total || 0;
-
-                // 1. Save refund record
                 try {
-                    await LuccaDB.db.add('refunds', {
-                        orderId: _voidOrderId,
-                        amount: refundAmount,
-                        reason: reason,
-                        note: note,
-                        refundMethod: order.paymentMethod || 'cash',
-                        createdBy: window.currentUser?.name || 'system',
-                        userId: window.currentUser?.id != null ? window.currentUser.id : null,
-                        date: new Date().toISOString()
-                    });
-                } catch(e) {}
-
-                // 1b. Record cash-drawer refund so reconciliation stays correct
-                try {
-                    const drawer = await LuccaDB.CashRegister.getActiveDrawer();
-                    if (drawer && refundAmount > 0) {
-                        await LuccaDB.CashRegister.recordTransaction(drawer.id, 'refund', refundAmount, order.paymentMethod || 'cash', 'استرداد طلب #'+_voidOrderId);
-                        if (typeof checkCashDrawerStatus === 'function') await checkCashDrawerStatus();
-                    }
-                } catch(e) { console.error('[CashRegister refund]', e); }
-
-                // 1c. Audit: no silent void/refund
-                try {
-                    if (LuccaDB.AuditLogs && LuccaDB.AuditLogs.log) {
-                        await LuccaDB.AuditLogs.log('order.void_refund', 'orders', _voidOrderId,
-                            { total: order.total, paymentStatus: order.paymentStatus },
-                            { refundAmount, reason, note },
-                            window.currentUser?.name || 'system');
-                    }
-                } catch(e) { console.error('[Audit refund]', e); }
-
-                // 2. Add void metadata to order (يسجل مَن ألغى + الموظف الأصلي)
-                order.status = 'cancelled';
-                order.voidReason = reason;
-                order.voidNote = note;
-                order.voidedAt = new Date().toISOString();
-                order.voidedBy = (window.currentUser && (window.currentUser.name || window.currentUser.username)) || 'system';
-                order.voidedByRole = window.currentUser?.role || null;
-                order.originalEmployee = order.createdBy || order.userId || null;
-                order.paymentStatus = 'refunded';
-                order.refundAmount = refundAmount;
-                await LuccaDB.db.put('orders', order);
-
-                // 3. Record status history
-                try {
-                    await LuccaDB.OrderStatusHistory.add(_voidOrderId, 'cancelled', window.currentUser?.name || 'system', `reason: ${reason}, note: ${note}`);
-                } catch(e) {}
-
-                // 4. Free the table
-                if (order.tableId && !isNaN(parseInt(order.tableId))) {
-                    await LuccaDB.Tables.update(parseInt(order.tableId), { status: 'available', currentOrder: null });
+                    await ServerAPI.post('/api/orders/' + _voidOrderId + '/void', { reason: reason, note: note });
+                    document.getElementById('voidOrderModal').classList.remove('show');
+                    document.getElementById('orderSearchModal').classList.remove('show');
+                    if (_voidOrderId === currentOrderId) { currentOrderId = null; currentOrder.length = 0; renderOrderSummary(); }
+                    await loadTables();
+                    if (typeof performOrderSearch === 'function') await performOrderSearch();
+                    setOrderStatus(`❌ تم إلغاء وتسجيل استرداد طلب #${_voidOrderId} (السبب: ${reason})`, 'success');
+                    showToast('تم إلغاء الطلب وتسجيل الاسترداد على الخادم');
+                    _voidOrderId = null;
+                    _viewingOrderId = null;
+                    return;
+                } catch(e) {
+                    console.error('[void server]', e);
+                    const msg = (e && e.status === 403) ? 'ليس لديك صلاحية الإلغاء/الاسترداد'
+                        : (e && e.status === 400) ? (e.message || 'سبب الإلغاء إلزامي')
+                        : 'تعذّر تنفيذ الإلغاء على الخادم — لم يُلغَ الطلب، أعد المحاولة';
+                    showToast('❌ ' + msg, 'error');
+                    return;
                 }
-
-                // 5. Clear current state if this was the active order
-                if (_voidOrderId === currentOrderId) {
-                    currentOrderId = null;
-                    currentOrder.length = 0;
-                    renderOrderSummary();
-                }
-
-                document.getElementById('voidOrderModal').classList.remove('show');
-                document.getElementById('orderSearchModal').classList.remove('show');
-                await loadTables();
-                if (typeof performOrderSearch === 'function') await performOrderSearch();
-                setOrderStatus(`❌ تم إلغاء وتسجيل استرداد طلب #${_voidOrderId} (${refundAmount.toFixed(0)} ج.م)`, 'success');
-                showToast(`تم إلغاء الطلب وتسجيل الاسترداد: ${refundAmount.toFixed(0)} ج.م`);
-                _voidOrderId = null;
-                _viewingOrderId = null;
             } catch(e) {
                 showToast('خطأ في إلغاء الطلب');
-
             }
         }
 

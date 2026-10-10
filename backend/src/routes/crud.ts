@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getDb, saveDb, queryAll, queryOne, insert, getLastInsertId, beginTransaction, commitTransaction, rollbackTransaction } from '../db.js';
 import { authRequired, requirePasswordChanged, AuthRequest, roleHas } from '../auth.js';
 import { restoreStockAfterVoid } from '../stock.js';
+import { serverOrderTotals, validateOrderMoney, validateOrderItemRow, validateItemPriceOverride, parseItems } from '../money.js';
 
 const VALID_COL_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
@@ -79,6 +80,9 @@ function writeDenied(req: AuthRequest, store: string): boolean {
 function deleteDenied(req: AuthRequest): boolean {
   return !isAdminish(req);
 }
+// D-06: مخازن لا يُحذف صفّها إلا بدور admin حصراً — users (إسقاط حسابات) و audit_logs
+// (تغطية آثار). احتفاظ المدير بالحذف هنا كان يسمح بإزالة مستخدمين وسجل تدقيق وتزييف التاريخ.
+const DELETE_ADMIN_ONLY = new Set(['users', 'audit_logs']);
 
 function storeFor(req: Request): string {
   return req.params.store as string;
@@ -92,10 +96,17 @@ const PAYMENT_TERMINAL_SET = new Set(['paid', 'refunded']);
 // C3-P0: حقول مالية محلورة في الطلب لا تتغيّر عبر CRUD (تحددها /checkout و /void)
 const ORDER_MONEY_IMMUTABLE = ['totalPaid', 'paidAmount', 'changeAmount', 'paymentMethod', 'paymentMethodId'];
 const JSON_COLUMNS = new Set(['items', 'modifiers']);
+// F-2: أعمدة أسرار لا تُعاد أبداً عبر أي قارئ عام (خصوصاً GET /api/users) — حجب صلب على الخادم.
+const USER_SECRET_COLUMNS = new Set([
+  'password', 'passwordHash', 'password_hash', 'salt', 'pin', 'pinHash', 'pin_hash',
+  'secret', 'token', 'sessionToken', 'apiKey', 'api_key', 'totpSecret'
+]);
 
 function parseRow(table: string, row: Record<string, unknown>): Record<string, unknown> {
   const obj: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(row)) {
+    // F-2: لا تُكرَّم أسرار المستخدم إلى العميل (hash/نصّي/توكِن) أبداً.
+    if (table === 'users' && USER_SECRET_COLUMNS.has(key)) continue;
     if (JSON_COLUMNS.has(key) && typeof val === 'string') {
       try { obj[key] = JSON.parse(val as string); } catch { obj[key] = val; }
     } else {
@@ -158,35 +169,46 @@ function computeExpectedTotal(data: Record<string, unknown>, existing?: Record<s
   return subtotal - discountAmount + tax;
 }
 
-// P2-A5: الحساب الإلزامي للإجماليات على السيرفر — مصدر الحقيقة = الأصناف (price×quantity) فقط.
-// إجمالي/تحت-إجمالي/مبلغ الخصم القادم من العميل يُتجاهَل ويُعاد حسابه من items + قواعد الخصم/الضريبة.
-function serverOrderTotals(data: Record<string, unknown>, existing?: Record<string, unknown>):
-  { subtotal: number; discountAmount: number; total: number } {
-  let raw = data.items !== undefined ? data.items : (existing ? existing.items : '[]');
-  if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { raw = []; } }
-  const arr = Array.isArray(raw) ? raw : [];
-  const subtotal = arr.reduce((s: number, it: any) =>
-    s + (Number(it && it.quantity) || 1) * (Number((it && (it.unitPrice ?? it.price)) || 0)), 0);
-  const discount = Number(data.discount !== undefined ? data.discount : (existing ? existing.discount : 0)) || 0;
-  const discountType = String(data.discountType !== undefined ? data.discountType : (existing ? existing.discountType : 'percent')) || 'percent';
-  const discountAmount = discountType === 'fixed' ? discount : subtotal * (discount / 100);
-  const tax = Number(data.tax !== undefined ? data.tax : (existing ? existing.tax : 0)) || 0;
-  return { subtotal, discountAmount, total: subtotal - discountAmount + tax };
+// P2-A5 / D-02 / F-1: serverOrderTotals و validateOrderMoney انتقلتا إلى ./money.ts
+// (مصدر حقيقة موحّد تُشاركه مسارات CRUD و /api/sync و /checkout) — لا تُكرّر القواعد المالية هنا.
+
+// F-3: هل يملك الفاعل صلاحية تجاوز سعر البند (تصفير/تخفيض منتج مدفوع)؟
+function canOverridePrice(req: AuthRequest): boolean {
+  const id = req.identity;
+  if (!id) return false;
+  return id.role === 'admin' || roleHas(id.role, 'price.override');
 }
 
-function recordAuditLog(action: string, objectType: string, objectId: string | number, newValue?: unknown, userName = 'system') {
+// F-3: جلب سعر الكتالوج لمنتج (null إن لم يوجد/غير رقمي) — لفحص تصفير سعر منتج مدفوع.
+function catalogPriceFor(productId: unknown): number | null {
+  if (productId == null || productId === '') return null;
+  try {
+    const p = queryOne('SELECT price FROM products WHERE id = ?', [productId]);
+    return p && p.price != null ? Number(p.price) : null;
+  } catch { return null; }
+}
+
+// D-07: تدقيق موحّد مع هوية الفاعل الحقيقية (userId من الجلسة) وعنوان IP — لا اسم نصّي فقط.
+function recordAuditLog(action: string, objectType: string, objectId: string | number, newValue?: unknown, userName = 'system', meta?: { userId?: number | null; ip?: string | null }) {
   try {
     const db = getDb();
     db.run(
-      "INSERT INTO audit_logs (action, objectType, objectId, newValue, userName, createdAt) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-      [action, objectType, String(objectId), typeof newValue === 'string' ? newValue : JSON.stringify(newValue || ''), userName || 'system']
+      "INSERT INTO audit_logs (action, objectType, objectId, newValue, userName, userId, ipAddress, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+      [action, objectType, String(objectId), typeof newValue === 'string' ? newValue : JSON.stringify(newValue || ''),
+       userName || 'system', meta?.userId ?? null, meta?.ip ?? null]
     );
   } catch (_) { /* audit logging is best-effort */ }
 }
 
+function auditMetaFrom(req: Request): { userId: number | null; ip: string | null } {
+  const id = (req as AuthRequest).identity;
+  const ip = ((req.headers['x-forwarded-for'] as string) || req.ip || '').toString().split(',')[0].trim() || null;
+  return { userId: (id && id.kind === 'user' && id.userId != null) ? id.userId : null, ip };
+}
+
 // C3-P0: تدقيق الرفض المالي المصرَّح به (حتى يعرف المدير أن محاولةً رُفضت ولم تُنفَّذ أبداً)
 function auditReject(req: Request, store: string, id: string | number, reason: string) {
-  recordAuditLog(`${store}.rejected`, store, id, JSON.stringify({ reason, attemptedBy: actorName(req) }), actorName(req));
+  recordAuditLog(`${store}.rejected`, store, id, JSON.stringify({ reason, attemptedBy: actorName(req) }), actorName(req), auditMetaFrom(req));
 }
 
 const SAFE_TABLES = new Set([
@@ -311,6 +333,30 @@ router.post('/:store', (req: Request, res: Response) => {
       // حقول دفع تُفرض صفراً عند الإنشاء — لا دفعة مقدمة عبر CRUD
       // (لا paidAmount — العمود غير موجود في الجدول؛ لا تُرسل أبداً)
       data.totalPaid = 0; data.changeAmount = 0;
+      // D-02: فحص سلامة الأموال بعد الحساب الخادمي — يرفض السعر/الكمية/الخصم الفاسد
+      const moneyCheck = validateOrderMoney(data);
+      if (!moneyCheck.ok) {
+        auditReject(req, 'orders', String(data.orderId ?? ''), moneyCheck.reason);
+        res.status(409).json({ error: `طلب مرفوض (سلامة الأموال): ${moneyCheck.reason}` });
+        return;
+      }
+      // F-3: منع تصفير سعر منتج مدفوع بلا صلاحية تجاوز السعر
+      const overrideReason = validateItemPriceOverride(parseItems(data.items), canOverridePrice(req as AuthRequest), catalogPriceFor);
+      if (overrideReason) {
+        auditReject(req, 'orders', String(data.orderId ?? ''), overrideReason);
+        res.status(409).json({ error: `طلب مرفوض (سعر البند): ${overrideReason}` });
+        return;
+      }
+    }
+
+    // F-1: سلامة بنود الطلب المفردة (order_items) — لا كمية/سعر سالب أو فاحش عبر CRUD
+    if (store === 'order_items') {
+      const lineErr = validateOrderItemRow(data);
+      if (lineErr) {
+        auditReject(req, 'order_items', String(data.orderId ?? ''), lineErr);
+        res.status(409).json({ error: `بند طلب مرفوض (سلامة الأموال): ${lineErr}` });
+        return;
+      }
     }
 
     // C3-P0: استرداد نقدي مُتحقق منه فقط: سبب + قيمة موجبة ≤ صافي المدفوع + طلب مدفوع فعلاً
@@ -448,6 +494,16 @@ router.put('/:store/:id', (req: Request, res: Response) => {
       return;
     }
 
+    // F-1: سلامة بند الطلب المفردة على التعديل — لا كمية/سعر سالب أو فاحش
+    if (store === 'order_items') {
+      const lineErr = validateOrderItemRow(data);
+      if (lineErr) {
+        auditReject(req, 'order_items', id, lineErr);
+        res.status(409).json({ error: `تعديل بند طلب مرفوض (سلامة الأموال): ${lineErr}` });
+        return;
+      }
+    }
+
     // C3-P0: قيود الطلبات — لا إغلاق/دفع عبر CRUD، ولا تغيير أموال محلورة، وإجبار الحساب الصحيح للإجمالي
     let existingOrder: Record<string, unknown> | undefined;
     if (store === 'orders') {
@@ -460,6 +516,20 @@ router.put('/:store/:id', (req: Request, res: Response) => {
       data.subtotal = updatedT.subtotal;
       data.discountAmount = updatedT.discountAmount;
       data.total = updatedT.total;
+      // D-02: سلامة الأموال على التعديل أيضاً (سعر/كمية/خصم فاسد يُرفض قبل الكتابة)
+      const moneyCheck = validateOrderMoney(forcedRef);
+      if (!moneyCheck.ok) {
+        auditReject(req, 'orders', id, moneyCheck.reason);
+        res.status(409).json({ error: `تعديل مرفوض (سلامة الأموال): ${moneyCheck.reason}` });
+        return;
+      }
+      // F-3: منع تصفير سعر منتج مدفوع بلا صلاحية تجاوز السعر (على التعديل أيضاً)
+      const overrideReason = validateItemPriceOverride(parseItems(forcedRef.items), canOverridePrice(req as AuthRequest), catalogPriceFor);
+      if (overrideReason) {
+        auditReject(req, 'orders', id, overrideReason);
+        res.status(409).json({ error: `تعديل مرفوض (سعر البند): ${overrideReason}` });
+        return;
+      }
       // طلب مدفوع/مغلق/ملغى لا يُعدَّل ولا يُنقل (لا صمت — 409 صريح)
       if (isOrderPaidOrClosed(existingOrder)) {
         auditReject(req, 'orders', id, 'محاولة تعديل طلب مدفوع/مغلق');
@@ -548,6 +618,15 @@ router.delete('/:store/:id', (req: Request, res: Response) => {
   const id = req.params.id as string;
   if (!SAFE_TABLES.has(store)) { res.status(400).json({ error: 'Invalid store' }); return; }
   if (deleteDenied(req as AuthRequest)) { res.status(403).json({ error: 'Forbidden: delete requires admin/manager' }); return; }
+  // D-06: users/audit_logs — admin حصراً (لا يكفي دور manager)
+  if (DELETE_ADMIN_ONLY.has(store)) {
+    const idnty = (req as AuthRequest).identity;
+    if (!idnty || idnty.role !== 'admin') {
+      auditReject(req, store, id, 'حذف يتطلب دور admin حصراً');
+      res.status(403).json({ error: `حذف من "${store}" يتطلب صلاحية admin` });
+      return;
+    }
+  }
   try {
     const db = getDb();
     const table = tableNameForStore(store);

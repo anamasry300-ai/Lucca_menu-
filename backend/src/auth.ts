@@ -114,6 +114,35 @@ export function destroySession(token: string | undefined) {
   } catch { /* لا يوجد جدول بعد */ }
 }
 
+// D-05: إبطال كل جلسات مستخدم (يُستدعى عند الإيقاف/تغيير الدور الحاسم) — يعالج
+// "سحب الصلاحيات المتأخر": المستخدم المُعطَّل لا يبقي جلسة فعلّالة حتى انتهاء TTL.
+export function destroyUserSessions(userId: number | undefined | null) {
+  if (userId == null) return;
+  try {
+    getDb().run('DELETE FROM sessions WHERE userId = ?', [userId]);
+  } catch { /* لا يوجد جدول بعد */ }
+}
+
+// D-05: إعادة إثبات الهوية الحيّة لكل طلب — مصدر الحقيقة لجدول users (ليس لقطة الجلسة).
+// يجب أن يمر عبره كل طلب يلامس بيانات حساسة: يُعيد قراءة active/role الحاليين؛
+// المستخدم المُعطَّل/المحذوف تُبطل جلساته ويُرفض الطلب، والدور المحدَّث يسري فوراً.
+// تُستخدم في authRequired؛ تُسقط الدور/الاسم الفعليين اللذين أُنشئت بهما الجلسة لصالح الحيّ.
+export function revalidateLiveUser(identity: Identity): boolean {
+  if (identity.kind !== 'user' || identity.userId == null) return true;
+  try {
+    const u = queryOne('SELECT id, username, role, active FROM users WHERE id = ?', [identity.userId]);
+    if (!u || Number(u.active) === 0) {
+      if (identity.token) destroySession(identity.token);
+      return false;
+    }
+    identity.role = String(u.role || identity.role);
+    identity.username = String(u.username || identity.username);
+    return true;
+  } catch {
+    return true; // جدول غير جاهز — لا نقسو على الطلب في أول لحظة
+  }
+}
+
 // ===== الأدوار والصلاحيات =====
 // الصلاحيات (scopes). كل دور يمتلك مجموعة صلاحيات.
 export const ROLE_PERMISSIONS: Record<string, Set<string>> = {
@@ -128,6 +157,8 @@ export const ROLE_PERMISSIONS: Record<string, Set<string>> = {
     'reports.read', 'settings.read', 'daily-shifts.read', 'daily-shifts.write',
     'cash-registers.read', 'cash-registers.write',
     'audit.read', 'sync', 'users.read',
+    // F-3: صلاحية تجاوز سعر البند (تصفير/تخفيض منتج مدفوع) — admin (wildcard) و manager فقط.
+    'price.override',
   ]),
   cashier: new Set([
     'orders.read', 'orders.write', 'checkout', 'payments.write',
@@ -209,6 +240,12 @@ export function resolveIdentity(req: AuthRequest): Identity | null {
 export function authRequired(req: AuthRequest, res: Response, next: NextFunction) {
   const identity = resolveIdentity(req);
   if (!identity) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  // D-05: إعادة تحقق حيّة ضد جدول users — المُعطَّل/المحذوف يُرفض فوراً وتُبطل جلساته،
+  // والدور الحيّ يسري على الطلب مباشرة (لا انتظاراً لانتهاء TTL).
+  if (!revalidateLiveUser(identity)) {
+    res.status(401).json({ error: 'Unauthorized: account disabled or revoked' });
+    return;
+  }
   req.identity = identity;
   next();
 }

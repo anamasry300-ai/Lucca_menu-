@@ -17,6 +17,7 @@ import adminRoutes from './routes/admin.js';
 import controlCenterRoutes from './routes/controlCenter.js';
 import tableLocksRoutes from './routes/tableLocks.js';
 import { authRequired, requirePermission, requirePasswordChanged, resolveIdentity, requireRole, AuthRequest, SESSION_COOKIE, ADMIN_ONLY_STORES, roleHas, getDeviceKeys } from './auth.js';
+import { validateOrderMoney, validateOrderItemRow, validateItemPriceOverride, parseItems, MAX_ORDER_TOTAL } from './money.js';
 import logger, { httpLoggerMiddleware } from './logger.js';
 import { startBackupScheduler } from './backup.js';
 
@@ -463,7 +464,9 @@ app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout')
     const orderId = String(req.params.id);
     const body = req.body || {};
     const { paymentMethod, paymentSyncId, orderSyncId, payments } = body;
-    const changeAmount = Number.isFinite(Number(body.changeAmount)) ? Number(body.changeAmount) : 0;
+    // F-4: الباقي الصحيح يُشتق من المبلغ المُسلَّم (amount) وليس من قيمة العميل الخام.
+    let changeAmount = 0;
+    const tendered = Number(body.amount);
 
     const order = queryOne('SELECT * FROM orders WHERE id = ?', [orderId]);
     if (!order) { res.status(404).json({ error: 'Order not found' }); return; }
@@ -511,7 +514,23 @@ app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout')
     if (order.status === 'closed') { res.status(409).json({ error: 'Order is already closed' }); return; }
     if (order.status === 'cancelled' || order.status === 'completed') { res.status(409).json({ error: `Order is already ${order.status}` }); return; }
 
+    // F-1/F-5: دفاع الخادم قبل أي تحصيل — لا إجمالٍ سالب/صفر ولا أصناف بسعر/كمية سالب في الطلب المخزَّن
+    // (يشمل الطلبات القديمة/الفاسدة التي سبقت الحواجز). لا يُنشأ أي دفعة قبل اجتياز هذا الفحص.
+    const moneyCheck = validateOrderMoney(order as Record<string, unknown>);
+    if (!moneyCheck.ok) {
+      logAudit('checkout.rejected', 'orders', orderId,
+        { reason: moneyCheck.reason, attemptedBy: actorFrom(req) }, actorFrom(req));
+      res.status(409).json({ error: `طلب مرفوض (سلامة الأموال): ${moneyCheck.reason}` });
+      return;
+    }
+
     const total = (order.total as number) || 0;
+    if (!(total > 0)) {
+      logAudit('checkout.rejected', 'orders', orderId,
+        { reason: `إجمالي غير موجب (${total})`, attemptedBy: actorFrom(req) }, actorFrom(req));
+      res.status(409).json({ error: 'لا يمكن تحصيل طلب بإجمالي صفر أو سالب' });
+      return;
+    }
     const createdBy = (order.createdBy as string) || 'unknown';
     const today = new Date().toISOString().slice(0, 10);
 
@@ -539,6 +558,37 @@ app.post('/api/orders/:id/checkout', authRequired, requirePermission('checkout')
     } else {
       method = (paymentMethod as string) || 'cash';
       payRows = [{ amount: total, method, syncId: paymentSyncId || newSyncId() }];
+    }
+
+    // F-4: اشتقاق الباقي الصحيح للدفعة الواحدة = المبلغ المُسلَّم − الإجمالي (لا باقٍ سالب/فاحش).
+    // أولوية: المبلغ المُسلَّم (amount)؛ وإلا فيُقبل changeAmount الصريح فقط إن كان صالحاً (موجب ومحدود).
+    if (!splitPayments) {
+      const hasTendered = Number.isFinite(tendered);
+      const hasChange = body.changeAmount !== undefined && body.changeAmount !== null && body.changeAmount !== '';
+      if (hasTendered) {
+        if (tendered < total - 0.01) {
+          logAudit('checkout.rejected', 'orders', orderId,
+            { reason: `المبلغ المُسلَّم ${tendered} أقل من الإجمالي ${total}`, attemptedBy: actorFrom(req) }, actorFrom(req));
+          res.status(409).json({ error: `المبلغ المُسلَّم (${tendered}) أقل من إجمالي الطلب (${total})` });
+          return;
+        }
+        changeAmount = Math.max(0, Math.round((tendered - total) * 100) / 100);
+      } else if (hasChange) {
+        const rawChange = Number(body.changeAmount);
+        if (!Number.isFinite(rawChange) || rawChange < 0 || rawChange > MAX_ORDER_TOTAL) {
+          logAudit('checkout.rejected', 'orders', orderId,
+            { reason: `قيمة باقٍ غير صالحة (${String(body.changeAmount)})`, attemptedBy: actorFrom(req) }, actorFrom(req));
+          res.status(409).json({ error: 'قيمة الباقي (changeAmount) غير صالحة' });
+          return;
+        }
+        changeAmount = Math.round(rawChange * 100) / 100;
+      }
+    }
+    if (!Number.isFinite(changeAmount) || changeAmount < 0 || changeAmount > MAX_ORDER_TOTAL) {
+      logAudit('checkout.rejected', 'orders', orderId,
+        { reason: `قيمة باقٍ غير صالحة (${String(body.changeAmount)})`, attemptedBy: actorFrom(req) }, actorFrom(req));
+      res.status(409).json({ error: 'قيمة الباقي (changeAmount) غير صالحة' });
+      return;
     }
     const orderSync = (orderSyncId || (order.syncId as string)) || null;
 
@@ -754,6 +804,61 @@ app.post('/api/orders/:id/void', authRequired, requirePermission('refunds.void')
   }
 });
 
+// D-01: إعادة فتح طلب مُغلَق/ملغى — نقطة خادم إدارية (مدير/أدمن فقط عبر refunds.void)
+// مع سبب إلزامي وسجل تدقيق. تُنهي مسار "إعادة الفتح المحلي" الذي كان يستولي على أوردر مدفوع
+// دون صلاحية ولا أثر. لا تُلمس جدول refunds التاريخي؛ يُعاد الطلب لحالة عمل نظيفة.
+app.post('/api/orders/:id/reopen', authRequired, requirePermission('refunds.void'), (req, res) => {
+  try {
+    const db = getDb();
+    const orderId = req.params.id;
+    const { reason } = req.body || {};
+    if (!reason || !String(reason).trim()) { res.status(400).json({ error: 'السبب إلزامي لا يمكن تركه فارغاً' }); return; }
+
+    const order = queryOne('SELECT * FROM orders WHERE id = ?', [orderId]);
+    if (!order) { res.status(404).json({ error: 'Order not found' }); return; }
+
+    const TERMINAL = new Set(['closed', 'completed', 'cancelled']);
+    if (!TERMINAL.has(String(order.status))) {
+      res.status(409).json({ error: 'الطلب غير مُغلق — لا حاجة لإعادة فتحه' }); return;
+    }
+
+    const identity = (req as AuthRequest).identity;
+    const actor = actorFrom(req);
+
+    beginImmediateTransaction();
+    try {
+      db.run(
+        `UPDATE orders SET status = 'pending', paymentStatus = 'unpaid', totalPaid = 0, changeAmount = 0,
+           paymentMethod = NULL, voidReason = NULL, voidNote = NULL, voidedAt = NULL, voidedBy = NULL, refundAmount = 0
+         WHERE id = ?`,
+        [orderId]
+      );
+      db.run(
+        "INSERT INTO order_status_history (orderId, status, changedBy, notes, createdAt) VALUES (?, ?, ?, ?, datetime('now'))",
+        [orderId, 'pending', actor, `reopened: ${String(reason).trim()}`]
+      );
+      db.run(
+        `INSERT INTO audit_logs (action, objectType, objectId, oldValue, newValue, userName, userId, ipAddress, createdAt)
+         VALUES ('order.reopen', 'orders', ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        [orderId,
+         JSON.stringify({ status: order.status, paymentStatus: order.paymentStatus, total: order.total, createdBy: order.createdBy }),
+         JSON.stringify({ reason: String(reason).trim(), reopenedBy: actor }),
+         actor,
+         (identity && identity.userId != null) ? identity.userId : null,
+         (req.headers['x-forwarded-for'] as string || req.ip || '').toString().split(',')[0].trim() || null]
+      );
+      commitTransaction();
+      const reopened = queryOne('SELECT * FROM orders WHERE id = ?', [orderId]);
+      res.json({ success: true, order: reopened ? { ...reopened, items: JSON.parse((reopened.items as string) || '[]') } : null });
+    } catch (e) {
+      rollbackTransaction();
+      throw e;
+    }
+  } catch (e: unknown) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
 // Sync: POST /api/sync  (C2: دمج آمن — لا DELETE، لا استبدال أعمى)
 // الهوية المستقرة = syncId (وليس autoincrement id). القرار:
 //   - INSERT إذا لم يكن السجل موجوداً بالسيرفر
@@ -845,7 +950,8 @@ app.post('/api/sync', authRequired, requirePermission('sync'), (req, res) => {
     const data = req.body || {};
     // H2+P2-A4: نمنع مزامنة المخازن الإدارية (users/settings/audit/daily_shifts/shifts والمالية/المخزون)
     // إلا بهوية دور admin حصراً. manager/cashier/device لا يمسّون users أبداً (خصوصاً role/password).
-    const identity = resolveIdentity(req as AuthRequest);
+    // D-05: نعتمد الهوية الحيّة التي ثبّتها authRequired (role محدَّث من users) لا لقطة الجلسة.
+    const identity = (req as AuthRequest).identity || resolveIdentity(req as AuthRequest);
     const isAdminish = identity ? (identity.role === 'admin') : false;
     const stores = [
       'users', 'invitations', 'tables', 'tables_store', 'orders', 'customers', 'settings', 'inventory',
@@ -963,31 +1069,66 @@ app.post('/api/sync', authRequired, requirePermission('sync'), (req, res) => {
         //  - الطلب الوارد بحالة نافذة/مدفوعة (paid/closed/... ) لا يُقبل إطلاقاً (لا عبر INSERT ولا UPDATE).
         //  - الطلب المغلق/المدفوع على السيرفر لا يُعدَّل من أي عميل محدود.
         //  - الإجمالي يجب أن يطابق الحساب (الأصناف − الخصم + الضريبة) — لا last-write-wins على total.
-        if (store === 'orders' && !isAdminish) {
-          const incStatus = normItem.status ? String(normItem.status) : '';
-          const incPay = normItem.paymentStatus ? String(normItem.paymentStatus) : '';
-          const incTerminal = (incStatus && !ORDER_WORKING.has(incStatus)) || incPay === 'paid' || incPay === 'refunded';
-          const exTerminal = existing && existing.status && !ORDER_WORKING.has(String(existing.status));
-          if (incTerminal || exTerminal) {
-            log.conflicts++;
-            log.skipped++;
-            log.conflictDetail.push({
-              syncId: syncId || null,
-              store,
-              reason: incTerminal
-                ? 'الطلب وارد بحالة نافذة/مدفوعة — لا يُقبل عبر المزامنة (التحصيل عبر /checkout)'
-                : 'الطلب مغلق/مدفوع على السيرفر — لا يُعدَّل من عميل محدود'
-            });
-            continue;
-          }
-          if (normItem.total !== undefined) {
-            const expT = expectedTotalFrom(normItem, existing);
-            if (expT != null && Math.abs(Number(normItem.total) - expT) > 0.01) {
+        if (store === 'orders') {
+          if (!isAdminish) {
+            const incStatus = normItem.status ? String(normItem.status) : '';
+            const incPay = normItem.paymentStatus ? String(normItem.paymentStatus) : '';
+            const incTerminal = (incStatus && !ORDER_WORKING.has(incStatus)) || incPay === 'paid' || incPay === 'refunded';
+            const exTerminal = existing && existing.status && !ORDER_WORKING.has(String(existing.status));
+            if (incTerminal || exTerminal) {
               log.conflicts++;
               log.skipped++;
-              log.conflictDetail.push({ syncId: syncId || null, store, reason: 'تغيير يدوي للإجمالي غير مطابق للحساب — اترك إجمالي الخادم كما هو' });
+              log.conflictDetail.push({
+                syncId: syncId || null,
+                store,
+                reason: incTerminal
+                  ? 'الطلب وارد بحالة نافذة/مدفوعة — لا يُقبل عبر المزامنة (التحصيل عبر /checkout)'
+                  : 'الطلب مغلق/مدفوع على السيرفر — لا يُعدَّل من عميل محدود'
+              });
               continue;
             }
+            if (normItem.total !== undefined) {
+              const expT = expectedTotalFrom(normItem, existing);
+              if (expT != null && Math.abs(Number(normItem.total) - expT) > 0.01) {
+                log.conflicts++;
+                log.skipped++;
+                log.conflictDetail.push({ syncId: syncId || null, store, reason: 'تغيير يدوي للإجمالي غير مطابق للحساب — اترك إجمالي الخادم كما هو' });
+                continue;
+              }
+            }
+          }
+          // F-1: سلامة الأموال على الخادم لكل الأدوار (بما فيها admin) — لا سعر/كمية/إجمالي سالب
+          // ولا تحت-إجمالي/إجمالي سالب يُكتب عبر المزامنة. حاجز الخادم لا يثق بحساب العميل.
+          const moneyCheck = validateOrderMoney(normItem, existing);
+          if (!moneyCheck.ok) {
+            log.conflicts++;
+            log.skipped++;
+            log.conflictDetail.push({ syncId: syncId || null, store, reason: `طلب مرفوض (سلامة الأموال): ${moneyCheck.reason}` });
+            continue;
+          }
+          // F-3: منع تصفير سعر منتج مدفوع (productId) بلا صلاحية price.override
+          const canOverride = isAdminish || roleHas(identity?.role || '', 'price.override');
+          const overrideItems = parseItems(normItem.items !== undefined ? normItem.items : (existing ? existing.items : []));
+          const overrideReason = validateItemPriceOverride(overrideItems, canOverride, (pid) => {
+            try { const p = queryOne('SELECT price FROM products WHERE id = ?', [pid]); return p && p.price != null ? Number(p.price) : null; }
+            catch { return null; }
+          });
+          if (overrideReason) {
+            log.conflicts++;
+            log.skipped++;
+            log.conflictDetail.push({ syncId: syncId || null, store, reason: overrideReason });
+            continue;
+          }
+        }
+
+        // F-1: سلامة بنود الطلب المفردة (order_items) عبر المزامنة لكل الأدوار — لا كمية/سعر سالب أو فاحش
+        if (store === 'order_items') {
+          const lineErr = validateOrderItemRow(normItem);
+          if (lineErr) {
+            log.conflicts++;
+            log.skipped++;
+            log.conflictDetail.push({ syncId: syncId || null, store, reason: `بند طلب مرفوض (سلامة الأموال): ${lineErr}` });
+            continue;
           }
         }
 

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { getDb, saveDb, queryAll, queryOne } from '../db.js';
-import { authRequired, requirePermission, AuthRequest, hashPassword, roleHas } from '../auth.js';
+import { authRequired, requirePermission, AuthRequest, hashPassword, roleHas, destroyUserSessions } from '../auth.js';
 
 const router = Router();
 
@@ -169,6 +169,8 @@ router.post('/employees/:id/status', authRequired, requirePermission('employees.
     }
     if (userId != null) {
       db.run('UPDATE users SET active = ? WHERE id = ?', [act, userId]);
+      // D-05: عند التعطيل، أبطِل كل جلسات المستخدم فوراً (لا انتظار TTL) — سحب صلاحيات فوري.
+      if (act === 0) destroyUserSessions(userId);
     }
     saveDb();
     audit(act ? 'employee.enable' : 'employee.disable', 'employees', empId, req.identity!.userId ?? null, req.identity!.username || '', {
