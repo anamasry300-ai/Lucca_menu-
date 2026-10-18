@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "test": "node test/guard-regression.cjs && node test/checkout-idempotency.cjs && node test/runtime-smoke.cjs && node test/p0-money-guards.cjs && node test/p1-followup.cjs && node test/phase4-admin-write.cjs && node test/phase5-decision-layer.cjs && node test/phase6-accounting-convergence.cjs && node test/phase5a-rbac-write-paths.cjs && node test/phase7-session-integration.cjs && node test/phase8-identity-access.cjs && node test/p0-authority-rbac-secrets.cjs && node test/p0-daily-sales-accuracy.cjs && node test/p0-cash-register-reconciliation.cjs && node test/p0-pos-uat-golden.cjs && node test/p0-batman-uat.cjs",
+    "test": "node test/guard-regression.cjs && node test/checkout-idempotency.cjs && node test/runtime-smoke.cjs && node test/p0-money-guards.cjs && node test/p1-followup.cjs && node test/phase4-admin-write.cjs && node test/phase5-decision-layer.cjs && node test/phase6-accounting-convergence.cjs && node test/phase5a-rbac-write-paths.cjs && node test/phase7-session-integration.cjs && node test/phase8-identity-access.cjs && node test/p0-authority-rbac-secrets.cjs && node test/p0-daily-sales-accuracy.cjs && node test/p0-cash-register-reconciliation.cjs && node test/p0-pos-uat-golden.cjs && node test/p0-batman-uat.cjs && node test/public-menu.cjs",
     "start": "node dist/index.js"
   },
   "dependencies": {
@@ -14,7 +14,10 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
+    "multer": "^2.4.0",
     "pdfkit": "^0.20.2",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.35.5",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0",
     "xlsx": "^0.18.5"
@@ -23,8 +26,10 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
+    "@types/multer": "^2.3.0",
     "@types/node": "^22.7.0",
     "@types/pdfkit": "^0.17.6",
+    "@types/qrcode": "^1.5.6",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }

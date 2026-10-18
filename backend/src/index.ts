@@ -1,5 +1,8 @@
 import 'dotenv/config';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 import { initDb, getDb, saveDb, closeDb, queryAll, queryOne, beginTransaction, beginImmediateTransaction, commitTransaction, rollbackTransaction } from './db.js';
@@ -16,6 +19,8 @@ import batmanRoutes from './routes/batman.js';
 import adminRoutes from './routes/admin.js';
 import controlCenterRoutes from './routes/controlCenter.js';
 import tableLocksRoutes from './routes/tableLocks.js';
+import { publicMenuReadRoutes, publicMenuAdminRoutes } from './routes/publicMenu.js';
+import { ensureMenuUploadsDir, MENU_UPLOADS_DIR, MENU_UPLOADS_URL_PREFIX } from './services/publicMenuService.js';
 import { authRequired, requirePermission, requirePasswordChanged, resolveIdentity, requireRole, AuthRequest, SESSION_COOKIE, ADMIN_ONLY_STORES, roleHas, getDeviceKeys } from './auth.js';
 import { validateOrderMoney, validateOrderItemRow, validateItemPriceOverride, parseItems, MAX_ORDER_TOTAL } from './money.js';
 import logger, { httpLoggerMiddleware } from './logger.js';
@@ -206,6 +211,37 @@ app.get('/api/public-key', (_req, res) => {
 app.get('/api/auth', (_req, res) => res.json({ status: 'auth-ok' }));
 app.use('/api/auth', authRoutes);
 
+// ===== المنيو العام للعملاء (Public Menu) =====
+// راوتر القراءة العامة: بدون مصادقة (read-only) — يُتركَّب قبل apiKeyCheck عمداً.
+app.use('/api/public', publicMenuReadRoutes);
+
+// ملفات المنيو العام الثابتة (صفحة العملاء + لوحة المالك) + صور المنتجات المرفوعة.
+// المجلد يقع في جذر المستودع: public-menu/ (dev: backend/src → ../../public-menu، prod: backend/dist → ../../public-menu).
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const PUBLIC_MENU_DIR = process.env.PUBLIC_MENU_DIR || path.join(REPO_ROOT, 'public-menu');
+app.use('/menu', express.static(PUBLIC_MENU_DIR, { index: 'index.html', maxAge: '1h' }));
+// الصور المرفوعة: رؤوس تخزين مؤقت طويلة + قراءة فقط.
+// حماية:
+//  - نخدم من الجذر الحرفي (realpath) الذي أنشأه ضمان المجلد — لا نقبل مساراً من البيئة خارج نطاق مخصص دون تحقق.
+//  - حارس مسبق يرفض أي طلب يخرج عبر ../ أو روابط رمزية (symlink) خارج مجلد المنيو المعتمد (path traversal).
+ensureMenuUploadsDir();
+const MENU_UPLOADS_ROOT = fs.realpathSync(MENU_UPLOADS_DIR);
+app.use(MENU_UPLOADS_URL_PREFIX, (req, res, next) => {
+  let raw = '';
+  try { raw = decodeURIComponent((req.path || '').replace(/^\/+/, '')); } catch { res.status(400).end(); return; }
+  if (!raw) { next(); return; }
+  const candidate = path.resolve(MENU_UPLOADS_ROOT, raw);
+  let real = '';
+  try { real = fs.realpathSync(candidate); } catch { next(); return; } // غير موجود → يسقط إلى static ليُعيد 404
+  const rel = path.relative(MENU_UPLOADS_ROOT, real);
+  if (path.isAbsolute(rel) || rel === '..' || rel.startsWith('..' + path.sep) || rel.split(path.sep).includes('..')) {
+    res.status(404).end(); // محاولة خروج عن المجلد المعتمد (traversal/symlink) — لا تُقدَّم
+    return;
+  }
+  next();
+}, express.static(MENU_UPLOADS_ROOT, { index: false, dotfiles: 'ignore', immutable: true, maxAge: '7d' }));
+
+
 // H1: تزويد كشك POS بمفتاح جهاز device-scoped — يتطلب جلسة admin (لا مفتاح/secret في السورس).
 // يُزوَّد الكشك مرة عبر هذه الاستدعاء (مصادقة admin)، لا يُخزّن حرفياً في الواجهة، ويمكن تدويره دون إعادة نشر.
 app.post('/api/auth/provision-device', authRequired, requirePasswordChanged, requireRole('admin'), (_req, res) => {
@@ -244,6 +280,8 @@ app.use('/api', analyticsRoutes);
 app.use('/api', reportRoutes);
 app.use('/api/batman', batmanRoutes);
 app.use('/api/admin', adminRoutes);
+// لوحة إدارة المنيو العام — محمية بـ authRequired + requireRole('admin') داخلياً.
+app.use('/api/public/admin', publicMenuAdminRoutes);
 app.use('/api/cc', controlCenterRoutes);
 
 // ===== H1: LLM Proxy (CORS-free — يضيف البطاقة السرية aquí) =====
@@ -1287,6 +1325,7 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // Start server
 initDb().then(() => {
+  ensureMenuUploadsDir();
   startBackupScheduler();
   app.listen(PORT, () => {
     console.log(`✅ Lucca Backend running on http://localhost:${PORT}`);

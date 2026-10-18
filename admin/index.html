@@ -11,6 +11,7 @@
     <script src="../knowledge/data.js"></script>
     <script src="../knowledge/importer.js"></script>
     <script src="admin-analytics.js"></script>
+<script src="menu-admin.js"></script>
     <style>
         :root {
             --primary-dark: #1E3A8A;
@@ -1705,6 +1706,7 @@
                 <div class="sidebar-section-title">الإدارة</div>
                 <a class="sidebar-link" data-page="categories-page"><span class="icon">📂</span>الأقسام</a>
                 <a class="sidebar-link" data-page="products-page"><span class="icon">🍽️</span>المنتجات</a>
+                <a class="sidebar-link" data-page="menu-page"><span class="icon">🌐</span>منيو العملاء</a>
                 <a class="sidebar-link" data-page="paymethods-page"><span class="icon">💳</span>طرق الدفع</a>
                 <a class="sidebar-link" data-page="employees-page"><span class="icon">👥</span>الموظفين</a>
             </div>
@@ -1973,6 +1975,58 @@
                     <table class="data-table"><thead><tr><th>المنتج</th><th>القسم</th><th>السعر</th><th>التكلفة</th><th id="productsProfitTh">الربح</th><th>الشارة</th><th>الحالة</th><th>إجراءات</th></tr></thead>
                     <tbody id="productsBody"></tbody></table>
                 </div></div>
+            </div>
+
+            <!-- ===== PUBLIC MENU (منيو العملاء) ===== -->
+            <div class="page" id="page-menu-page">
+                <div class="section-title">🌐 منيو العملاء (Public Menu)</div>
+
+                <div id="menuOfflineNote" class="alert alert-danger" style="display:none">
+                    تعذّر الاتصال بخادم Lucca — إدارة منيو العملاء تتطلب تشغيل الخادم (الإعدادات ← الخادم). لن يتم فقدان أي بيانات.
+                </div>
+
+                <div class="panel" style="margin-bottom:16px">
+                    <div class="panel-body">
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+                            <button class="btn btn-primary" onclick="menuRefresh()">🔄 تحديث</button>
+                            <button class="btn btn-secondary" onclick="menuPreview()">👁️ معاينة المنيو</button>
+                            <button class="btn btn-secondary" onclick="menuShowQr()">🔳 رمز QR</button>
+                            <button class="btn btn-secondary" onclick="menuOpenSettings()">⚙️ الإعدادات</button>
+                            <button class="btn btn-secondary" onclick="menuImportPos()">⬇️ استيراد من الكاشير</button>
+                            <span id="menuStatusLine" style="color:var(--text-secondary);font-size:.85rem;margin-inline-start:auto"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel" style="margin-bottom:16px">
+                    <div class="panel-header">
+                        <div class="panel-title">📂 أقسام المنيو</div>
+                        <button class="btn btn-primary btn-sm" onclick="menuEditCategory(0)">➕ قسم جديد</button>
+                    </div>
+                    <div class="panel-body no-pad">
+                        <div style="overflow-x:auto"><table class="data-table">
+                            <thead><tr><th>الأيقونة</th><th>الاسم</th><th>English</th><th>الترتيب</th><th>الحالة</th><th>إجراءات</th></tr></thead>
+                            <tbody id="menuCatsBody"></tbody>
+                        </table></div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">🍽️ منتجات المنيو</div>
+                        <button class="btn btn-primary btn-sm" onclick="menuEditItem(0)">➕ منتج جديد</button>
+                    </div>
+                    <div class="panel-body">
+                        <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+                            <input type="text" id="menuItemSearch" placeholder="ابحث في المنتجات..." oninput="renderMenuItems()" style="flex:2;min-width:200px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);background:var(--surface);color:var(--text)">
+                            <select id="menuItemCatFilter" onchange="renderMenuItems()" style="flex:1;min-width:160px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);background:var(--surface);color:var(--text)"><option value="">كل الأقسام</option></select>
+                        </div>
+                        <div style="overflow-x:auto"><table class="data-table">
+                            <thead><tr><th>الصورة</th><th>الاسم</th><th>القسم</th><th>السعر</th><th>الإتاحة</th><th>مميّز</th><th>إجراءات</th></tr></thead>
+                            <tbody id="menuItemsBody"></tbody>
+                        </table></div>
+                    </div>
+                </div>
             </div>
 
             <!-- ===== PAYMENT METHODS ===== -->
@@ -2843,6 +2897,7 @@ const NAV_RULES = {
     'tables-page':    null,
     'categories-page':'categories.read',
     'products-page':  'products.read',
+    'menu-page':      '__admin__',
     'paymethods-page':'payments.write',
     'employees-page': 'employees.read',
     'attendance-page':'attendance.read',
@@ -2867,6 +2922,7 @@ const PAGE_LOADERS = {
     'tables-page': ()=>loadTables(),
     'categories-page': ()=>loadCategories(),
     'products-page': ()=>{ loadProducts(); populateProductSelects(); },
+    'menu-page': ()=>loadPublicMenu(),
     'paymethods-page': ()=>loadPaymentMethods(),
     'employees-page': ()=>loadEmployees(),
     'attendance-page': ()=>loadAttendance(),
@@ -4940,6 +4996,13 @@ document.addEventListener('DOMContentLoaded', async ()=>{
             <button class="btn btn-ghost" onclick="closeModal('productAddModal')">إلغاء</button>
             <button class="btn btn-primary" onclick="saveProductAdd()">➕ اضافة المنتج</button>
         </div>
+    </div>
+</div>
+
+<!-- ===== PUBLIC MENU MODAL (يُملأ ديناميكياً من menu-admin.js) ===== -->
+<div class="modal-overlay" id="menuModal">
+    <div class="modal-box" style="max-width:640px">
+        <div id="menuModalContent"></div>
     </div>
 </div>
 

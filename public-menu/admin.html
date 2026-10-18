@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>لوحة إدارة المنيو — Lucca</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#1A0D04">
+  <link rel="icon" type="image/svg+xml" href="/menu/favicon.svg">
+  <link rel="stylesheet" href="/menu/admin.css">
+</head>
+<body>
+
+  <!-- ===== Login ===== -->
+  <div class="login-screen" id="loginScreen">
+    <div class="login-card">
+      <img src="/menu/favicon.svg" alt="Lucca">
+      <h1>لوحة إدارة المنيو</h1>
+      <p>سجّل الدخول بحساب المالك (admin)</p>
+      <form id="loginForm">
+        <div class="field">
+          <label for="loginUser">اسم المستخدم</label>
+          <input class="input" id="loginUser" type="text" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="loginPass">كلمة المرور</label>
+          <input class="input" id="loginPass" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary" id="loginBtn" type="submit" style="width:100%">دخول</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===== App ===== -->
+  <div id="app" class="hidden">
+    <header class="app-bar">
+      <div class="brand">
+        <img src="/menu/favicon.svg" alt="">
+        <div>
+          <div class="t">إدارة المنيو</div>
+          <div class="s">LUCCA SPECIALTY COFFEE</div>
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <span class="user" id="userLabel"></span>
+      <button class="top-btn" id="previewBtn" type="button">معاينة</button>
+      <button class="top-btn danger" id="logoutBtn" type="button">خروج</button>
+    </header>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="categories" type="button">التصنيفات</button>
+      <button class="tab" data-tab="items" type="button">المنتجات</button>
+      <button class="tab" data-tab="settings" type="button">الإعدادات</button>
+    </nav>
+
+    <main class="container">
+
+      <!-- Categories -->
+      <section id="tab-categories">
+        <div class="panel">
+          <div class="panel-title">
+            <span>التصنيفات (اسحب لإعادة الترتيب)</span>
+            <span class="spacer"></span>
+            <button class="btn btn-gold btn-sm" id="addCatBtn" type="button">+ تصنيف جديد</button>
+          </div>
+          <div id="catList"></div>
+        </div>
+      </section>
+
+      <!-- Items -->
+      <section id="tab-items" class="hidden">
+        <div class="panel">
+          <div class="panel-title">
+            <span>المنتجات</span>
+            <span class="spacer"></span>
+            <button class="btn btn-gold btn-sm" id="addItemBtn" type="button">+ منتج جديد</button>
+          </div>
+          <div class="toolbar">
+            <input class="input search" id="itemSearch" type="search" placeholder="ابحث بالاسم…">
+            <select class="select" id="itemCatFilter" style="max-width:220px"></select>
+          </div>
+          <div class="items-list" id="itemsList"></div>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section id="tab-settings" class="hidden">
+        <div class="panel">
+          <div class="panel-title">إعدادات المنيو العام</div>
+          <div class="field">
+            <label for="setTitle">عنوان المنيو</label>
+            <input class="input" id="setTitle" placeholder="Lucca Specialty Coffee">
+          </div>
+          <div class="field">
+            <label for="setSubtitle">نص أسفل الصفحة</label>
+            <input class="input" id="setSubtitle" placeholder="صُنع بحُب لقهوة مختصة ☕">
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="setCurrency">رمز العملة</label>
+              <input class="input" id="setCurrency" placeholder="ج.م">
+            </div>
+            <div class="field">
+              <label for="setWhatsapp">واتساب (اختياري)</label>
+              <input class="input" id="setWhatsapp" placeholder="201234567890" inputmode="numeric">
+            </div>
+          </div>
+          <label class="switch" style="margin-bottom:8px"><input type="checkbox" id="setHideUnavailable"><span class="track"></span><span>إخفاء المنتجات غير المتاحة للعملاء</span></label><br>
+          <div class="hint" style="margin-bottom:14px">أسعار المنيو العام تُدار يدوياً هنا، وهي مستقلة تماماً عن الكاشير (POS). زر «استيراد من الكاشير» يأخذ لقطة لمرة واحدة ولا تُزامَن الأسعار تلقائياً.</div>
+
+          <div class="toolbar">
+            <button class="btn btn-primary" id="saveSettingsBtn" type="button">حفظ الإعدادات</button>
+            <button class="btn btn-ghost" id="qrBtn" type="button">QR للمنيو</button>
+            <button class="btn btn-ghost" id="importBtn" type="button">استيراد من الكاشير</button>
+          </div>
+          <div class="hint" id="publicUrlHint"></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ===== Modals root ===== -->
+  <div id="modalRoot"></div>
+  <div class="toast-wrap" id="toastWrap"></div>
+
+  <script src="/menu/admin.js"></script>
+</body>
+</html>
