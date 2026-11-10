@@ -777,6 +777,26 @@ function migrate(db: SqlJsDatabase) {
       try { db.run("ALTER TABLE expenses ADD COLUMN paymentMethod TEXT DEFAULT 'cash'"); } catch {}
     }
   } catch { /* expenses may not exist */ }
+
+  // Phase 9.1: نطاق الفرع (branch_id) على الجداول المالية والتشغيلية — يُضاف فقط إن غاب، ولا يمسّ بيانات موجودة.
+  // يُنفَّذ هنا (قبل runMigrations) zodat 혹 هجرة 007 التي تنشئ فهرس الورديات المفتوحة لكل فرع تحتاج العمود.
+  try {
+    const branchAdds: Array<[string, string, string]> = [
+      ['users', 'branch_id', 'INTEGER DEFAULT 1'],
+      ['daily_shifts', 'branch_id', 'INTEGER DEFAULT 1'],
+      ['expenses', 'branch_id', 'INTEGER DEFAULT 1'],
+      ['cash_registers', 'branch_id', 'INTEGER DEFAULT 1'],
+    ];
+    for (const [table, col, type] of branchAdds) {
+      try {
+        const cols = new Set(queryAll(`PRAGMA table_info(${table})`).map((r) => r.name));
+        if (!cols.has(col)) {
+          db.run(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+        }
+      } catch { /* الجدول قد لا يكون موجوداً بعد — تُتجاهل بأمان */ }
+    }
+  } catch { /* أعمدة الفرع قد لا تنطبق على هذا المخطط */ }
+
   try {
     const supCols = new Set(queryAll('PRAGMA table_info(suppliers)').map((r) => r.name));
     const supAdds: Array<[string, string]> = [
@@ -887,16 +907,15 @@ function migrate(db: SqlJsDatabase) {
   try { db.run("ALTER TABLE employees ADD COLUMN email TEXT"); } catch { /* موجودة مسبقاً */ }
   try { db.run("ALTER TABLE employees ADD COLUMN userId INTEGER"); } catch { /* موجودة مسبقاً */ }
 
-  // Seed default admin user
+  // Seed default admin user — معطل لأسباب أمنية (P0). لا يُنشأ مسؤول افتراضي تلقائياً.
+  // يجب إنشاء المسؤول عبر تدفق الدعوة (invite) أو يدوياً بعد تسجيل دخول شرعي.
   const users = queryAll('SELECT COUNT(*) as c FROM users');
   if (users.length === 0 || users[0].c === 0) {
-    db.run('INSERT INTO users (username, password, name, role, mustChangePassword) VALUES (?, ?, ?, ?, ?)', ['admin', '123456', 'مدير النظام', 'admin', 1]);
+    // لا يُنشأ أي مستخدم افتراضي — transmisión متعمدة لتجنب hardcoded credentials
   }
 
-  // تعليم حساب المدير ذي كلمة افتراضية (123456) كي يُجبَر على تغييرها عند أول دخول (بصيغة أي قاعدة قائمة)
-  try {
-    db.run("UPDATE users SET mustChangePassword = 1 WHERE username = 'admin' AND password = '123456'");
-  } catch { /* تجاهل */ }
+  // تعليم حساب المدير ذي كلمة افتراضية — معطل. لا توجد كلمة مرور افتراضية للمسؤول.
+  // ت켰던 الكود السابق كان يبحث عن username='admin' AND password='123456' — تم حذفه بالكامل.
 
   // Seed default tables (1-14)
   const storeCheck = queryAll("SELECT name FROM sqlite_master WHERE type='table' AND name='tables_store'");

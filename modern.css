@@ -1,0 +1,28 @@
+/* Lucca modern UI overrides */
+:root {
+  --accent: #6366F1;
+  --accent-2: #818CF8;
+  --accent-dark: #4338CA;
+  --bg: #F5F6FA;
+  --surface: #FFFFFF;
+  --surface-2: #F8F9FC;
+  --text: #0F172A;
+  --text-muted: #64748B;
+  --border: #E2E8F0;
+  --success: #10B981;
+  --danger: #EF4444;
+  --warning: #F59E0B;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --shadow: 0 6px 20px rgba(99, 102, 241, .12);
+  --font: 'Inter', 'Tajawal', sans-serif;
+}
+body { font-family: var(--font) !important; }
+button, .btn { border-radius: var(--radius-sm) !important; transition: .18s ease !important; }
+button:hover { transform: translateY(-1px); }
+input, select, textarea { border-radius: var(--radius-sm) !important; border-color: var(--border) !important; }
+input:focus, select:focus, textarea:focus { outline: none !important; border-color: var(--accent) !important; box-shadow: 0 0 0 3px rgba(99, 102, 241, .18) !important; }
+.modal, .modal-content, .card, .table-card { border-radius: var(--radius) !important; box-shadow: var(--shadow) !important; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #C7D2FE; border-radius: 999px; }
+::-webkit-scrollbar-track { background: #F1F5F9; }

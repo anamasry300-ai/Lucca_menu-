@@ -73,10 +73,8 @@
     async update(id, data) { return _db.put('users', { ...data, id }); },
     async delete(id) { return _db.delete('users', id); },
     async createDefaultAdmin() {
-      const users = await this.getAll();
-      if (users.length === 0) {
-        await this.add({ username: 'admin', password: '123456', name: 'مدير النظام', role: 'admin' });
-      }
+        // معطل: لا يُنشأ مسؤول افتراضي تلقائياً. يجب إنشاء المسؤول عبر تدفق الدعوة (invite) أو يدوياً بعد تسجيل دخول شرعي.
+        return { ok: true, created: false, reason: 'default admin creation disabled — use invite flow' };
     }
   };
 
@@ -580,7 +578,7 @@
   };
 
   async function initSystem() {
-    await Users.createDefaultAdmin();
+    // معطل: لا يُنشأ جدول افتراضي أو مسؤول تلقائياً عند البدء.
     await Tables.init();
   }
 

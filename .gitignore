@@ -8,6 +8,8 @@ backend/backups/
 backend/logs/
 *.log
 *.log.gz
+tsc-*.txt
+money-guard-*.txt
 *.db
 test.txt
 .github/workflows/

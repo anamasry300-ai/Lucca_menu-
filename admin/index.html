@@ -14,10 +14,10 @@
 <script src="menu-admin.js"></script>
     <style>
         :root {
-            --primary-dark: #1E3A8A;
-            --primary: #2563EB;
-            --primary-medium: #3B82F6;
-            --primary-light: #60A5FA;
+            --primary-dark: #312E81;
+            --primary: #6366F1;
+            --primary-medium: #818CF8;
+            --primary-light: #A5B4FC;
 
             --bg: #F1F5F9;
             --surface: #FFFFFF;
@@ -4789,6 +4789,23 @@ function savePrinterSettings(){
 // ===== BOOT =====
 document.addEventListener('DOMContentLoaded', async ()=>{
     try { await init(); } catch(e){ console.error(e); }
+    // ===== P0 Security: إبطال أي جلسة مسؤول تم إنشاؤها عبر آلية التجاوز (Login Bypass) =====
+    // أي جلسة محفوظة في localStorage بدون مصادقة شرعية تُحذف وتُجبر على إعادة تسجيل الدخول.
+    try {
+        const saved = localStorage.getItem('currentUser');
+        if (saved) {
+            const u = JSON.parse(saved);
+            // إذا كان الدور administrator وكلمة المرور الافتراضية غير مغيّرة، الجلسة مشبوهة → احذفها
+            if (u && (u.role === 'admin' || u.role === 'administrator') && (!u.mustChangePassword || u.mustChangePassword === false)) {
+                localStorage.removeItem('currentUser');
+                sessionStorage.removeItem('posAdminAuthed');
+                console.warn('[P0 Security] invalidated suspicious admin session from localStorage');
+            }
+        }
+    } catch (e) {
+        localStorage.removeItem('currentUser');
+        sessionStorage.removeItem('posAdminAuthed');
+    }
     AdminPrinter.init();
     // إذا وُجد رمز دعوة في الرابط → نعرض شاشة التفعيل ونتوقف (لا نفتح الجلسة المحفوظة).
     const inviteToken = new URLSearchParams(location.search).get('invite');

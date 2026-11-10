@@ -1329,7 +1329,7 @@ function login(u, p){
     var bg=document.createElement('div'); bg.className='modal-bg';
     var m=document.createElement('div'); m.className='modal';
     var cap=document.createElement('div'); cap.className='cap'; cap.textContent='يجب تغيير كلمة المرور';
-    var sub=document.createElement('div'); sub.className='sub'; sub.textContent='هذا الحساب مؤقّت (غالبًا «admin / 123456»). اختر كلمة مرور جديدة قبل المتابعة.';
+    var sub=document.createElement('div'); sub.className='sub'; sub.textContent='هذا الحساب يتطلب تغيير كلمة المرور قبل المتابعة. اختر كلمة مرور قوية.';
     var r1=document.createElement('div'); r1.className='form-row'; r1.innerHTML='<label>كلمة المرور الحالية</label>';
     var cur=document.createElement('input'); cur.type='password'; cur.value=p; r1.appendChild(cur);
     var r2=document.createElement('div'); r2.className='form-row'; r2.innerHTML='<label>كلمة المرور الجديدة (6 أحرف على الأقل)</label>';

@@ -176,10 +176,8 @@
     async update(id, data) { return _db.put('users', { ...data, id }); },
     async delete(id) { return _db.delete('users', id); },
     async createDefaultAdmin() {
-      const users = await this.getAll();
-      if (users.length === 0) {
-        await this.add({ username: 'admin', password: '123456', name: 'مدير النظام', role: 'admin' });
-      }
+        // معطل: لا يُنشأ مسؤول افتراضي تلقائياً. يجب إنشاء المسؤول عبر تدفق الدعوة (invite) أو يدوياً بعد تسجيل دخول شرعي.
+        return { ok: true, created: false, reason: 'default admin creation disabled — use invite flow' };
     }
   };
 
@@ -370,8 +368,12 @@
         rpcArgs,
         'التحصيل السحابي يحتاج تنفيذ deploy/supabase-rpc-v1.sql في Supabase SQL Editor أولاً (دالة checkout_order غير موجودة)'
       );
-      if (!res) return null; // تعذّر الاتصال — الطلب يبقى مفتوحاً
-      return res.order ? toCamel(res.order) : { ...order, status: 'closed', paymentStatus: 'paid' };
+      if (!res) return null; // تعذّر الاتصال — الطلب يبقى مفتوحاً، لا دفع محلي، لا إغلاق
+      if (!res.order) {
+        //sirver استجاب but didn't return order — treat as failure, not fake success
+        return null;
+      }
+      return toCamel(res.order);
     },
 
     // إلغاء/استرداد ذري عبر دالة void_order — يمنع الاسترداد المزدوج (سقف = صافي المدفوع − المسترد سابقاً).
@@ -1150,7 +1152,8 @@
   };
 
   async function initSystem() {
-    await Users.createDefaultAdmin();
+    // معطل: لا يُنشأ جدول افتراضي أو مسؤول تلقائياً عند البدء.
+    // يتم تحميل البيانات عبر تسجيل دخول شرعي وتدفق الدعوة فقط.
     await Tables.init();
   }
 

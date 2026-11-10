@@ -1053,44 +1053,14 @@ const Users = {
     },
 
     async createDefaultAdmin() {
-        const users = await db.getAll('users');
-        if (users.length === 0) {
-            await db.add('users', {
-                id: 1,
-                username: 'admin',
-                password: '123456',
-                name: 'مدير النظام',
-                role: 'admin',
-                createdAt: new Date().toISOString()
-            });
-        }
+        // معطل: لا يُنشأ مسؤول افتراضي تلقائياً. يجب إنشاء المسؤول عبر تدفق الدعوة (invite) أو يدوياً عبر لوحة الإدارة بعد تسجيل دخول شرعي.
+        // هذه الدالة محتفظ بها للتوافق فقط ولا تنشئ أي مستخدم.
+        return { ok: true, created: false, reason: 'default admin creation disabled — use invite flow' };
     },
 
     async resetDefaultAdmin() {
-        const users = await db.getAll('users');
-        const existing = users.find(u => String(u.username || '').trim().toLowerCase() === 'admin');
-        const salt = crypto.randomUUID();
-        const hashed = await this.pbkdf2Hash('123456', salt);
-        const base = {
-            username: 'admin',
-            name: 'مدير النظام',
-            password: hashed ? 'pbkdf2:' + salt + ':' + hashed : '123456',
-            role: 'admin',
-            active: true,
-            mustChangePassword: 0,
-            updatedAt: new Date().toISOString()
-        };
-        if (existing) {
-            await db.put('users', Object.assign({}, existing, base));
-        } else {
-            const maxId = users.reduce((m, u) => Math.max(m, Number(u.id) || 0), 0);
-            await db.add('users', Object.assign({ id: maxId + 1, createdAt: new Date().toISOString() }, base));
-        }
-        localStorage.removeItem('currentUser');
-        sessionStorage.removeItem('posAdminAuthed');
-        ServerAPI.setToken(null);
-        try { ServerAPI.add('users', { username: 'admin', name: 'مدير النظام', role: 'admin' }).catch(() => {}); } catch(e) {}
-        return { ok: true, username: 'admin', password: '123456', mustChangePassword: false };
+        // معطل: لا يُعاد تعيين كلمة مرور افتراضية للمسؤول. يجب إعادة تعيين كلمة المرور عبر تدفق المصادقة الشرعي.
+        return { ok: true, reset: false, reason: 'default admin reset disabled — use legitimate password reset flow' };
     }
 };
 
@@ -3576,7 +3546,8 @@ async function initSystem() {
     try { await db.backfillSyncIds(); } catch(e) { console.warn('[sync-backfill]', e); }
 
     await Tables.init();
-    await Users.createDefaultAdmin();
+    // معطل: لا يُنشأ مسؤول افتراضي تلقائياً عند تهيئة النظام. يجب إنشاء المسؤول عبر تدفق الدعوة (invite) أو يدوياً بعد تسجيل دخول شرعي.
+    // await Users.createDefaultAdmin(); — تم تعطيله لأسباب أمنية (P0).
     await seedDefaultPaymentMethods();
     if (typeof menuData !== 'undefined' && Array.isArray(menuData) && menuData.length) {
         await MenuSync.syncFromMenuData(menuData);
