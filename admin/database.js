@@ -508,6 +508,30 @@ const ServerAPI = {
         return headers;
     },
 
+    // ===== Transport: Electron → secure main-process proxy (path must be backend-relative).
+    //      Browser/dev → direct fetch with session token (legacy path). =====
+    async _request(method, path, body) {
+        // Under Electron the renderer holds NO session token; main injects Authorization.
+        if (window.electronAPI && typeof window.electronAPI.apiRequest === 'function') {
+            const r = await window.electronAPI.apiRequest(method, path, body === undefined ? undefined : body);
+            const ok = !!(r && r.status >= 200 && r.status < 300);
+            return { ok, status: r ? r.status : 0, json: (r && r.json) || null };
+        }
+        // Legacy direct fetch (browser / dev): session token lives in sessionStorage.
+        const headers = this.authHeaders(body !== undefined ? 'application/json' : undefined);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        try {
+            const res = await fetch(`${this.getBaseUrl()}${path}`, {
+                method, headers,
+                body: body === undefined ? undefined : JSON.stringify(body),
+                signal: controller.signal
+            });
+            const json = await res.json().catch(() => ({}));
+            return { ok: res.ok, status: res.status, json };
+        } finally { clearTimeout(timer); }
+    },
+
     // ===== Offline retry queue: يحفظ العمليات الفاشلة (انقطاع الشبكة) ويعيد محاولتها لاحقاً =====
     OFFLINE_KEY: 'lucca_offline_queue',
     MAX_OFFLINE: 200,
@@ -533,10 +557,7 @@ const ServerAPI = {
         const batch = q.slice(0, 50);
         for (const op of batch) {
             try {
-                const headers = this.authHeaders('application/json');
-                const res = await fetch(`${this.getBaseUrl()}${op.path}`, {
-                    method: op.method, headers, body: op.body ? JSON.stringify(op.body) : undefined
-                });
+                const res = await this._request(op.method, op.path, op.body);
                 if (res.ok || res.status === 409 || res.status === 404) {
                     flushed++;
                 } else {
@@ -554,14 +575,8 @@ const ServerAPI = {
 
     async getAll(store) {
         try {
-            const headers = { 'Content-Type': 'application/json' };
-            const token = this.getToken();
-            if (token) headers['Authorization'] = 'Bearer ' + token;
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 3000);
-            const res = await fetch(`${this.getBaseUrl()}/api/${store}`, { headers, signal: controller.signal });
-            clearTimeout(timer);
-            if (res.ok) return await res.json();
+            const r = await this._request('GET', `/api/${store}`);
+            if (r.ok) return r.json;
             return null;
         } catch(e) { return null; }
     },
@@ -592,13 +607,10 @@ const ServerAPI = {
 
     async add(store, item, opts) {
         try {
-            const headers = this.authHeaders('application/json');
-            const res = await fetch(`${this.getBaseUrl()}/api/${store}`, {
-                method: 'POST', headers, body: JSON.stringify(item)
-            });
-            if (res.ok) return await res.json();
-            if (res.status === 409) {
-                const errBody = await res.json().catch(() => ({}));
+            const r = await this._request('POST', `/api/${store}`, item);
+            if (r.ok) return r.json;
+            if (r.status === 409) {
+                const errBody = r.json || {};
                 const err = new Error(errBody.error || 'الطاولة عليها طلب نشط بالفعل');
                 err.status = 409;
                 err.existingOrderId = errBody.existingOrderId;
@@ -617,44 +629,31 @@ const ServerAPI = {
 
     async put(store, id, item) {
         try {
-            const headers = this.authHeaders('application/json');
-            const res = await fetch(`${this.getBaseUrl()}/api/${store}/${id}`, {
-                method: 'PUT', headers, body: JSON.stringify(item)
-            });
-            return res.ok;
+            const r = await this._request('PUT', `/api/${store}/${id}`, item);
+            return r.ok;
         } catch(e) { this._enqueueOffline('PUT', '/api/' + store + '/' + id, item); return false; }
     },
 
     async remove(store, id) {
         try {
-            const headers = this.authHeaders();
-            const res = await fetch(`${this.getBaseUrl()}/api/${store}/${id}`, {
-                method: 'DELETE', headers
-            });
-            return res.ok;
+            const r = await this._request('DELETE', `/api/${store}/${id}`);
+            return r.ok;
         } catch(e) { this._enqueueOffline('DELETE', '/api/' + store + '/' + id, null); return false; }
     },
 
     async get(store, id) {
         try {
-            const headers = { 'Content-Type': 'application/json' };
-            const token = this.getToken();
-            if (token) headers['Authorization'] = 'Bearer ' + token;
-            const res = await fetch(`${this.getBaseUrl()}/api/${store}/${id}`, { headers });
-            if (res.ok) return await res.json();
-            return null;
+            const r = await this._request('GET', `/api/${store}/${id}`);
+            return r.ok ? r.json : null;
         } catch(e) { return null; }
     },
 
     async checkout(orderId, data) {
         try {
-            const headers = this.authHeaders('application/json');
-            const res = await fetch(`${this.getBaseUrl()}/api/orders/${orderId}/checkout`, {
-                method: 'POST', headers, body: JSON.stringify(data || {})
-            });
-            if (res.ok) return await res.json();
-            const errBody = await res.json().catch(() => ({}));
-            if (res.status === 409) {
+            const r = await this._request('POST', `/api/orders/${orderId}/checkout`, data || {});
+            if (r.ok) return r.json;
+            const errBody = r.json || {};
+            if (r.status === 409) {
                 const err = new Error(errBody.error || 'الطلب مغلق بالفعل');
                 err.status = 409;
                 throw err;
@@ -669,14 +668,11 @@ const ServerAPI = {
     // استدعاء POST عام على مسار (يحمل رأس المصادقة إن وُجد). يستخدم لمسارات الدعوات/الموظفين المخصّصة.
     async post(path, body) {
         try {
-            const headers = this.authHeaders('application/json');
-            const res = await fetch(`${this.getBaseUrl()}${path}`, {
-                method: 'POST', headers, body: JSON.stringify(body || {})
-            });
-            const json = await res.json().catch(() => ({}));
-            if (res.ok) return json;
+            const r = await this._request('POST', path, body || {});
+            const json = r.json || {};
+            if (r.ok) return json;
             const err = new Error(json.error || 'فشل الطلب');
-            err.status = res.status;
+            err.status = r.status;
             throw err;
         } catch(e) {
             if (e && e.status) throw e;
@@ -687,14 +683,11 @@ const ServerAPI = {
     // استدعاء GET عام على مسار (يحمل رأس المصادقة إن وُجد).
     async get(path) {
         try {
-            const headers = { 'Content-Type': 'application/json' };
-            const token = this.getToken();
-            if (token) headers['Authorization'] = 'Bearer ' + token;
-            const res = await fetch(`${this.getBaseUrl()}${path}`, { headers });
-            const json = await res.json().catch(() => ({}));
-            if (res.ok) return json;
+            const r = await this._request('GET', path);
+            const json = r.json || {};
+            if (r.ok) return json;
             const err = new Error(json.error || 'فشل الطلب');
-            err.status = res.status;
+            err.status = r.status;
             throw err;
         } catch(e) {
             if (e && e.status) throw e;
@@ -706,78 +699,163 @@ const ServerAPI = {
 // ==================== إدارة المستخدمين ====================
 const Users = {
     async login(username, password) {
-        const keyboardMap = {'ض':'q','ص':'w','ث':'e','ق':'r','ف':'t','غ':'y','ع':'u','ه':'i','خ':'o','ح':'p','ش':'a','س':'s','ي':'d','ب':'f','ل':'g','ا':'h','ت':'j','ن':'k','م':'l','ئ':'z','ء':'x','ؤ':'c','ر':'v','لا':'b','ى':'n','ة':'m','و':',','ز':'.','ظ':'/'};
         const raw = String(username || '').trim();
-        const search = raw.replace(/لا|[ضصثقفغعهخحشسيبلاتنمئءؤرىةوزظو]/g, ch => keyboardMap[ch] || ch).toLowerCase();
+        const search = raw.toLowerCase();
+        if (!raw) throw new Error('أدخل اسم المستخدم');
+
+        // Electron: مصادقة عبر main-process فقط — لا يُمرَّر أي توكن إلى renderer،
+        // ولا يوجد أي بديل محلي (لا متجاوز «admin» ولا تخفيف). القرار حصري للسيرفر.
+        if (window.electronAPI && typeof window.electronAPI.session && typeof window.electronAPI.session.login === 'function') {
+            const serverUrl = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+            const r = await window.electronAPI.session.login({ username: raw, password, serverUrl });
+            if (r && r.ok && r.user) {
+                const safe = r.user;
+                // حدّث النسخة المحلية بهوية الخادم (عرض فقط — تُستخدم للواجهة لا للتفويض).
+                await this._refreshLocalUser(search, password, safe).catch(() => {});
+                localStorage.setItem('currentUser', JSON.stringify(safe));
+                return safe;
+            }
+            throw new Error((r && r.error) || 'بيانات الدخول غير صحيحة');
+        }
+
+        // 1) الخادم أولاً — مصدر الحقيقة للمستخدمين (users = backend auth فقط).
+        //    يُحسم «دخول ناجح» بما يُقبله الخادم حتى لو كانت النسخة المحلية (IndexedDB)
+        //    قديمة أو مفقودة — وهذا يحل «خطأ تسجيل الدخول مع بيانات صحيحة».
+        const serverResult = await this._serverLogin(raw, password).catch((e) => ({ decided: false, error: e }));
+        if (serverResult && serverResult.ok) return serverResult.user;
+
+        // 2) ردّ صريح من الخادم (401/403/400...) → قرار نهائي. لا نثق بالنسخة المحلية ضد الخادم
+        //    (لا تجاوز للمصادقة المحلية على حساب قرار الخادم).
+        if (serverResult && serverResult.decided) {
+            throw (serverResult.error instanceof Error) ? serverResult.error : new Error(serverResult.error);
+        }
+        // 3) تعذّر الاتصال بالخادم فقط → دخول محلي دون اتصال (offline-first يبقى).
+        const local = await this._offlineLogin(search, password);
+        if (local.ok) return local.user;
+        throw local.error;
+    },
+
+    // دخول عبر الخادم (POST /api/auth/login). يعيد:
+    //   { ok:true, user }                      عند نجاح المصادقة
+    //   { decided:true, error }                عند ردّ صريح من الخادم (رفض/خطأ مدخلات)
+    //   { decided:false }                      عند تعذّر الاتصال فقط (لا قرار)
+    async _serverLogin(username, password) {
+        const url = (localStorage.getItem('luccaServerUrl') || 'http://localhost:3000').replace(/\/+$/, '');
+        let res;
+        try {
+            res = await fetch(url + '/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+                signal: AbortSignal.timeout(4000)
+            });
+        } catch (e) {
+            return { decided: false, error: e };
+        }
+        if (!res) return { decided: false, error: new Error('لا استجابة') };
+        if (res.ok) {
+            let cj = {};
+            try { cj = await res.json(); } catch (_) {}
+            if (cj && cj.token) ServerAPI.setToken(cj.token);
+            const s = (cj && cj.user) || {};
+            // الهوية الموثوقة من الخادم — لا نأخذ الدور/المعرف من أي مصدر آخر.
+            const safe = {
+                id: s.id != null ? s.id : null,
+                userId: s.id != null ? s.id : null,
+                username: s.username || username,
+                name: s.name || '',
+                email: s.email != null ? s.email : null,
+                employeeId: s.employeeId != null ? s.employeeId : null,
+                role: s.role || 'cashier',
+                active: s.active !== undefined ? Number(s.active) : 1,
+                mustChangePassword: cj ? !!cj.mustChangePassword : false
+            };
+            // حدّث النسخة المحلية بهوية الخادم (لآخر دخول دون اتصال وإكمال مسار تغيير كلمة المرور).
+            await this._refreshLocalUser(String(username || '').trim().toLowerCase(), password, safe).catch(() => {});
+            localStorage.setItem('currentUser', JSON.stringify(safe));
+            return { ok: true, user: safe };
+        }
+        let msg = 'بيانات الدخول غير صحيحة';
+        try {
+            const j = await res.json();
+            if (j && j.error) msg = j.error;
+        } catch (_) {}
+        return { decided: true, error: new Error(msg) };
+    },
+
+    // دخول محلي (دون اتصال): تحقق من النسخة المحلية فقط.
+    async _offlineLogin(search, password) {
         const users = await db.getAll('users');
-        // الدخول بالمستخدم أو البريد الإلكتروني (متوافق مع الخادم: WHERE username = ? OR email = ?)
         const user = users.find(u =>
             (u.username || '').toLowerCase() === search ||
             (u.email || '').toLowerCase() === search
         );
-        if (!user) throw new Error('المستخدم غير موجود');
+        if (!user) throw new Error('اسم المستخدم أو كلمة المرور خطأ');
+
+        // القيد الأمني: حساب مُعطَّل محلياً يُرفض الدخول دون اتصال.
+        // activity قيّم صريحة فقط (0 / false / '0' / 'false') — وغياب الحقل يُعالج كفعّال
+        // لأجل سجلات قديمة لا تحمله (توافق النموذج الموجود). رسالة خطأ موحّدة بلا تمييز.
+        if (user.active !== undefined && user.active !== null &&
+            (user.active === 0 || user.active === false || user.active === '0' || user.active === 'false')) {
+            throw new Error('اسم المستخدم أو كلمة المرور خطأ');
+        }
 
         let valid = false;
-        // Support both hashed (pbkdf2:) and legacy plaintext passwords
-        if (user.password && user.password.startsWith('pbkdf2:')) {
-            // Hashed password from server - use Web Crypto API to verify
+        if (user.password && String(user.password).startsWith('pbkdf2:')) {
             try {
-                const parts = user.password.split(':');
-                const storedHash = parts[2];
-                const computedHash = await this.pbkdf2Hash(password, parts[1]);
-                valid = (computedHash === storedHash);
-            } catch(e) {
-                // Web Crypto not available, try server
+                const parts = String(user.password).split(':');
+                valid = (await this.pbkdf2Hash(password, parts[1])) === parts[2];
+            } catch (e) {
                 throw new Error('كلمة المرور مشفرة - استخدم تسجيل الدخول من الخادم');
             }
         } else {
             valid = (user.password === password);
         }
+        if (!valid) throw new Error('اسم المستخدم أو كلمة المرور خطأ');
 
-        if (valid) {
-            // الهوية الكاملة تُحفظ محلياً (تعمل دون خادم). حقول الهوية (userId/employeeId/email)
-            // مصدرها الخادم عند توفره — الخادم هو مصدر الحقيقة، لا نثق بهوية يرسلها العميل للعمليات.
-            const safe = {
-                id: user.id,
-                userId: user.userId != null ? user.userId : user.id,
-                employeeId: user.employeeId ?? null,
-                email: user.email || null,
-                username: user.username,
-                name: user.name,
-                role: user.role,
-                active: user.active !== undefined ? user.active : true,
-                mustChangePassword: user.mustChangePassword ? (Number(user.mustChangePassword) === 1 || user.mustChangePassword === true) : false
-            };
-            localStorage.setItem('currentUser', JSON.stringify(safe));
-            // الوصول الآمن للخادم: نسجّل دخولنا لدى الخادم للحصول على جلسة تُرفع صلاحيتنا الحقيقية.
-            // لا يُعطِّل الدخول المحلي إن لم يصل السيرفر (نسقط إلى مفتاح الجهاز للمزامنة فقط).
-            try {
-                const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
-                const cr = await fetch(`${url}/api/auth/login`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password }),
-                    signal: AbortSignal.timeout(4000)
-                });
-                // الخادم هو مصدر الحقيقة: إن سلّمنا جلسة، نستبدل حقول الهوية النسخة الموثوقة من الخادم.
-                if (cr.ok) {
-                    const cj = await cr.json();
-                    if (cj.token) ServerAPI.setToken(cj.token);
-                    const s = cj.user || cj;
-                    if (s) {
-                        safe.userId = s.userId != null ? s.userId : (s.id != null ? s.id : safe.userId);
-                        safe.employeeId = s.employeeId != null ? s.employeeId : safe.employeeId;
-                        safe.email = s.email != null ? s.email : safe.email;
-                        if (s.username) safe.username = s.username;
-                        if (s.role) safe.role = s.role;
-                        safe.active = s.active !== undefined ? s.active : safe.active;
-                        safe.mustChangePassword = s.mustChangePassword !== undefined ? s.mustChangePassword : false;
-                        localStorage.setItem('currentUser', JSON.stringify(safe));
-                    }
-                }
-            } catch(e) { /* السيرفر غير متاح — نكمل بدون جلسة خادم */ }
-            return safe;
+        const safe = {
+            id: user.id,
+            userId: user.userId != null ? user.userId : user.id,
+            employeeId: user.employeeId ?? null,
+            email: user.email || null,
+            username: user.username,
+            name: user.name,
+            role: user.role,
+            active: user.active !== undefined ? user.active : true,
+            mustChangePassword: user.mustChangePassword ? (Number(user.mustChangePassword) === 1 || user.mustChangePassword === true) : false
+        };
+        localStorage.setItem('currentUser', JSON.stringify(safe));
+        return { ok: true, user: safe };
+    },
+
+    // بعد نجاح المصادقة لدى الخادم: نُحدِّث سجل المستخدم المحلي بهوية الخادم (وليس العكس)،
+    // ونختزن تجزئة pbkdf2 لكلمة المرور المُسلَّمة (نفسها التي قبلها الخادم) لنُبقي
+    // الدخول دون اتصال متسقاً مع آخر دخول ناجح.
+    async _refreshLocalUser(search, password, serverUser) {
+        const users = await db.getAll('users');
+        const match = users.find(u =>
+            String(u.username || '').toLowerCase() === search ||
+            String(u.email || '').toLowerCase() === search
+        );
+        const salt = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
+        const hashed = await this.pbkdf2Hash(password, salt);
+        const merged = Object.assign({}, match || {}, {
+            username: (serverUser && serverUser.username) || (match && match.username) || search,
+            name: (serverUser && serverUser.name != null) ? serverUser.name : ((match && match.name) || ''),
+            role: (serverUser && serverUser.role) || (match && match.role) || 'cashier',
+            email: (serverUser && serverUser.email != null) ? serverUser.email : (match && match.email != null ? match.email : null),
+            employeeId: (serverUser && serverUser.employeeId != null) ? serverUser.employeeId : (match && match.employeeId != null ? match.employeeId : null),
+            active: (serverUser && serverUser.active !== undefined) ? Number(serverUser.active) : (match && match.active !== undefined ? match.active : 1),
+            mustChangePassword: (serverUser && serverUser.mustChangePassword) ? 1 : 0,
+            password: hashed ? 'pbkdf2:' + salt + ':' + hashed : (match && match.password)
+        }, { updatedAt: new Date().toISOString() });
+        if (match) {
+            await db.put('users', merged);
+        } else {
+            const maxId = users.reduce((m, u) => Math.max(m, Number(u.id) || 0), 0);
+            const rec = Object.assign({ id: maxId + 1, createdAt: new Date().toISOString(), syncId: newSyncId() }, merged);
+            await db.add('users', rec);
         }
-        throw new Error('اسم المستخدم أو كلمة المرور خطأ');
     },
 
     async pbkdf2Hash(password, salt) {
@@ -835,9 +913,14 @@ const Users = {
     async logout() {
         // إبطال جلسة الخادم إن وُجدت
         try {
-            const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
-            const token = ServerAPI.getToken();
-            if (token) await fetch(`${url}/api/auth/logout`, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } });
+            // Electron: إبطال الجلسة في main-process (الذي يحمل التوكن).
+            if (window.electronAPI && typeof window.electronAPI.session && typeof window.electronAPI.session.logout === 'function') {
+                await window.electronAPI.session.logout();
+            } else {
+                const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
+                const token = ServerAPI.getToken();
+                if (token) await fetch(`${url}/api/auth/logout`, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } });
+            }
         } catch(e) { /* best-effort */ }
         ServerAPI.setToken(null);
         localStorage.removeItem('currentUser');
@@ -899,17 +982,11 @@ const Users = {
 
         // دفع للخادم إن أمكن؛ وإلا نُخزِن للمزامنة اللاحقة. لا يُعاد قفل الحساب هنا.
         let status = 'local';
-        const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
-        const token = ServerAPI.getToken();
         try {
-            if (!token) { status = 'queued'; this._storePendingPasswordChange({ currentPassword, newPassword }); }
+            const hasToken = !!ServerAPI.getToken() || !!(window.electronAPI && typeof window.electronAPI.apiRequest === 'function');
+            if (!hasToken) { status = 'queued'; this._storePendingPasswordChange({ currentPassword, newPassword }); }
             else {
-                const res = await fetch(`${url}/api/auth/password`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                    body: JSON.stringify({ currentPassword, newPassword }),
-                    signal: AbortSignal.timeout(4000)
-                });
+                const res = await ServerAPI._request('PUT', '/api/auth/password', { currentPassword, newPassword });
                 if (res.ok) { status = 'synced'; this._clearPendingPasswordChange(); }
                 else { status = 'queued'; this._storePendingPasswordChange({ currentPassword, newPassword }); }
             }
@@ -924,25 +1001,19 @@ const Users = {
         const raw = localStorage.getItem(this.PENDING_PWD_KEY);
         if (!raw) return null;
         let pending; try { pending = JSON.parse(raw); } catch(e) { this._clearPendingPasswordChange(); return null; }
-        const url = localStorage.getItem('luccaServerUrl') || 'http://localhost:3000';
-        let token = ServerAPI.getToken();
         try {
-            // لا جلسة → حاول تسجيل الدخول بكلمة المرور السابقة (لا تزال صالحة عند الخادم)
-            if (!token) {
+            const inElectron = !!(window.electronAPI && typeof window.electronAPI.apiRequest === 'function');
+            // browser فقط: لا جلسة → حاول تسجيل الدخول بكلمة المرور السابقة (لا تزال صالحة عند الخادم)
+            if (!ServerAPI.getToken() && !inElectron) {
                 const user = this.getCurrentUser();
-                const lr = await fetch(`${url}/api/auth/login`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username: (user && (user.username || user.email)) || '', password: pending.currentPassword }),
-                    signal: AbortSignal.timeout(4000)
+                const lr = await ServerAPI._request('POST', '/api/auth/login', {
+                    username: (user && (user.username || user.email)) || '', password: pending.currentPassword
                 });
-                if (lr.ok) { const lj = await lr.json(); if (lj.token) { ServerAPI.setToken(lj.token); token = lj.token; } }
+                if (lr.ok && lr.json && lr.json.token) ServerAPI.setToken(lr.json.token);
             }
-            if (!token) return { status: 'queued' };
-            const res = await fetch(`${url}/api/auth/password`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                body: JSON.stringify({ currentPassword: pending.currentPassword, newPassword: pending.newPassword }),
-                signal: AbortSignal.timeout(4000)
+            if (!ServerAPI.getToken() && !inElectron) return { status: 'queued' };
+            const res = await ServerAPI._request('PUT', '/api/auth/password', {
+                currentPassword: pending.currentPassword, newPassword: pending.newPassword
             });
             if (res.ok) { this._clearPendingPasswordChange(); return { status: 'synced' }; }
             // الخادم رفض لاحقاً: لا نُعيد قفل الحساب بصمت — سجّل ونبّه.
@@ -982,17 +1053,14 @@ const Users = {
     },
 
     async createDefaultAdmin() {
-        const users = await db.getAll('users');
-        if (users.length === 0) {
-            await db.add('users', {
-                id: 1,
-                username: 'admin',
-                password: '123456',
-                name: 'مدير النظام',
-                role: 'admin',
-                createdAt: new Date().toISOString()
-            });
-        }
+        // معطل: لا يُنشأ مسؤول افتراضي تلقائياً. يجب إنشاء المسؤول عبر تدفق الدعوة (invite) أو يدوياً عبر لوحة الإدارة بعد تسجيل دخول شرعي.
+        // هذه الدالة محتفظ بها للتوافق فقط ولا تنشئ أي مستخدم.
+        return { ok: true, created: false, reason: 'default admin creation disabled — use invite flow' };
+    },
+
+    async resetDefaultAdmin() {
+        // معطل: لا يُعاد تعيين كلمة مرور افتراضية للمسؤول. يجب إعادة تعيين كلمة المرور عبر تدفق المصادقة الشرعي.
+        return { ok: true, reset: false, reason: 'default admin reset disabled — use legitimate password reset flow' };
     }
 };
 
@@ -1896,6 +1964,12 @@ const CashRegister = {
             totalWalletSales: 0,
             totalExpenses: 0,
             totalRefunds: 0,
+            // P0 §1.3: expectedCash must use CASH-ONLY refunds/expenses, matching the
+            // canonical server queries (cashRefundTotal = refundMethod='cash',
+            // cashExpensesTotal = paymentMethod='cash'). The gross counters above are
+            // kept for display/analytics only and must NOT affect reconciliation.
+            totalCashRefunds: 0,
+            totalCashExpenses: 0,
             transactionCount: 0,
             version: 1,
             notes: notes || ''
@@ -1926,10 +2000,11 @@ const CashRegister = {
         drawer.closedBy = identityName;
         drawer.closedByUser = identityId;
         // يعاد حساب المتوقع من الأرقام الحيّة للوردية — لا يتم ضبط مبيعات/مصروفات للموازنة
+        // P0 §1.3: المصروفات/الاستردادات المستخدمة هنا نقدية فقط.
         drawer.expectedCash = Number(drawer.openingCash || drawer.startingCash || 0)
             + (Number(drawer.totalCashSales) || 0)
-            - (Number(drawer.totalExpenses) || 0)
-            - (Number(drawer.totalRefunds) || 0);
+            - (Number(drawer.totalCashExpenses) || 0)
+            - (Number(drawer.totalCashRefunds) || 0);
         drawer.difference = (Number(drawer.closingCash) || 0) - drawer.expectedCash;
         drawer.differenceType = drawer.difference > 0 ? 'overage' : (drawer.difference < 0 ? 'shortage' : 'balanced');
         drawer.version = (Number(drawer.version) || 1) + 1;
@@ -1961,30 +2036,41 @@ const CashRegister = {
         amount = Number(amount) || 0;
         drawer.transactionCount = (drawer.transactionCount || 0) + 1;
         const m = String(method || '').toLowerCase();
+        const isCash = (m === 'cash' || m === 'كاش' || m === 'نقدي');
+
+        // ترقية الورديات المفتوحة قبل الإصلاح: مصروفات/استردادات نقدية تُعامل كنقدية
+        // (سلوك سابق) حتى لا تسقط مطابقة نقدية قائمة فجأة — أي حركة جديدة تُفلتر بعد ذلك.
+        if (drawer.totalCashExpenses == null) drawer.totalCashExpenses = Number(drawer.totalExpenses) || 0;
+        if (drawer.totalCashRefunds == null) drawer.totalCashRefunds = Number(drawer.totalRefunds) || 0;
 
         if(type === 'sale'){
-            if(m === 'cash' || m === 'كاش' || m === 'نقدي'){
-                drawer.totalCashSales += amount;
-                drawer.currentCash += amount;
+            if(isCash){
+                drawer.totalCashSales = (Number(drawer.totalCashSales) || 0) + amount;
+                drawer.currentCash = (Number(drawer.currentCash) || 0) + amount;
             } else if(m === 'wallet' || m === 'محفظة' || m === 'digital'){
                 drawer.totalWalletSales = (drawer.totalWalletSales || 0) + amount;
             } else {
-                drawer.totalCardSales += amount;
+                drawer.totalCardSales = (Number(drawer.totalCardSales) || 0) + amount;
             }
         } else if(type === 'expense'){
-            drawer.totalExpenses += amount;
-            drawer.currentCash -= amount;
+            drawer.totalExpenses = (Number(drawer.totalExpenses) || 0) + amount;
+            if(isCash){
+                drawer.totalCashExpenses = (Number(drawer.totalCashExpenses) || 0) + amount;
+                drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
+            }
         } else if(type === 'refund'){
-            drawer.totalRefunds = (drawer.totalRefunds || 0) + amount;
-            if(m === 'cash' || m === 'كاش' || m === 'نقدي'){
-                drawer.currentCash -= amount;
+            drawer.totalRefunds = (Number(drawer.totalRefunds) || 0) + amount;
+            if(isCash){
+                drawer.totalCashRefunds = (Number(drawer.totalCashRefunds) || 0) + amount;
+                drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
             }
         }
 
+        // P0 §1.3: expectedCash = opening + cashSales − cashRefunds − cashExpenses
         drawer.expectedCash = (Number(drawer.openingCash || drawer.startingCash) || 0)
             + (Number(drawer.totalCashSales) || 0)
-            - (Number(drawer.totalExpenses) || 0)
-            - (Number(drawer.totalRefunds) || 0);
+            - (Number(drawer.totalCashExpenses) || 0)
+            - (Number(drawer.totalCashRefunds) || 0);
         drawer.version = (Number(drawer.version) || 1) + 1;
         await db.put(this._storeName, drawer);
         return drawer;
@@ -3291,7 +3377,6 @@ const ServerSync = {
     },
 
     async pushAll() {
-        const url = this.getServerUrl();
         const apiKey = localStorage.getItem('luccaApiKey') || '';
         const result = { startedAt: new Date().toISOString(), inserted: 0, updated: 0, skipped: 0, conflicts: 0, errors: 0, conflictDetail: [] };
         try {
@@ -3300,23 +3385,15 @@ const ServerSync = {
             // 2) جمع البيانات المحلية
             const data = await this._collectAllData();
             // 3) إرسال — السيرفر ينفذ Safe Sync (لا DELETE). نرسل أيضاً النسخة المحلية للمقارنة.
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 15000);
-            const res = await fetch(`${url}/api/sync`, {
-                method: 'POST',
-                headers: ServerAPI.authHeaders('application/json'),
-                body: JSON.stringify(data),
-                signal: controller.signal
-            });
-            clearTimeout(timer);
+            const res = await ServerAPI._request('POST', '/api/sync', data);
             if (!res.ok) {
-                const body = await res.json().catch(() => ({}));
+                const body = res.json || {};
                 result.errors++;
                 result.message = body.message || 'فشل رفع البيانات';
                 await this._logSync('push', result);
                 return { success: false, message: result.message };
             }
-            const parsed = await res.json().catch(() => ({}));
+            const parsed = res.json || {};
             if (parsed.log) {
                 result.inserted = parsed.log.inserted || 0;
                 result.updated = parsed.log.updated || 0;
@@ -3343,7 +3420,6 @@ const ServerSync = {
     },
 
     async pullAll() {
-        const url = this.getServerUrl();
         const apiKey = localStorage.getItem('luccaApiKey') || '';
         const result = { startedAt: new Date().toISOString(), inserted: 0, updated: 0, skipped: 0, conflicts: 0, errors: 0, conflictDetail: [] };
         try {
@@ -3352,15 +3428,9 @@ const ServerSync = {
             // نسجل أيضاً نسخة محلية مضمّنة داخل sync_log (إشارة قبل الدمج)
             const collections = SYNC_STORES.concat('settings');
             for (const col of collections) {
-                const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), 8000);
-                const res = await fetch(`${url}/api/${col}`, {
-                    headers: ServerAPI.authHeaders(),
-                    signal: controller.signal
-                });
-                clearTimeout(timer);
+                const res = await ServerAPI._request('GET', '/api/' + col);
                 if (!res.ok) { continue; }
-                const serverItems = (await res.json().catch(() => [])) || [];
+                const serverItems = res.json || [];
                 if (!Array.isArray(serverItems)) continue;
                 const localItems = await db.getAll(col);
                 // MERGE لا REPLACE: لا نمسح IndexedDB أبداً
@@ -3459,10 +3529,9 @@ const ServerSync = {
 
     async testConnection() {
         const url = this.getServerUrl();
-        const apiKey = localStorage.getItem('luccaApiKey') || '';
         try {
-            const res = await fetch(`${url}/api/tables`, { method: 'HEAD', cache: 'no-store', headers: { 'x-api-key': apiKey } });
-            return res.ok;
+            const r = await ServerAPI._request('GET', '/api/tables');
+            return r.ok;
         } catch {
             return false;
         }
@@ -3477,7 +3546,8 @@ async function initSystem() {
     try { await db.backfillSyncIds(); } catch(e) { console.warn('[sync-backfill]', e); }
 
     await Tables.init();
-    await Users.createDefaultAdmin();
+    // معطل: لا يُنشأ مسؤول افتراضي تلقائياً عند تهيئة النظام. يجب إنشاء المسؤول عبر تدفق الدعوة (invite) أو يدوياً بعد تسجيل دخول شرعي.
+    // await Users.createDefaultAdmin(); — تم تعطيله لأسباب أمنية (P0).
     await seedDefaultPaymentMethods();
     if (typeof menuData !== 'undefined' && Array.isArray(menuData) && menuData.length) {
         await MenuSync.syncFromMenuData(menuData);
@@ -3756,7 +3826,7 @@ const KnowledgeBase = {
 };
 
 // تصدير للاستخدام
-window.LuccaDB = { db, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, DailyShifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, ErrorLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, InventoryAlerts, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem };
+window.LuccaDB = { db, ServerAPI, Users, Tables, Orders, Customers, Settings, Inventory, Purchases, Employees, Attendance, Expenses, Shifts, DailyShifts, MenuSync, DataSync, ServerSync, PaymentMethods, Categories, Products, ProductModifiers, ProductVariations, Taxes, AuditLogs, ErrorLogs, OrderStatusHistory, BotMemory, KnowledgeBase, Suppliers, StockMovements, InventoryAlerts, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem };
 
 // ===== SYNC INTEGRATION =====
 // When Supabase is available, enable auto-sync
@@ -3790,16 +3860,7 @@ window.LuccaDB.flushOfflineQueue = function(){
 // ===== مزامنة ودّمم الـ offline queue عند التشغيل =====
 (function bootSync(){
     // إعادة محاولة العمليات المؤجلة (انقطاعات سابقة) فوراً وبشكل دوري عند عودة الشبكة.
-    const isCloudMode = () => {
-        try { return (localStorage.getItem('luccaDataMode') || 'supabase') === 'supabase'; }
-        catch (_) { return true; }
-    };
-    const flushAll = () => {
-        // Cloud mode writes directly to Supabase; replaying the local queue
-        // would send old mutations to localhost or duplicate cloud writes.
-        if (isCloudMode()) return;
-        ServerAPI.flushOfflineQueue().catch(() => {});
-    };
+    const flushAll = () => { ServerAPI.flushOfflineQueue().catch(() => {}); };
     setTimeout(flushAll, 1500);
     if (typeof window !== 'undefined' && window.addEventListener) {
         window.addEventListener('online', () => { setTimeout(flushAll, 1000); });
