@@ -9,21 +9,27 @@
     return;
   }
 
-  // الوضع الافتراضي: البيانات محلية (IndexedDB + مزامنة سيرفر SQLite المحلي).
-  // لا نستبدل LuccaDB بـ Supabase إلا عند تفعيل صريح (luccaDataMode = supabase)،
-  // لأن أي استبدال قديم كان يُفشل حفظ الطلبات عند توفر الاتصال (مخطط جداول سحابية غير مطابق).
+  // الوضع الافتراضي الآن سحابي: كل الأجهزة واللوحات ترى نفس قاعدة البيانات.
+  // يمكن الرجوع للوضع المحلي صراحةً عبر luccaDataMode=local أثناء الصيانة فقط.
   try {
-    if ((localStorage.getItem('luccaDataMode') || 'local') !== 'supabase') {
+    if ((localStorage.getItem('luccaDataMode') || 'supabase') !== 'supabase') {
       return;
     }
   } catch (e) {
     return;
   }
 
-  const SUPABASE_URL = 'https://uudimvcdkaacqaxgajbk.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZGltdmNka2FhY3FheGdhamJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMzQ4MTYsImV4cCI6MjEwMjgxMDgxNn0.WrwCUlqWW2ib7D8T41DNzUbybo4FHnNQ1AIBTZr2ZlM';
+  const cloudConfig = window.LUCCA_CLOUD_CONFIG || {};
+  const SUPABASE_URL = cloudConfig.url || 'https://uudimvcdkaacqaxgajbk.supabase.co';
+  const SUPABASE_ANON_KEY = cloudConfig.anonKey || '';
 
   const _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Realtime is the live cross-device update path. It emits a stable browser
+  // event consumed by the POS and admin pages; it never writes data itself.
+  if (window.LuccaCloudLive && typeof window.LuccaCloudLive.start === 'function') {
+    window.LuccaCloudLive.start(_supabase);
+  }
 
   function toSnake(obj) {
     if (!obj || typeof obj !== 'object') return obj;
@@ -139,8 +145,13 @@
       return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
     },
     async login(username, password) {
-      const { data, error } = await _supabase.from('users').select('*').eq('username', username).single();
-      if (error || !data) throw new Error('بيانات الدخول غير صحيحة');
+      const search = String(username || '').trim().toLowerCase();
+      let { data, error } = await _supabase.from('users').select('*').eq('username', search).maybeSingle();
+      if (!data) {
+        const result = await _supabase.from('users').select('*').eq('email', search).maybeSingle();
+        data = result.data; error = result.error;
+      }
+      if (error || !data) throw new Error('المستخدم غير موجود');
       const user = toCamel(data);
       let valid = false;
       const stored = user.password;
@@ -969,11 +980,6 @@
         totalWalletSales: 0,
         totalExpenses: 0,
         totalRefunds: 0,
-        // P0 §1.3: expectedCash uses CASH-ONLY refunds/expenses (canonical server:
-        // cashRefundTotal = refundMethod='cash', cashExpensesTotal = paymentMethod='cash').
-        // Gross counters above remain for display/analytics only.
-        totalCashRefunds: 0,
-        totalCashExpenses: 0,
         transactionCount: 0,
         version: 1,
         notes: notes || ''
@@ -991,8 +997,8 @@
       drawer.closedAt = new Date().toISOString();
       drawer.expectedCash = (Number(drawer.openingCash || drawer.startingCash) || 0)
         + (Number(drawer.totalCashSales) || 0)
-        - (Number(drawer.totalCashExpenses) || 0)
-        - (Number(drawer.totalCashRefunds) || 0);
+        - (Number(drawer.totalExpenses) || 0)
+        - (Number(drawer.totalRefunds) || 0);
       drawer.difference = (Number(drawer.closingCash) || 0) - drawer.expectedCash;
       drawer.differenceType = drawer.difference > 0 ? 'overage' : (drawer.difference < 0 ? 'shortage' : 'balanced');
       drawer.version = (Number(drawer.version) || 1) + 1;
@@ -1007,12 +1013,8 @@
       amount = Number(amount) || 0;
       drawer.transactionCount = (drawer.transactionCount || 0) + 1;
       const m = String(method || '').toLowerCase();
-      const isCash = (m === 'cash' || m === 'كاش' || m === 'نقدي');
-      // ترقية الورديات المفتوحة قبل الإصلاح: تُعامل كمصروفات/استردادات نقدية (السلوك السابق).
-      if (drawer.totalCashExpenses == null) drawer.totalCashExpenses = Number(drawer.totalExpenses) || 0;
-      if (drawer.totalCashRefunds == null) drawer.totalCashRefunds = Number(drawer.totalRefunds) || 0;
       if (type === 'sale') {
-        if (isCash) {
+        if (m === 'cash' || m === 'كاش' || m === 'نقدي') {
           drawer.totalCashSales = (drawer.totalCashSales || 0) + amount;
           drawer.currentCash = (Number(drawer.currentCash) || 0) + amount;
         } else if (m === 'wallet' || m === 'محفظة' || m === 'digital' || m === 'تحويل') {
@@ -1022,21 +1024,15 @@
         }
       } else if (type === 'expense') {
         drawer.totalExpenses = (drawer.totalExpenses || 0) + amount;
-        if (isCash) {
-          drawer.totalCashExpenses = (Number(drawer.totalCashExpenses) || 0) + amount;
-          drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
-        }
+        drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
       } else if (type === 'refund') {
         drawer.totalRefunds = (drawer.totalRefunds || 0) + amount;
-        if (isCash) {
-          drawer.totalCashRefunds = (Number(drawer.totalCashRefunds) || 0) + amount;
-          drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
-        }
+        if (m === 'cash' || m === 'كاش' || m === 'نقدي') drawer.currentCash = (Number(drawer.currentCash) || 0) - amount;
       }
       drawer.expectedCash = (Number(drawer.openingCash || drawer.startingCash) || 0)
         + (Number(drawer.totalCashSales) || 0)
-        - (Number(drawer.totalCashExpenses) || 0)
-        - (Number(drawer.totalCashRefunds) || 0);
+        - (Number(drawer.totalExpenses) || 0)
+        - (Number(drawer.totalRefunds) || 0);
       _dcSave(rows);
       return true;
     },
@@ -1167,29 +1163,18 @@
     Taxes: { async getAll() { return _db.getAll('taxes'); } },
     AuditLogs, OrderStatusHistory: { async getAll() { return _db.getAll('order_status_history'); } },
     BotMemory, KnowledgeBase, Suppliers, StockMovements, ProductRecipes, WasteLog, CustomerLoyalty, CashRegister, ExpenseCategories, TableReservations, initSystem,
-    // ===== COMPAT SYNC API (الوضع السحابي) =====
-    // القرار المركزي: هذا المحول لا يُحمَّل إلا في الوضع السحابي (luccaDataMode === 'supabase').
-    // _db هنا يكتب مباشرة إلى Supabase (PostgREST/RPC) — التخزين السحابي هو المصدر الحقيقي
-    // ولا يوجد طابور مزامنة محلي (قبل الإصلاح كان enableSync يغلف _db عبر SyncEngine
-    // wrapDBOperations + startAutoSync فيسبب Double-sync: كل عملية تُنجز مباشرة ثم تُعاد
-    // كتابتها عبر lucca_sync_queue بأعمدة _synced/_device_id/_synced_at غير الموجودة في
-    // المخطط السحابي → فشل دائم لبنود الطابور). الدوال الثلاثة أدناه no-op بأمان لأن
-    // _db يحتاجها فقط للتوافق مع الاستدعاءات العامة (index.html / admin/index.html /
-    // system-health.js) دون أي تمكين إضافي. الوضع المحلي (admin/database.js + ServerEngine)
-    // غير المتأثر: enableSync الخاص به يبقى كما هو بلا أي تعديل.
-    enableSync: function(){
-      // no-op مقصود في الوضع السحابي — الكتابة مباشرة إلى Supabase (انظر الشرح أعلاه).
-      return { stop: function(){}, trigger: function(){ return Promise.resolve(null); } };
+    // Sync methods
+    enableSync: function(opts){
+      // In cloud mode every write already goes directly to Supabase. Wrapping
+      // the adapter with the old offline queue would write the same mutation a
+      // second time and could create duplicate/conflicting records.
+      if (opts && typeof opts.onStatusChange === 'function') {
+        opts.onStatusChange({ mode: 'cloud', connected: navigator.onLine, live: !!window.LuccaCloudLive });
+      }
+      return { mode: 'cloud', stop: function(){}, trigger: function(){ return Promise.resolve(null); } };
     },
-    getSyncStatus: function(){
-      return {
-        pending: 0, syncing: 0, failed: 0, done: 0, total: 0, queue: 0,
-        lastSync: null, deviceId: 'supabase-direct', backend: 'supabase',
-        isOnline: (typeof navigator !== 'undefined') ? !!navigator.onLine : true,
-        message: 'الوضع السحابي: الكتابة مباشرة إلى Supabase — لا يوجد طابور مزامنة محلي'
-      };
-    },
-    triggerSync: function(){ return Promise.resolve(null); },
+    getSyncStatus: function(){ return window.SyncEngine ? window.SyncEngine.getSyncStatus() : null; },
+    triggerSync: function(){ return window.SyncEngine ? window.SyncEngine.triggerSync() : Promise.resolve(); },
     _supabaseClient: _supabase
   };
 

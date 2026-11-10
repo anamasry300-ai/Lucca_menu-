@@ -57,13 +57,13 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
   function kill(child) { try { child.kill('SIGKILL'); } catch { /* done */ } }
 
   function dbRead(dbPath, sql, params = []) {
-    const Database = require('better-sqlite3');
-    const db = new Database(dbPath);
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(dbPath);
     try { return db.prepare(sql).get(...params); } finally { db.close(); }
   }
   function dbRows(dbPath, sql, params = []) {
-    const Database = require('better-sqlite3');
-    const db = new Database(dbPath);
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(dbPath);
     try { return db.prepare(sql).all(...params); } finally { db.close(); }
   }
 

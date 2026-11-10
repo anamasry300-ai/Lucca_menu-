@@ -1,28 +1,19 @@
 const { app, BrowserWindow, Menu, globalShortcut, dialog, ipcMain, shell, clipboard, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const SessionManager = require('./main/session-manager');
 
 let mainWindow;
 let adminWindow;
 let kitchenWindow;
+
+// ===== Force Update =====
+const forceUpdate = require('./updater-force');
 
 // ===== CONFIG =====
 const GITHUB_OWNER = 'anamasry300-ai';
 const GITHUB_REPO = 'Lucca_menu-';
 const GITHUB_BRANCH = 'main';
 const LOCAL_VERSION = app.getVersion();
-
-// ===== SECURE SESSION (main-process owned) =====
-const appSession = new SessionManager({ serverUrl: process.env.LUCCA_SERVER_URL || 'http://localhost:3000' });
-
-function broadcastSession(channel, payload) {
-    try {
-        for (const w of [mainWindow, adminWindow]) {
-            if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
-        }
-    } catch (e) { }
-}
 
 // ===== REAL PRODUCTION AUTO-UPDATE (electron-updater + GitHub Releases) =====
 const updateEngine = require('./update-engine');
@@ -32,7 +23,6 @@ function sendToRenderer(channel, payload) {
 }
 
 function sendUpdateState(payload) {
-    // payload = { state, currentVersion, targetVersion, error, percent? }
     sendToRenderer('update-state', payload);
     if (payload && payload.percent !== undefined) {
         sendToRenderer('update-progress', { percent: payload.percent });
@@ -63,7 +53,14 @@ function createWindow() {
         return { action: 'allow' };
     });
 
-    mainWindow.loadFile(path.join(__dirname, 'index.html'));
+    // ---- Force Update Check قبل تحميل واجهة التطبيق (Fail Closed) ----
+    forceUpdate.checkForceUpdate(mainWindow).then((result) => {
+        if (result.required) {
+            // نافذة التحديث الإجباري تغطي كل شيء، لا نحمل index.html
+            return;
+        }
+        mainWindow.loadFile(path.join(__dirname, 'index.html'));
+    });
 
     mainWindow.on('closed', () => { mainWindow = null; });
     mainWindow.on('page-title-updated', (e) => { e.preventDefault(); });
@@ -86,6 +83,17 @@ function createWindow() {
     ipcMain.handle('check-remote-version', async () => {
         const remote = await updateEngine.target;
         return remote ? { version: remote } : null;
+    });
+
+    // ---- Force Update IPC (لا تكرار) ----
+    ipcMain.handle('force-update-check', async () => {
+        return { active: forceUpdate.isForceUpdateActive(), config: forceUpdate.appConfigResult || null };
+    });
+    ipcMain.handle('force-update-perform', async () => {
+        return forceUpdate.performForceUpdate();
+    });
+    ipcMain.handle('force-update-get-version', () => {
+        return { version: LOCAL_VERSION };
     });
 
     const menuTemplate = [
@@ -122,65 +130,21 @@ function createWindow() {
         }
     ];
 
-    mainWindow.setMenu(Menu.buildFromTemplate(menuTemplate));
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setMenu(Menu.buildFromTemplate(menuTemplate));
+    }
 
     // Auto-check for updates on startup (check only; offline-safe, no false positives)
     setTimeout(() => updateEngine.check(), 15000);
 }
 
 app.whenReady().then(() => {
-    // Single instance: second launch focuses the running POS instead of opening a copy
-    const gotLock = app.requestSingleInstanceLock();
-    if (!gotLock) {
-        app.quit();
-        return;
-    }
-    app.on('second-instance', () => {
-        if (mainWindow) {
-            if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.focus();
-        }
-    });
-
     createWindow();
 
     // Initialize the real update engine (logs to userData, crash/rollback detect)
     updateEngine.init({ app, currentVersion: LOCAL_VERSION, send: sendUpdateState });
 
-    // ===== Session IPC (token held in main-process ONLY — never sent to renderer) =====
-    ipcMain.handle('session:get', () => appSession.session());
-    ipcMain.handle('session:login', async (_e, creds) => {
-        const r = await appSession.login(creds || {});
-        broadcastSession('session-changed', appSession.session());
-        return r;
-    });
-    ipcMain.handle('session:logout', async () => {
-        const r = await appSession.logout();
-        broadcastSession('session-changed', appSession.session());
-        return r;
-    });
-    ipcMain.handle('session:refresh', async () => {
-        const r = await appSession.refresh();
-        broadcastSession('session-changed', appSession.session());
-        return r;
-    });
-    ipcMain.handle('api:request', async (_e, args) => {
-        const r = await appSession.apiRequest(args && args.method, args && args.path, args && args.body);
-        return r;
-    });
-
-    ipcMain.on('open-admin', (event) => {
-        // GATE: no authenticated session → explicit denial (no silent bypass path)
-        const s = appSession.session();
-        if (!s.authenticated || !s.user) {
-            event.sender.send('admin-denied', { reason: 'no-session' });
-            return;
-        }
-        if (s.user.role !== 'admin' && s.user.role !== 'manager') {
-            event.sender.send('admin-denied', { reason: 'no-role' });
-            return;
-        }
-        // نافذة واحدة قابلة لإعادة الاستخدام: إن كانت مفتوحة → التركيز عليها بدل فتح نافذة فارغة أخرى
+    ipcMain.on('open-admin', () => {
         if (adminWindow && !adminWindow.isDestroyed()) {
             adminWindow.focus();
             return;
@@ -189,7 +153,6 @@ app.whenReady().then(() => {
             width: 1200,
             height: 800,
             show: false,
-            parent: mainWindow, // إغلاق POS يغلق لوحة التحكم (واحدة=نفس الجلسة)
             title: 'Lucca Caffè - لوحة التحكم',
             icon: path.join(__dirname, 'icon.ico'),
             webPreferences: {
@@ -211,51 +174,6 @@ app.whenReady().then(() => {
         });
         adminWindow.loadFile(path.join(__dirname, 'admin', 'index.html'));
         adminWindow.on('page-title-updated', (e) => e.preventDefault());
-    });
-
-    // D-04: شاشة المطبخ تُفتح كنافذة Electron بجلسة موثَّقة (لا anon) — تحديث الحالات يمر
-    // عبر apiRequest/الخادم المصادق عليه. أي دور تشغيلي (admin/manager/cashier/kitchen) يملك orders.write.
-    ipcMain.on('open-kitchen', (event) => {
-        const s = appSession.session();
-        if (!s.authenticated || !s.user) {
-            event.sender.send('kitchen-denied', { reason: 'no-session' });
-            return;
-        }
-        const allowed = ['admin', 'manager', 'cashier', 'kitchen'];
-        if (!allowed.includes(s.user.role)) {
-            event.sender.send('kitchen-denied', { reason: 'no-role' });
-            return;
-        }
-        if (kitchenWindow && !kitchenWindow.isDestroyed()) {
-            kitchenWindow.focus();
-            return;
-        }
-        kitchenWindow = new BrowserWindow({
-            width: 1400,
-            height: 900,
-            show: false,
-            parent: mainWindow,
-            title: 'Lucca Caffè - شاشة المطبخ',
-            icon: path.join(__dirname, 'icon.ico'),
-            webPreferences: {
-                preload: path.join(__dirname, 'preload.js'),
-                nodeIntegration: false,
-                contextIsolation: true
-            }
-        });
-        kitchenWindow.once('ready-to-show', () => {
-            if (kitchenWindow && !kitchenWindow.isDestroyed() && !kitchenWindow.showing()) kitchenWindow.show();
-        });
-        kitchenWindow.on('closed', () => { kitchenWindow = null; });
-        kitchenWindow.webContents.setWindowOpenHandler(({ url }) => {
-            if (url.startsWith('http:') || url.startsWith('https:')) {
-                shell.openExternal(url);
-                return { action: 'deny' };
-            }
-            return { action: 'allow' };
-        });
-        kitchenWindow.loadFile(path.join(__dirname, 'kitchen.html'));
-        kitchenWindow.on('page-title-updated', (e) => e.preventDefault());
     });
 
     ipcMain.on('open-external', (event, url) => {

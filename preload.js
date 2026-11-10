@@ -41,5 +41,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Compat: legacy channels so existing/renderer code does not crash
     onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (e, data) => callback(data)),
-    onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (e, data) => callback(data))
+    onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (e, data) => callback(data)),
+
+    // ===== Force Update Channels =====
+    forceUpdateCheck: () => ipcRenderer.invoke('force-update-check'),
+    forceUpdatePerform: () => ipcRenderer.invoke('force-update-perform'),
+    forceUpdateClose: () => ipcRenderer.invoke('force-update-close'),
+    forceUpdateGetVersion: () => ipcRenderer.invoke('force-update-get-version'),
+
+    onForceUpdateState: (callback) => ipcRenderer.on('force-update-state', (e, data) => callback(data))
 });
