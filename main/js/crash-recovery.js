@@ -26,13 +26,28 @@ let _mainWindow = null;
 let _crashHistory = [];
 
 /**
+ * الحصول على الإصدار الحالي بشكل آمن (يعمل داخل وخارج سياق Electron)
+ * @returns {string}
+ */
+function safeGetVersion() {
+  try {
+    if (typeof app !== 'undefined' && app && typeof app.getVersion === 'function') {
+      return app.getVersion();
+    }
+  } catch {}
+  return 'unknown';
+}
+
+/**
  * الحصول على دليل السجلات داخل userData
  * @returns {string}
  */
 function getLogDir() {
   if (_logDir) return _logDir;
   try {
-    const userDataDir = app.getPath('userData');
+    const userDataDir = typeof app !== 'undefined' && app && typeof app.getPath === 'function'
+      ? app.getPath('userData')
+      : os.homedir();
     _logDir = path.join(userDataDir, LOG_DIR_NAME);
     fs.mkdirSync(_logDir, { recursive: true });
   } catch (e) {
@@ -58,14 +73,14 @@ function writeCrashLog(crashData) {
       ...crashData,
       timestamp: new Date().toISOString(),
       processType: crashData.processType || 'unknown',
-      appVersion: app.getVersion ? app.getVersion() : 'unknown',
+      appVersion: safeGetVersion(),
       platform: process.platform,
-      electronVersion: process.versions.electron,
-      nodeVersion: process.versions.node,
-      chromeVersion: process.versions.chrome,
-      pid: process.pid,
-      uptime: process.uptime(),
-      memoryUsage: process.memoryUsage()
+      electronVersion: process.versions && process.versions.electron ? process.versions.electron : 'n/a',
+      nodeVersion: process.versions && process.versions.node ? process.versions.node : 'n/a',
+      chromeVersion: process.versions && process.versions.chrome ? process.versions.chrome : 'n/a',
+      pid: process.pid || 0,
+      uptime: typeof process.uptime === 'function' ? process.uptime() : 0,
+      memoryUsage: typeof process.memoryUsage === 'function' ? process.memoryUsage() : {}
     };
 
     fs.writeFileSync(filePath, JSON.stringify(entry, null, 2), 'utf8');
@@ -102,9 +117,9 @@ function writeCrashReport(latestCrash) {
       latestCrash,
       crashHistory: _crashHistory.slice(-10), // آخر 10 تعطلات للعرض السريع
       appInfo: {
-        version: app.getVersion ? app.getVersion() : 'unknown',
+        version: safeGetVersion(),
         platform: process.platform,
-        electronVersion: process.versions.electron
+        electronVersion: process.versions && process.versions.electron ? process.versions.electron : 'n/a'
       }
     };
 
