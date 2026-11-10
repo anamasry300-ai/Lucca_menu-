@@ -14,7 +14,7 @@ const os = require('os');
 const DEFAULT_THRESHOLDS = {
   memoryUsagePercent: 85, // نسبة استخدام الذاكرة المسموحة (%)
   cpuUsagePercent: 80,    // نسبة استخدام المعالج المسموحة (%)
-  memoryWarningMB: 500,   # تحذير إذا تجاوزت الذاكرة 500 ميجابايت
+  memoryWarningMB: 500,   // تحذير إذا تجاوزت الذاكرة 500 ميجابايت
   dbConnectTimeoutMs: 5000, // مهلة اتصال قاعدة البيانات (مللي ثانية)
   updateServerTimeoutMs: 10000 // مهلة اتصال خادم التحديث (مللي ثانية)
 };

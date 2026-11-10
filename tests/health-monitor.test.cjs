@@ -30,8 +30,10 @@ async function run() {
     assert(typeof healthMonitor.startMonitoring === 'function', 'دالة startMonitoring موجودة');
     assert(typeof healthMonitor.stopMonitoring === 'function', 'دالة stopMonitoring موجودة');
     assert(typeof healthMonitor.getState === 'function', 'دالة getState موجودة');
+    console.log('✅ اختبار 1 نجح: تحميل الوحدة');
   } catch (err) {
     results.push({ ok: false, message: `اختبار 1 فشل: ${err.message}` });
+    console.log(`❌ اختبار 1 فشل: ${err.message}`);
   }
 
   // اختبار 2: إحصائيات الذاكرة
@@ -42,8 +44,10 @@ async function run() {
     assert(typeof mem.totalMB === 'number', 'totalMB يجب أن يكون رقماً');
     assert(typeof mem.percent === 'number', 'percent يجب أن يكون رقماً');
     assert(mem.percent >= 0 && mem.percent <= 100, 'نسبة الذاكرة يجب أن تكون بين 0 و 100');
+    console.log('✅ اختبار 2 نجح: إحصائيات الذاكرة');
   } catch (err) {
     results.push({ ok: false, message: `اختبار 2 فشل: ${err.message}` });
+    console.log(`❌ اختبار 2 فشل: ${err.message}`);
   }
 
   // اختبار 3: استخدام المعالج
@@ -52,8 +56,10 @@ async function run() {
     const cpu = healthMonitor.getCPUUsage();
     assert(typeof cpu === 'number', 'استخدام المعالج يجب أن يكون رقماً');
     assert(cpu >= 0 && cpu <= 100, 'نسبة المعالج يجب أن تكون بين 0 و 100');
+    console.log('✅ اختبار 3 نجح: استخدام المعالج');
   } catch (err) {
     results.push({ ok: false, message: `اختبار 3 فشل: ${err.message}` });
+    console.log(`❌ اختبار 3 فشل: ${err.message}`);
   }
 
   // اختبار 4: تشغيل فحص الصحة مع دوال وهمية
@@ -64,10 +70,12 @@ async function run() {
       checkUpdate: async () => { return { status: 'connected', latencyMs: 50 }; }
     });
     assert(typeof result.stats === 'object', 'الإحصائيات يجب أن تكون كائناً');
-    assert(typeof result.warnings === 'array', 'التحذيرات يجب أن تكون مصفوفة');
+    assert(Array.isArray(result.warnings), 'التحذيرات يجب أن تكون مصفوفة');
     assert(typeof result.healthy === 'boolean', 'الحالة الصحية يجب أن تكونBoolean');
+    console.log('✅ اختبار 4 نجح: فحص الصحة');
   } catch (err) {
     results.push({ ok: false, message: `اختبار 4 فشل: ${err.message}` });
+    console.log(`❌ اختبار 4 فشل: ${err.message}`);
   }
 
   // اختبار 5: بدء وإيقاف المراقبة
@@ -81,8 +89,10 @@ async function run() {
     assert(healthMonitor.getState().monitoring === true, 'المراقبة يجب أن تكون مفعلة');
     healthMonitor.stopMonitoring();
     assert(healthMonitor.getState().monitoring === false, 'المراقبة يجب أن تكون معطلة بعد التوقف');
+    console.log('✅ اختبار 5 نجح: بدء وإيقاف المراقبة');
   } catch (err) {
     results.push({ ok: false, message: `اختبار 5 فشل: ${err.message}` });
+    console.log(`❌ اختبار 5 فشل: ${err.message}`);
   }
 
   // اختبار 6: تقييم الصحة مع تجاوز العتبة
@@ -96,12 +106,16 @@ async function run() {
     });
     assert(warnings.length > 0, 'يجب أن يكون هناك تحذير عندما تتجاوز الذاكرة 85%');
     assert(warnings.some(w => w.type === 'memory_high'), 'يجب أن يكون هناك تحذير ذاكرة عالية');
+    console.log('✅ اختبار 6 نجح: تقييم الصحة مع تجاوز العتبة');
   } catch (err) {
     results.push({ ok: false, message: `اختبار 6 فشل: ${err.message}` });
+    console.log(`❌ اختبار 6 فشل: ${err.message}`);
   }
 
   const okCount = results.filter(r => r.ok).length;
   const failCount = results.filter(r => !r.ok).length;
+
+  console.log(`\n📊 نتائج Health Monitor: نجح ${okCount}، فشل ${failCount} من أصل ${results.length}`);
 
   return {
     ok: failCount === 0,
