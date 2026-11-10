@@ -4,6 +4,10 @@ const fs = require('fs');
 
 let mainWindow;
 let adminWindow;
+let kitchenWindow;
+
+// ===== Force Update =====
+const forceUpdate = require('./updater-force');
 
 // ===== CONFIG =====
 const GITHUB_OWNER = 'anamasry300-ai';
@@ -19,7 +23,6 @@ function sendToRenderer(channel, payload) {
 }
 
 function sendUpdateState(payload) {
-    // payload = { state, currentVersion, targetVersion, error, percent? }
     sendToRenderer('update-state', payload);
     if (payload && payload.percent !== undefined) {
         sendToRenderer('update-progress', { percent: payload.percent });
@@ -50,7 +53,14 @@ function createWindow() {
         return { action: 'allow' };
     });
 
-    mainWindow.loadFile(path.join(__dirname, 'index.html'));
+    // ---- Force Update Check قبل تحميل واجهة التطبيق (Fail Closed) ----
+    forceUpdate.checkForceUpdate(mainWindow).then((result) => {
+        if (result.required) {
+            // نافذة التحديث الإجباري تغطي كل شيء، لا نحمل index.html
+            return;
+        }
+        mainWindow.loadFile(path.join(__dirname, 'index.html'));
+    });
 
     mainWindow.on('closed', () => { mainWindow = null; });
     mainWindow.on('page-title-updated', (e) => { e.preventDefault(); });
@@ -73,6 +83,17 @@ function createWindow() {
     ipcMain.handle('check-remote-version', async () => {
         const remote = await updateEngine.target;
         return remote ? { version: remote } : null;
+    });
+
+    // ---- Force Update IPC (لا تكرار) ----
+    ipcMain.handle('force-update-check', async () => {
+        return { active: forceUpdate.isForceUpdateActive(), config: forceUpdate.appConfigResult || null };
+    });
+    ipcMain.handle('force-update-perform', async () => {
+        return forceUpdate.performForceUpdate();
+    });
+    ipcMain.handle('force-update-get-version', () => {
+        return { version: LOCAL_VERSION };
     });
 
     const menuTemplate = [
@@ -109,7 +130,9 @@ function createWindow() {
         }
     ];
 
-    mainWindow.setMenu(Menu.buildFromTemplate(menuTemplate));
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setMenu(Menu.buildFromTemplate(menuTemplate));
+    }
 
     // Auto-check for updates on startup (check only; offline-safe, no false positives)
     setTimeout(() => updateEngine.check(), 15000);
@@ -122,7 +145,6 @@ app.whenReady().then(() => {
     updateEngine.init({ app, currentVersion: LOCAL_VERSION, send: sendUpdateState });
 
     ipcMain.on('open-admin', () => {
-        // نافذة واحدة قابلة لإعادة الاستخدام: إن كانت مفتوحة → التركيز عليها بدل فتح نافذة فارغة أخرى
         if (adminWindow && !adminWindow.isDestroyed()) {
             adminWindow.focus();
             return;

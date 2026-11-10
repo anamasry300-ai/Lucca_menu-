@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تحديث أمني إلزامي - Lucca POS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Tajawal', sans-serif;
+            background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            color: white;
+            overflow: hidden;
+        }
+        .card {
+            background: white;
+            color: #0F172A;
+            border-radius: 16px;
+            padding: 48px 40px;
+            width: 100%;
+            max-width: 520px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        .icon {
+            font-size: 4rem;
+            margin-bottom: 24px;
+            display: block;
+        }
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 800;
+            margin-bottom: 12px;
+            color: #1E3A8A;
+        }
+        .subtitle {
+            font-size: 1rem;
+            color: #475569;
+            margin-bottom: 32px;
+            line-height: 1.6;
+        }
+        .version-info {
+            background: #F1F5F9;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 32px;
+            text-align: right;
+        }
+        .version-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+        .version-label { color: #64748B; }
+        .version-value { font-weight: 700; color: #0F172A; }
+        .version-current { color: #DC2626; }
+        .version-required { color: #10B981; }
+        .message {
+            font-size: 1rem;
+            color: #0F172A;
+            margin-bottom: 32px;
+            line-height: 1.6;
+            font-weight: 500;
+        }
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background: #E2E8F0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 24px;
+            display: none;
+        }
+        .progress-bar {
+            height: 100%;
+            background: #2563EB;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .btn-update {
+            width: 100%;
+            padding: 16px;
+            background: #2563EB;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 700;
+            font-family: 'Tajawal', sans-serif;
+            cursor: not-allowed;
+            opacity: 0.6;
+            transition: all 0.2s;
+        }
+        .btn-update.ready {
+            cursor: pointer;
+            opacity: 1;
+        }
+        .btn-update.ready:hover {
+            background: #1E40AF;
+            transform: translateY(-1px);
+        }
+        .btn-update:disabled {
+            cursor: not-allowed;
+        }
+        .status-text {
+            font-size: 0.85rem;
+            color: #64748B;
+            margin-bottom: 16px;
+            min-height: 20px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #E2E8F0;
+            border-top-color: #2563EB;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .blocked-notice {
+            margin-top: 24px;
+            padding: 16px;
+            background: #FEF2F2;
+            border-radius: 8px;
+            color: #DC2626;
+            font-size: 0.85rem;
+            display: block;
+        }
+        .fail-closed-notice {
+            margin-top: 24px;
+            padding: 16px;
+            background: #FEF3C7;
+            border-radius: 8px;
+            color: #92400E;
+            font-size: 0.85rem;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <span class="icon">🔒</span>
+        <h1>تحديث أمني إلزامي</h1>
+        <div class="message" id="updateMessage">يوجد تحديث أمني إلزامي يجب تثبيته للمتابعة.</div>
+
+        <div class="version-info">
+            <div class="version-row">
+                <span class="version-label">الإصدار الحالي:</span>
+                <span class="version-value version-current" id="currentVersion">—</span>
+            </div>
+            <div class="version-row">
+                <span class="version-label">الإصدار المطلوب:</span>
+                <span class="version-value version-required" id="requiredVersion">—</span>
+            </div>
+            <div class="version-row">
+                <span class="version-label">آخر إصدار:</span>
+                <span class="version-value" id="latestVersion">—</span>
+            </div>
+        </div>
+
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="status-text" id="statusText">جاهز للتحديث</div>
+
+        <button class="btn-update" id="btnUpdate" disabled>
+            <span id="btnText">تحديث الآن</span>
+            <span id="btnSpinner" style="display:none;"></span>
+        </button>
+
+        <div class="blocked-notice" id="blockedNotice">
+            لا يمكن استخدام التطبيق دون تثبيت التحديث الأمني. لا يمكن إغلاق هذه النافذة.
+        </div>
+
+        <div class="fail-closed-notice" id="failClosedNotice">
+            تعذر التحقق من إعدادات التحديث من الخادم. يرجى التحقق من اتصال الإنترنت وإعادة المحاولة.
+        </div>
+    </div>
+
+    <script>
+        // استخراج البيانات من الـ hash
+        let hashData = {};
+        try {
+            hashData = JSON.parse(decodeURIComponent(window.location.hash.slice(1)));
+        } catch (e) {
+            hashData = {};
+        }
+
+        document.getElementById('currentVersion').textContent = hashData.currentVersion || '—';
+        document.getElementById('requiredVersion').textContent = hashData.minRequiredVersion || '—';
+        document.getElementById('latestVersion').textContent = hashData.latestVersion || '—';
+        document.getElementById('updateMessage').textContent = hashData.message || 'يوجد تحديث أمني إلزامي';
+
+        // منع إغلاق الصفحة أو إعادة التحميل
+        window.onbeforeunload = () => {
+            return 'لا يمكن إغلاق نافذة التحديث الإجباري.';
+        };
+
+        // منع Ctrl+W, Alt+F4, وغيرها من اختصارات الإغلاق
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'F4' && e.altKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+            if (e.key === 'w' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        });
+
+        const electronAPI = window.electronAPI;
+        const btnUpdate = document.getElementById('btnUpdate');
+        const btnText = document.getElementById('btnText');
+        const btnSpinner = document.getElementById('btnSpinner');
+        const statusText = document.getElementById('statusText');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const blockedNotice = document.getElementById('blockedNotice');
+        const failClosedNotice = document.getElementById('failClosedNotice');
+
+        // إظهار إشعار Fail Closed إذا لزم الأمر
+        if (hashData.failClosed === true || hashData.error) {
+            failClosedNotice.style.display = 'block';
+        }
+
+        // تحديث شريط التقدم
+        electronAPI.onUpdateProgress((data) => {
+            if (data && data.percent !== undefined) {
+                progressContainer.style.display = 'block';
+                progressBar.style.width = data.percent + '%';
+                statusText.textContent = 'جاري التحميل: ' + data.percent + '%';
+                btnText.textContent = 'جاري التحميل...';
+                btnUpdate.disabled = true;
+                btnSpinner.style.display = 'inline-block';
+            }
+        });
+
+        // مراقبة حالة التحديث
+        electronAPI.onUpdateState((data) => {
+            if (!data) return;
+            if (data.state === 'DOWNLOADED' || data.state === 'VERIFIED') {
+                statusText.textContent = 'اكتمل التحميل، جاري التثبيت وإعادة التشغيل...';
+                btnText.textContent = 'جاري التثبيت...';
+                btnUpdate.disabled = true;
+                btnSpinner.style.display = 'inline-block';
+                blockedNotice.style.display = 'block';
+            }
+            if (data.state === 'FAILED') {
+                statusText.textContent = 'فشل التحديث: ' + (data.error || 'خطأ غير معروف');
+                btnText.textContent = 'محاولة مرة أخرى';
+                btnUpdate.disabled = false;
+                btnSpinner.style.display = 'none';
+                btnUpdate.className = 'btn-update ready';
+            }
+        });
+
+        // حدث الضغط على زر التحديث
+        btnUpdate.addEventListener('click', async () => {
+            btnUpdate.disabled = true;
+            btnSpinner.style.display = 'inline-block';
+            btnText.textContent = 'جاري التحميل...';
+            statusText.textContent = 'بدء التحديث...';
+            progressContainer.style.display = 'block';
+
+            try {
+                const result = await electronAPI.forceUpdatePerform();
+                if (!result.ok) {
+                    statusText.textContent = 'فشل التحديث: ' + (result.error || 'خطأ غير معروف');
+                    btnText.textContent = 'محاولة مرة أخرى';
+                    btnUpdate.disabled = false;
+                    btnSpinner.style.display = 'none';
+                    btnUpdate.className = 'btn-update ready';
+                }
+            } catch (e) {
+                statusText.textContent = 'خطأ: ' + e.message;
+                btnText.textContent = 'محاولة مرة أخرى';
+                btnUpdate.disabled = false;
+                btnSpinner.style.display = 'none';
+                btnUpdate.className = 'btn-update ready';
+            }
+        });
+
+        // تمكين الزر بعد التحميل الأولي
+        setTimeout(() => {
+            btnUpdate.disabled = false;
+            btnUpdate.className = 'btn-update ready';
+            btnText.textContent = 'تحديث الآن';
+        }, 1000);
+    </script>
+</body>
+</html>
