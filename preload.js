@@ -49,5 +49,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
     forceUpdateClose: () => ipcRenderer.invoke('force-update-close'),
     forceUpdateGetVersion: () => ipcRenderer.invoke('force-update-get-version'),
 
-    onForceUpdateState: (callback) => ipcRenderer.on('force-update-state', (e, data) => callback(data))
+    onForceUpdateState: (callback) => ipcRenderer.on('force-update-state', (e, data) => callback(data)),
+
+    // ===== Phase 1: Update Integrity Channels =====
+    updateIntegrityGetState: () => ipcRenderer.invoke('update-integrity-get-state'),
+    updateIntegrityValidatePackage: (updateInfo, filePath) =>
+        ipcRenderer.invoke('update-integrity-validate-package', { updateInfo, filePath }),
+    updateIntegrityDetectCorrupted: (filePath) =>
+        ipcRenderer.invoke('update-integrity-detect-corrupted', filePath),
+
+    // ===== Phase 2: Crash Recovery Channels =====
+    crashRecoveryGetStats: () => ipcRenderer.invoke('crash-recovery-get-stats'),
+    crashRecoveryGetLatestReport: () => ipcRenderer.invoke('crash-recovery-get-latest-report'),
+    crashRecoveryRecordFromRenderer: (crashData) =>
+        ipcRenderer.invoke('crash-recovery-record-from-renderer', crashData),
+
+    // ===== Phase 4: Health Monitor Channels =====
+    healthMonitorGetState: () => ipcRenderer.invoke('health-monitor-get-state'),
+    healthMonitorRunCheck: () => ipcRenderer.invoke('health-monitor-run-check'),
+    onHealthWarning: (callback) => ipcRenderer.on('health-warning', (e, data) => callback(data)),
+
+    // Compat: legacy channels so existing/renderer code does not crash
+    onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (e, data) => callback(data)),
+    onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (e, data) => callback(data))
 });

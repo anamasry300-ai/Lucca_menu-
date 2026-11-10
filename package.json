@@ -1,7 +1,7 @@
 {
   "name": "lucca-caffe-pos",
-  "version": "1.3.6",
-  "description": "Lucca Caffè - نظام نقاط البيع (POS) للمقهى",
+  "version": "1.4.0",
+  "description": "Lucca Caffè - نظام نقاط البيع (POS) للمقهى - Enterprise Stability Release",
   "main": "main.js",
   "author": "Lucca Caffè",
   "license": "MIT",
@@ -10,7 +10,11 @@
     "icon": "node scripts/generate-icon.js",
     "build": "electron-builder --win",
     "build:installer": "electron-builder --win",
-    "publish": "electron-builder --win --publish always"
+    "publish": "electron-builder --win --publish always",
+    "test": "node tests/run-all.cjs",
+    "test:force-update": "node tests/force-update.test.cjs",
+    "test:crash-recovery": "node tests/crash-recovery.test.cjs",
+    "test:health-monitor": "node tests/health-monitor.test.cjs"
   },
   "build": {
     "appId": "com.lucca.caffe.pos",
@@ -21,12 +25,16 @@
     "files": [
       "main.js",
       "preload.js",
+      "main/js/update-integrity.js",
+      "main/js/crash-recovery.js",
+      "main/js/health-monitor.js",
       "update-engine.js",
       "updater-force.js",
       "supabase-config.js",
       "index.html",
       "kitchen.html",
       "renderer/update-required.html",
+      "renderer/system-health.html",
       "styles.css",
       "admin/**/*",
       "ai-pos-engine.js",
