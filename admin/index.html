@@ -7,6 +7,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
     <script src="database.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- إلزامي قبل supabase-db.js: بدون cloud-config كان مفتاح anon فارغاً فتفشل كل طلبات اللوحة السحابية -->
+    <script src="../cloud-config.js"></script>
+    <script src="../cloud-live.js"></script>
     <script src="../supabase-db.js"></script>
     <script src="../knowledge/data.js"></script>
     <script src="../knowledge/importer.js"></script>
@@ -5493,5 +5496,44 @@ async function processAdminBot(text){
         </div>
     </div>
 </div>
+<script>
+// تحديث حي للوحة التحكم: عند تغيّر البيانات من جهاز آخر عبر Supabase Realtime،
+// أعد تحميل الصفحة المعروضة فقط إن كانت تعرض الجدول المتأثر. مؤجَّج (debounce)
+// ولا يقاطع نموذجاً مفتوحاً (modal-overlay.active) حتى لا يضيع إدخال المستخدم.
+(function () {
+  if (typeof window === 'undefined') return;
+  var TABLE_TO_PAGES = {
+    orders: ['dashboard', 'orders-page'],
+    order_status_history: ['dashboard', 'orders-page'],
+    payments: ['dashboard', 'orders-page'],
+    refunds: ['dashboard', 'orders-page'],
+    tables_store: ['dashboard', 'tables-page'],
+    products: ['products-page', 'categories-page', 'dashboard'],
+    categories: ['categories-page', 'products-page', 'dashboard'],
+    inventory: ['inventory-page'],
+    stock_movements: ['inventory-page'],
+    expenses: ['expenses-page', 'dashboard'],
+    employees: ['employees-page'],
+    attendance: ['attendance-page'],
+    shifts: ['shifts-page']
+  };
+  var timer = null;
+  window.addEventListener('lucca:cloud-change', function (event) {
+    var table = event.detail && event.detail.table;
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      try {
+        if (document.querySelector('.modal-overlay.active')) return;
+        var active = document.querySelector('.page.active');
+        if (!active || !active.id || active.id.indexOf('page-') !== 0) return;
+        var page = active.id.slice(5);
+        var pages = TABLE_TO_PAGES[table] || [];
+        if (pages.indexOf(page) === -1) return;
+        if (typeof PAGE_LOADERS !== 'undefined' && PAGE_LOADERS[page]) PAGE_LOADERS[page]();
+      } catch (e) {}
+    }, 250);
+  });
+})();
+</script>
 </body>
 </html>
