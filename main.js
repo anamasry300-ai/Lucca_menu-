@@ -14,11 +14,19 @@ const healthMonitor = require('./main/js/health-monitor');
 // ===== Force Update (P0) =====
 const forceUpdate = require('./updater-force');
 
+// ===== Secure session bridge (session:* + api:request IPC) =====
+const sessionBridge = require('./main/js/session-bridge');
+
 // ===== CONFIG =====
 const GITHUB_OWNER = 'anamasry300-ai';
 const GITHUB_REPO = 'Lucca_menu-';
 const GITHUB_BRANCH = 'main';
 const LOCAL_VERSION = app.getVersion();
+
+// ===== WINDOW REFS (مُعرَّفة صراحة — كانت تُسنَد ضمنياً كمتغيرات عامة) =====
+let mainWindow = null;
+let adminWindow = null;
+let kitchenWindow = null;
 
 // تهيئة وحدة integrity مع الإصدار الحالي
 updateIntegrity.init({
@@ -71,11 +79,11 @@ function createWindow() {
     });
 
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        // اسمح فقط بفتح روابط http/https في المتصفح الخارجي؛ امنع كل ما عداه (file:، javascript:…)
         if (url.startsWith('http:') || url.startsWith('https:')) {
             shell.openExternal(url);
-            return { action: 'deny' };
         }
-        return { action: 'allow' };
+        return { action: 'deny' };
     });
 
     // ---- Phase 1 & P0: Force Update Check قبل تحميل واجهة التطبيق (Fail Closed) ----
@@ -179,7 +187,7 @@ function createWindow() {
                 { label: 'تصغير', accelerator: 'CmdOrCtrl+-', click: () => mainWindow.webContents.setZoomLevel(mainWindow.webContents.getZoomLevel() - 0.5) },
                 { label: 'إعادة حجم الخط', accelerator: 'CmdOrCtrl+0', click: () => mainWindow.webContents.setZoomLevel(0) },
                 { type: 'separator' },
-                { label: 'مطور', accelerator: 'F12', click: () => mainWindow.webContents.toggleDevTools() }
+                ...(app.isPackaged ? [] : [{ label: 'مطور', accelerator: 'F12', click: () => mainWindow.webContents.toggleDevTools() }])
             ]
         },
         {
@@ -231,6 +239,10 @@ function createWindow() {
 app.whenReady().then(() => {
     createWindow();
 
+    // Secure session bridge: session:login/get/logout/refresh + api:request
+    // (كانت القنوات معرَّضة في preload بلا معالجات — كل استدعاء كان يفشل صامتاً)
+    sessionBridge.init({ ipcMain, app });
+
     // Phase 2: تهيئة خدمة استعادة التعطل مع النافذة الرئيسية
     crashRecovery.init({ mainWindow, autoReopen: true });
 
@@ -265,18 +277,49 @@ app.whenReady().then(() => {
             }
         });
         adminWindow.once('ready-to-show', () => {
-            if (adminWindow && !adminWindow.isDestroyed() && !adminWindow.showing()) adminWindow.show();
+            // Electron لا يملك showing() — كان الخطأ يمنع ظهور لوحة التحكم نهائياً
+            if (adminWindow && !adminWindow.isDestroyed() && !adminWindow.isVisible()) adminWindow.show();
         });
         adminWindow.on('closed', () => { adminWindow = null; });
         adminWindow.webContents.setWindowOpenHandler(({ url }) => {
             if (url.startsWith('http:') || url.startsWith('https:')) {
                 shell.openExternal(url);
-                return { action: 'deny' };
             }
-            return { action: 'allow' };
+            return { action: 'deny' };
         });
         adminWindow.loadFile(path.join(__dirname, 'admin', 'index.html'));
         adminWindow.on('page-title-updated', (e) => e.preventDefault());
+    });
+
+    ipcMain.on('open-kitchen', () => {
+        if (kitchenWindow && !kitchenWindow.isDestroyed()) {
+            kitchenWindow.focus();
+            return;
+        }
+        kitchenWindow = new BrowserWindow({
+            width: 1200,
+            height: 800,
+            show: false,
+            title: 'Lucca Caffè - شاشة المطبخ',
+            icon: path.join(__dirname, 'icon.ico'),
+            webPreferences: {
+                preload: path.join(__dirname, 'preload.js'),
+                nodeIntegration: false,
+                contextIsolation: true
+            }
+        });
+        kitchenWindow.once('ready-to-show', () => {
+            if (kitchenWindow && !kitchenWindow.isDestroyed() && !kitchenWindow.isVisible()) kitchenWindow.show();
+        });
+        kitchenWindow.on('closed', () => { kitchenWindow = null; });
+        kitchenWindow.webContents.setWindowOpenHandler(({ url }) => {
+            if (url.startsWith('http:') || url.startsWith('https:')) {
+                shell.openExternal(url);
+            }
+            return { action: 'deny' };
+        });
+        kitchenWindow.loadFile(path.join(__dirname, 'kitchen.html'));
+        kitchenWindow.on('page-title-updated', (e) => e.preventDefault());
     });
 
     ipcMain.on('open-external', (event, url) => {
