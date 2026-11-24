@@ -28,6 +28,7 @@
       "main/js/update-integrity.js",
       "main/js/crash-recovery.js",
       "main/js/health-monitor.js",
+      "main/js/session-bridge.js",
       "update-engine.js",
       "updater-force.js",
       "supabase-config.js",
