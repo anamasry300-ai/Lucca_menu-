@@ -173,8 +173,18 @@ app.use(securityHeaders);
 app.use(httpLoggerMiddleware);
 
 // CORS configuration
+// عندما لا تُضبط ALLOWED_ORIGINS: اسمح فقط للطلبات بلا أصل متصفح
+// (Electron عبر file:// يرسل Origin: null أو بلا Origin، وأدوات CLI بلا Origin)
+// وارفض أصول المتصفحات الأخرى بدل فتح الـ API لأي موقع.
 const corsOptions: cors.CorsOptions = {
-  origin: ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS : true,
+  origin: (origin, callback) => {
+    if (ALLOWED_ORIGINS.length > 0) {
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      return callback(null, false);
+    }
+    if (!origin || origin === 'null') return callback(null, true);
+    return callback(null, false);
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'x-api-key', 'Authorization', 'x-session-token'],
   maxAge: 86400,

@@ -74,12 +74,11 @@ export function createSession(user: { id: number; username: string; role: string
   const token = crypto.randomBytes(32).toString('hex');
   const nowMs = now();
   const expiresAt = nowMs + SESSION_TTL_MS;
-  try {
-    getDb().run(
-      'INSERT OR REPLACE INTO sessions (token, userId, username, role, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?)',
-      [token, user.id, user.username, user.role, nowMs, expiresAt]
-    );
-  } catch { /* جدول الجلسات غير جاهز — لن نكسر الدخول */ }
+  // فشل التخزين يجب أن يفشل الدخول: سابقاً كان يُعاد رمز غير محفوظ فيُرفض أول طلب بعده بصمت.
+  getDb().run(
+    'INSERT OR REPLACE INTO sessions (token, userId, username, role, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?)',
+    [token, user.id, user.username, user.role, nowMs, expiresAt]
+  );
   return token;
 }
 
@@ -218,6 +217,17 @@ export function getDeviceKeys(): string[] {
   return keys;
 }
 
+// مقارنة مفاتيح الأجهزة بزمن ثابت — includes() العادية تسرّب طول التطابق عبر التوقيت.
+function matchesDeviceKey(candidate: string, keys: string[]): boolean {
+  if (!candidate) return false;
+  const a = Buffer.from(String(candidate));
+  for (const k of keys) {
+    const b = Buffer.from(String(k));
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true;
+  }
+  return false;
+}
+
 export function resolveIdentity(req: AuthRequest): Identity | null {
   // 1) جلسة مستخدم (أولوية أعلى)
   const bearer = (req.headers['authorization'] as string) || '';
@@ -230,7 +240,8 @@ export function resolveIdentity(req: AuthRequest): Identity | null {
   // 2) مفتاح جهاز (device-scoped) — DEVICE_API_KEY أو legacy API_KEY
   const key = (req.headers['x-api-key'] as string) || '';
   const deviceKeys = getDeviceKeys();
-  if ((key && deviceKeys.includes(key)) || (bearer && deviceKeys.includes(bearer))) {
+  const bearerToken = bearer.startsWith('Bearer ') ? bearer.slice(7).trim() : bearer;
+  if (matchesDeviceKey(key, deviceKeys) || matchesDeviceKey(bearerToken, deviceKeys)) {
     return { kind: 'device', role: 'device' };
   }
   return null;
